@@ -3,7 +3,7 @@
 > A tiny, fast coding-agent harness in Go. "Hermes-lite, developer-first."
 
 **Status:** picked (weekend project #26, absorbs #7 Rapid / #22 worktree farm / #12 cron cockpit)
-**Repo:** https://github.com/jc-home-sweet-home/jas
+**Repo:** https://github.com/jasonli0226/jas
 **Language:** Go (rationale below)
 
 ---
