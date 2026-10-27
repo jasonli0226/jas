@@ -2,7 +2,7 @@
 
 > A tiny, fast coding-agent harness in Go. Parallel tasks, live status, pluggable tools.
 
-**Status:** 🚧 v1 in progress — see [DESIGN.md](DESIGN.md)
+**Status:** 🚧 v1 in progress — see [docs/design.md](docs/design.md)
 
 ## The pitch
 
@@ -30,7 +30,7 @@ jas tasks                                     # status board
 
 ## Design
 
-Full design in [DESIGN.md](DESIGN.md). Core bets:
+Full design in [docs/design.md](docs/design.md). Core bets:
 
 1. Small core, pluggable everything — 6 interfaces total
 2. goroutines + errgroup for parallel tools & tasks
