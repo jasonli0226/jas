@@ -148,7 +148,7 @@ func TestOpenAI_InvalidToolInputDoesNotBreakEncoding(t *testing.T) {
 	assert.Eq(t, fn["arguments"], any(`{"path":`))
 }
 
-var openAIFixtures = []string{"split_args.sse", "whole_call_one_chunk.sse", "two_parallel_calls.sse", "text_only.sse"}
+var openAIFixtures = []string{"split_args.sse", "whole_call_one_chunk.sse", "two_parallel_calls.sse", "text_only.sse", "openrouter_glm.sse"}
 
 func TestOpenAI_StreamsFixture(t *testing.T) {
 	for _, name := range openAIFixtures {
@@ -176,6 +176,35 @@ func TestOpenAI_StreamsFixture(t *testing.T) {
 	_, calls, _ := accumulate(evs)
 	assert.Eq(t, calls[0].Name, "read")
 	assert.JSONEq(t, string(calls[0].Input), `{"path":"main.go"}`)
+}
+
+func TestOpenAI_RecordedGLMFixture(t *testing.T) {
+	srv := httptest.NewServer(sseHandler(readFixture(t, "openrouter_glm.sse")))
+	defer srv.Close()
+	evs, err := streamAll(t, newOpenAI(srv.URL))
+	assert.NoErr(t, err)
+	_, calls, err := accumulate(evs)
+	assert.NoErr(t, err)
+	if len(calls) < 1 {
+		t.Fatal("expected at least one tool call")
+	}
+	for _, c := range calls {
+		if c.Name == "" {
+			t.Fatal("tool call without a name")
+		}
+		if !json.Valid(c.Input) {
+			t.Fatalf("invalid JSON args: %q", c.Input)
+		}
+	}
+	var usage *Usage
+	for _, e := range evs {
+		if e.Usage != nil {
+			usage = e.Usage
+		}
+	}
+	if usage == nil || usage.PromptTokens == 0 {
+		t.Fatalf("usage not parsed: %+v", usage)
+	}
 }
 
 func TestOpenAI_WholeCallInOneChunk(t *testing.T) {

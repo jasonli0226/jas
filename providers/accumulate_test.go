@@ -97,6 +97,7 @@ func TestAccumulator_EmptyArgsBecomeEmptyObject(t *testing.T) {
 
 var fuzzFixtures = []string{
 	"split_args.sse", "two_parallel_calls.sse", "text_only.sse", "whole_call_one_chunk.sse",
+	"openrouter_glm.sse",
 }
 
 // rechunk joins each index's arg fragments and re-splits them at the given
