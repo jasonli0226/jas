@@ -1,0 +1,96 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"sort"
+	"time"
+
+	"github.com/jasonli0226/jas/providers"
+)
+
+// Kind says whether a tool may change state; it decides batching.
+type Kind int
+
+const (
+	ReadOnly Kind = iota
+	Mutating
+)
+
+// Result is a tool's output. Errors are results, never Go errors out of the loop.
+type Result struct {
+	Output  string
+	IsError bool
+}
+
+// ExecPolicy is the per-run tool environment. It travels explicitly because
+// farm tasks share one process (no os.Chdir).
+type ExecPolicy struct {
+	Root         string
+	MaxOutput    int
+	Env          []string
+	Deny         []string
+	RedactSkip   []string // config redact_skip_paths (Task 11)
+	ShellTimeout time.Duration
+}
+
+// Tool is one capability offered to the model.
+type Tool interface {
+	Name() string
+	Description() string
+	Schema() json.RawMessage
+	Kind() Kind
+	// Call runs the tool. A returned error is turned into an error result.
+	Call(ctx context.Context, p ExecPolicy, args json.RawMessage) (Result, error)
+}
+
+// Registry is an immutable set of tools keyed by name.
+type Registry struct {
+	tools map[string]Tool
+}
+
+// NewRegistry builds a registry; a later tool replaces an earlier one of the same name.
+func NewRegistry(tools ...Tool) *Registry {
+	m := make(map[string]Tool, len(tools))
+	for _, t := range tools {
+		m[t.Name()] = t
+	}
+	return &Registry{tools: m}
+}
+
+// Get looks a tool up by name.
+func (r *Registry) Get(name string) (Tool, bool) {
+	t, ok := r.tools[name]
+	return t, ok
+}
+
+// Specs returns tool specs sorted by name so the prompt prefix is stable.
+func (r *Registry) Specs() []providers.ToolSpec {
+	specs := make([]providers.ToolSpec, 0, len(r.tools))
+	for _, t := range r.tools {
+		specs = append(specs, providers.ToolSpec{Name: t.Name(), Description: t.Description(), Schema: t.Schema()})
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	return specs
+}
+
+// Decision is a Gate's verdict on a mutating call.
+type Decision string
+
+const (
+	Granted     Decision = "granted"
+	Denied      Decision = "denied"
+	Unavailable Decision = "unavailable" // approval needed but no way to ask
+)
+
+// Gate decides whether a mutating call may run.
+type Gate interface {
+	Allow(ctx context.Context, t Tool, args json.RawMessage) (Decision, error)
+}
+
+// AllowAll grants everything (slice 1).
+type AllowAll struct{}
+
+func (AllowAll) Allow(context.Context, Tool, json.RawMessage) (Decision, error) {
+	return Granted, nil
+}
