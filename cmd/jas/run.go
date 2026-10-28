@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/tools"
@@ -22,7 +24,6 @@ const (
 	sessionsDir        = "sessions"
 	eventsFile         = "events.jsonl"
 	sseIdleTimeout     = 60 * time.Second
-	approveNever       = "never"
 	defaultMaxTurnsEnv = core.DefaultMaxTurns
 )
 
@@ -31,6 +32,7 @@ type runOpts struct {
 	model, baseURL string
 	apiKey, prompt string
 	maxTurns       int
+	approve        core.Level
 }
 
 func runCmd(ctx context.Context, args []string) error {
@@ -63,17 +65,20 @@ func runCmd(ctx context.Context, args []string) error {
 	log = core.NewUILog(log, ui)
 
 	exec := &core.Executor{
-		Reg:    core.NewRegistry(tools.ReadOnly()...),
+		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
 		Policy: core.ExecPolicy{Root: root},
-		Gate:   core.AllowAll{},
-		Log:    log,
+		Gate: &core.Approver{
+			Level: o.approve, In: os.Stdin, Out: os.Stderr,
+			Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
+		},
+		Log: log,
 	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: &providers.OpenAI{BaseURL: o.baseURL, APIKey: o.apiKey, IdleTimeout: sseIdleTimeout},
 		Model:    o.model, Prompt: o.prompt, System: core.BuildSystem(core.BasePrompt, ""),
 		Exec: exec, Log: log, UI: ui, MaxTurns: o.maxTurns,
 		SessionMeta: map[string]any{
-			"base_url": o.baseURL, "approve": approveNever, "root": root, "context_files": []string{},
+			"base_url": o.baseURL, "approve": o.approve.String(), "root": root, "context_files": []string{},
 		},
 	})
 	if err == nil && !o.json {
@@ -91,6 +96,7 @@ func parseRun(args []string, getenv func(string) string) (runOpts, error) {
 	fs.BoolVar(&o.json, "json", false, "emit the event stream as JSONL on stdout")
 	fs.StringVar(&o.model, "model", getenv("JAS_MODEL"), "model name (JAS_MODEL)")
 	fs.StringVar(&o.baseURL, "base-url", getenv("JAS_BASE_URL"), "provider base URL (JAS_BASE_URL)")
+	approve := fs.String("approve", getenv("JAS_APPROVE"), "approval level: never|shell|mutating (JAS_APPROVE)")
 	if err := fs.Parse(args); err != nil {
 		return o, usageErr("%v", err)
 	}
@@ -98,6 +104,13 @@ func parseRun(args []string, getenv func(string) string) (runOpts, error) {
 		return o, usageErr(`expected exactly one task argument: jas run [flags] "task"`)
 	}
 	o.prompt = fs.Arg(0)
+	if *approve != "" {
+		lvl, err := core.ParseLevel(*approve)
+		if err != nil {
+			return o, usageErr("%v", err)
+		}
+		o.approve = lvl
+	}
 	o.apiKey = getenv("JAS_API_KEY")
 	if o.model == "" {
 		return o, usageErr("missing model: set JAS_MODEL or pass --model")

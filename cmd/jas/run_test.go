@@ -98,3 +98,31 @@ func TestCLI_Version(t *testing.T) {
 	assert.Eq(t, code, 0)
 	assert.Eq(t, strings.TrimSpace(out), "jas dev")
 }
+
+func TestCLI_ApproveNoTTYExits5(t *testing.T) {
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Calls: []fake.Call{{Name: "shell", Args: `{"command":"echo hi"}`}}}})
+	out, errOut, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=k"}, "run", "--json", "--approve=shell", "task")
+	assert.Eq(t, code, 5)
+	var sawUnavailable, startedApprove bool
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatalf("bad line %q (stderr %q)", l, errOut)
+		}
+		if m["type"] == "approval" && m["decision"] == "unavailable" {
+			sawUnavailable = true
+		}
+		if m["type"] == "session_started" && m["approve"] == "shell" {
+			startedApprove = true
+		}
+	}
+	if !sawUnavailable || !startedApprove {
+		t.Fatalf("unavailable=%v approve-in-session_started=%v\n%s", sawUnavailable, startedApprove, out)
+	}
+}
+
+func TestCLI_ApproveInvalidIsUsageError(t *testing.T) {
+	_, errOut, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=http://127.0.0.1:1", "JAS_API_KEY=k", "JAS_APPROVE=bogus"}, "run", "task")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "never|shell|mutating")
+}
