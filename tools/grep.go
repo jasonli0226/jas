@@ -62,6 +62,9 @@ func (Grep) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 	if err != nil {
 		return errResult("%v", err)
 	}
+	if _, err := os.Stat(start); err != nil {
+		return errResult("grep %s: %v", a.Path, err)
+	}
 	root, err := filepath.EvalSymlinks(p.Root)
 	if err != nil {
 		return errResult("project root: %v", err)

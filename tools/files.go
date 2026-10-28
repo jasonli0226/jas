@@ -49,6 +49,13 @@ func (Read) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (co
 	if err != nil {
 		return errResult("%v", err)
 	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return errResult("read %s: %v", a.Path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return errResult("read %s: not a regular file", a.Path)
+	}
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return errResult("read %s: %v", a.Path, err)

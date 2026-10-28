@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,6 +39,9 @@ func FindRoot(cwd string) string {
 // Root. Relative paths are joined with Root. For a path that does not exist
 // yet, the nearest existing ancestor is resolved and the rest re-appended.
 func (p ExecPolicy) Resolve(path string) (string, error) {
+	if p.Root == "" {
+		return "", errors.New("project root not set")
+	}
 	root, err := filepath.EvalSymlinks(p.Root)
 	if err != nil {
 		return "", fmt.Errorf("project root %s: %w", p.Root, err)
@@ -77,6 +81,9 @@ func evalExisting(path string) (string, error) {
 		}
 		if !os.IsNotExist(err) {
 			return "", err
+		}
+		if _, lerr := os.Lstat(cur); lerr == nil {
+			return "", fmt.Errorf("path is a dangling symlink: %s", cur)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
