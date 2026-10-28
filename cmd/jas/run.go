@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -29,6 +30,7 @@ const (
 
 type runArgs struct {
 	json   bool
+	trust  bool // --trust-project: load the project context file without asking
 	prompt string
 	flags  map[string]string // setting key -> value, only flags that were passed
 }
@@ -87,12 +89,18 @@ func runCmd(ctx context.Context, args []string) error {
 	defer log.Close()
 	log = core.NewUILog(log, core.NewRedactingUI(ui, red.Redact))
 
+	stdin := bufio.NewReader(os.Stdin)
+	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
+	system, ctxFiles, err := loadProjectContext(ctx, root, home, interactive, ra.trust, stdin, os.Stderr, red.Redact)
+	if err != nil {
+		return err
+	}
+
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
 		Policy: policy,
 		Gate: &core.Approver{
-			Level: level, In: os.Stdin, Out: os.Stderr,
-			Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
+			Level: level, In: stdin, Out: os.Stderr, Interactive: interactive,
 		},
 		Log: log, Filter: red.Filter,
 	}
@@ -102,11 +110,11 @@ func runCmd(ctx context.Context, args []string) error {
 	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
-		Model:    cfg.Model, Prompt: ra.prompt, System: core.BuildSystem(core.BasePrompt, ""),
+		Model:    cfg.Model, Prompt: ra.prompt, System: system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: cfg.MaxTurns,
 		Budget: &core.Budget{Window: window, ElideAt: cfg.ElideAt, Keep: cfg.KeepToolResults},
 		SessionMeta: map[string]any{
-			"base_url": cfg.BaseURL, "approve": level.String(), "root": root, "context_files": []string{},
+			"base_url": cfg.BaseURL, "approve": level.String(), "root": root, "context_files": ctxFiles,
 			"context_window": window, "window_known": known,
 		},
 	})
@@ -133,6 +141,7 @@ func parseRun(args []string) (runArgs, error) {
 	fs.SetOutput(io.Discard)
 	var ra runArgs
 	fs.BoolVar(&ra.json, "json", false, "emit the event stream as JSONL on stdout")
+	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
@@ -147,7 +156,7 @@ func parseRun(args []string) (runArgs, error) {
 	ra.prompt = fs.Arg(0)
 	ra.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "json" {
+		if f.Name != "json" && f.Name != "trust-project" {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})

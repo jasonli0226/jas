@@ -119,12 +119,16 @@ func configInit(path, home string, file settings.File) error {
 		}
 	}
 	if provider != settings.ProviderOllama {
-		key, err := readSecret(in, "API key (input hidden; empty to skip, then use JAS_API_KEY or `jas auth add`)")
+		key, err := readSecret(in, "API key (input hidden), or $ENV_NAME to reference an env var; empty to skip")
 		if err != nil {
 			return err
 		}
 		if key != "" {
-			if err := settings.AuthAdd(filepath.Join(home, authFile), provider, settings.AuthEntry{Key: key}, os.Getenv); err != nil {
+			entry := settings.AuthEntry{Key: key}
+			if name, ref := strings.CutPrefix(key, "$"); ref {
+				entry = settings.AuthEntry{Env: name} // a reference, never expanded
+			}
+			if err := settings.AuthAdd(filepath.Join(home, authFile), provider, entry, os.Getenv); err != nil {
 				return usageErr("%v", err)
 			}
 		}

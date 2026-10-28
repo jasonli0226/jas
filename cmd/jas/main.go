@@ -16,7 +16,7 @@ import (
 var version = "dev"
 
 const usage = `usage:
-  jas run [--json] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] "task"
+  jas run [--json] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project] "task"
   jas config set|get|unset|list|init
   jas auth add|list|rm|rotate
   jas --version
@@ -35,8 +35,7 @@ func main() {
 
 func dispatch(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, usage)
-		return core.ExitUsage
+		return report(onboardOrUsage())
 	}
 	switch args[0] {
 	case "--version", "-version", "version":
