@@ -33,3 +33,6 @@ go.work.sum
 
 # Local reference checkouts
 _pi-mono/
+
+# Claude Code worktrees
+.claude/worktrees/
