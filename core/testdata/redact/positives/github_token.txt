@@ -1,0 +1,1 @@
+clone https://ghp_0123456789abcdefghijABCDEFGHIJ012345@host/repo

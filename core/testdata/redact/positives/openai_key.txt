@@ -1,0 +1,1 @@
+export OPENAI=sk-proj-AbCdEfGhIjKlMnOpQrStUvWx12345 # trailing

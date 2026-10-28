@@ -1,0 +1,3 @@
+add a header comment to main.go explaining the retry logic
+write a table-driven test for parseConfig covering bad env vars
+list every exported function in pkg/api with its signature

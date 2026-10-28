@@ -1,0 +1,2 @@
+.task-list-item-checkbox-enabled { cursor: pointer }
+npm i flask-sqlalchemy-session-manager-extras disk-encryption-configuration-set

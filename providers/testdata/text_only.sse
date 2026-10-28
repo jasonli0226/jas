@@ -1,0 +1,11 @@
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"}}]}
+
+: keep-alive
+
+data: {"choices":[{"index":0,"delta":{"content":", "}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"world."}}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":4}}}
+
+data: [DONE]
