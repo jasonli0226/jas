@@ -76,7 +76,7 @@ jas (single Go binary)
 ├── settings/                ~/.jas/ agent dir (§10; global scope v1, project scope v2)
 │   ├── config.go            resolution: CLI flag > JAS_* env > project (v2) > global > defaults
 │   ├── auth.go              auth.json (0600) / $ENV references, key resolution
-│   └── models.go            compiled-in model catalog (context window) + models.json overrides
+│   └── models.go            compiled-in model catalog (context window) + config overrides
 ├── scenario/                loader + merger + bootstrap (§8, v2)
 │   ├── loader.go            .jas/scenario.yaml discovery, layer-merge
 │   └── bootstrap.go         deterministic project scan → draft scenario.yaml
@@ -619,14 +619,16 @@ CLI flag > JAS_* env vars > project .jas/scenario.yaml
 ```
 
 v1 creates and reads the global files (`config.json`, `auth.json`,
-`models.json`, `trust.json`, `sessions/`). Project scope (`.jas/scenario.yaml`)
+`trust.json`, `sessions/`). In v1, per-model overrides live in `config.json`
+under `models`, and a custom endpoint is just `base_url`. `models.json` (named
+custom endpoints, each with its own key) arrives in v2. Project scope (`.jas/scenario.yaml`)
 joins the chain in v2.
 
 **First-run experience** (v1; also `jas config init` to rerun it):
 
 ```sh
 $ jas            # no config → interactive onboarding
-Provider?        # openrouter | ollama | custom endpoint (→ models.json entry)
+Provider?        # openrouter | ollama | custom endpoint (→ base_url in config.json)
 API key:         # read without echo → auth.json (0600), or "$OPENROUTER_API_KEY" ref
 Default model:   # anthropic/claude-sonnet-4.6 → config.json
 ```
@@ -655,7 +657,8 @@ jas run --model z-ai/glm-5.3 --provider openrouter "…"   # one-run override
 ```
 
 Settings keys (v1): `provider`, `model`, `base_url`, `approve`, `max_turns`,
-`max_tool_output`, `elide_at`, `keep_tool_results`, and per-model
+`max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`
+(the per-path redaction opt-out, §9), and per-model
 `models.<name>.context_window`. Each key `k` has a matching `JAS_<K>` env var
 and, for the per-run ones, a `--<k>` flag. There is deliberately **no
 `--api-key` flag**: argv shows up in shell history and `ps`. Keys come from
@@ -832,7 +835,7 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 | Config storage | `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`, packages) | `~/.jas/config.json` | same model |
 | Setting config | TUI: `/model` saves the default, `pi config` toggles resources | `jas config set/get/unset/list`, first-run onboarding | scriptable, works without a TUI (v1 has none) |
 | Keys | `auth.json` via `/login` (incl. OAuth); env vars as fallback; `--api-key` flag | `auth.json` (0600) or `$ENV` reference via `jas auth`; `JAS_API_KEY` fallback; **no `--api-key` flag** | argv leaks to shell history and `ps` |
-| Model catalog | `models-store.json` with context window, costs, thinking levels | compiled-in catalog + `models.json` / `models.<name>.context_window` overrides | needed for the v1 context budget |
+| Model catalog | `models-store.json` with context window, costs, thinking levels | compiled-in catalog + `models.<name>.context_window` override (v1); `models.json` (v2) | needed for the v1 context budget |
 | Override order | CLI flag > settings > env fallback | CLI flag > `JAS_*` env > project (v2) > global > defaults | env sits above stored config so CI can override without touching `~/.jas/` |
 | Modes | text, `--mode json`, `--mode rpc` | `jas run`, `--json` (v1); RPC over stdio + Unix socket (v2) | the socket enables `attach` from another terminal |
 | Tool approval | none built in (YOLO; gating via extensions) | `--approve=never\|shell\|mutating` ladder, exit 5 without a TTY | gate exists in core so CI can rely on it |
