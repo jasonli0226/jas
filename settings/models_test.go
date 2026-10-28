@@ -32,4 +32,13 @@ func TestEmbeddedCatalogLoads(t *testing.T) {
 	if len(catalog) == 0 {
 		t.Fatal("embedded catalog is empty")
 	}
+	for id, w := range catalog {
+		if w <= 0 {
+			t.Fatalf("catalog[%q] = %d", id, w)
+		}
+	}
+	w, known := ContextWindow("anthropic/claude-fable-5", nil)
+	if !known || w <= 0 {
+		t.Fatalf("well-known model: %d, %v", w, known)
+	}
 }

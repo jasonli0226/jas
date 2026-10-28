@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/jasonli0226/jas/providers"
 )
@@ -16,6 +17,7 @@ const (
 	bytesPerToken  = 4
 	elidedPrefix   = "[elided: "
 	maxStubArg     = 80
+	elideHeadroom  = 0.1 // fraction of Window that must accumulate between passes
 	unknownToolTag = "?"
 )
 
@@ -36,6 +38,7 @@ type Budget struct {
 
 	obsTokens int // prompt tokens reported for the first obsMsgs messages
 	obsMsgs   int
+	lastAfter int // tokens after the last elision pass; 0 before any
 }
 
 // Observe records provider-reported prompt tokens for the first messagesSent
@@ -73,7 +76,13 @@ func (b *Budget) WouldExceed(msgs []providers.Message) bool {
 // result stays byte-identical.
 func (b *Budget) MaybeElide(msgs []providers.Message) ([]providers.Message, *ElideStats) {
 	before := b.Count(msgs)
-	if float64(before) < b.ElideAt*float64(b.Window) {
+	// Hysteresis: after a pass, wait for elideHeadroom of the window to
+	// accumulate so the cached prefix changes once per pass, not every turn.
+	trigger := b.ElideAt * float64(b.Window)
+	if b.lastAfter > 0 {
+		trigger = max(trigger, float64(b.lastAfter)+elideHeadroom*float64(b.Window))
+	}
+	if float64(before) < trigger {
 		return msgs, nil
 	}
 	total := 0
@@ -124,6 +133,7 @@ func (b *Budget) MaybeElide(msgs []providers.Message) ([]providers.Message, *Eli
 	}
 	// Keep the observation consistent with the shortened history.
 	b.obsTokens = max(0, b.obsTokens-savedObserved/bytesPerToken)
+	b.lastAfter = max(0, before-savedAll/bytesPerToken)
 	return out, &ElideStats{Count: count, TokensBefore: before, TokensAfter: max(0, before-savedAll/bytesPerToken)}
 }
 
@@ -158,7 +168,7 @@ func elideStub(use providers.ContentBlock, text string) string {
 	arg := ""
 	for _, key := range []string{"path", "command", "pattern"} {
 		if s, ok := args[key].(string); ok && s != "" {
-			arg = clipRunes(s, maxStubArg)
+			arg = clipRunes(oneLine(s), maxStubArg)
 			break
 		}
 	}
@@ -177,4 +187,15 @@ func clipRunes(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// oneLine turns control characters into spaces and collapses whitespace.
+func oneLine(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
 }
