@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -85,11 +86,19 @@ func (e *Executor) Run(ctx context.Context, calls []providers.ContentBlock) ([]p
 	}
 	switch {
 	case r.stopErr != nil:
-		return out, r.stopErr
+		return out, r.withLogErr(r.stopErr)
 	case ctx.Err() != nil:
-		return out, ctx.Err()
+		return out, r.withLogErr(ctx.Err())
 	}
 	return out, r.logErr
+}
+
+// withLogErr keeps the primary error unwrapped unless a log failure also occurred.
+func (r *run) withLogErr(primary error) error {
+	if r.logErr == nil {
+		return primary
+	}
+	return errors.Join(primary, r.logErr)
 }
 
 func (r *run) noteLogErr(err error) {
@@ -159,6 +168,11 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	}
 	d, err := gate.Allow(ctx, s.tool, s.call.Input)
 	if err != nil {
+		if ctx.Err() != nil {
+			s.settle(Result{Output: cancelledOutput, IsError: true}, statusCancelled)
+			r.emitResult(s)
+			return
+		}
 		s.settle(Result{Output: "approval failed: " + err.Error(), IsError: true}, statusError)
 		r.emitResult(s)
 		return

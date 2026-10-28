@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -47,6 +48,7 @@ type fakeTool struct {
 	kind       Kind
 	delay      time.Duration
 	onCall     func()
+	finished   chan struct{} // closed when Call returns, if non-nil
 	mu         sync.Mutex
 	start, end time.Time
 	calls      int
@@ -71,6 +73,9 @@ func (f *fakeTool) Call(ctx context.Context, _ ExecPolicy, _ json.RawMessage) (R
 	f.mu.Lock()
 	f.end = time.Now()
 	f.mu.Unlock()
+	if f.finished != nil {
+		defer close(f.finished)
+	}
 	if ctx.Err() != nil {
 		return Result{}, ctx.Err()
 	}
@@ -102,15 +107,15 @@ func statuses(l *fakeLog) []string {
 }
 
 func TestExec_ConsecutiveReadsRunInParallel(t *testing.T) {
-	a := &fakeTool{name: "a", delay: 100 * time.Millisecond}
-	b := &fakeTool{name: "b", delay: 100 * time.Millisecond}
-	c := &fakeTool{name: "c", delay: 100 * time.Millisecond}
+	a := &fakeTool{name: "a", delay: 300 * time.Millisecond}
+	b := &fakeTool{name: "b", delay: 300 * time.Millisecond}
+	c := &fakeTool{name: "c", delay: 300 * time.Millisecond}
 	e := newExec(&fakeLog{}, AllowAll{}, a, b, c)
 	t0 := time.Now()
 	res, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "a"), call("2", "b"), call("3", "c")})
 	assert.NoErr(t, err)
 	assert.Eq(t, len(res), 3)
-	if d := time.Since(t0); d >= 200*time.Millisecond {
+	if d := time.Since(t0); d >= 600*time.Millisecond {
 		t.Fatalf("not parallel: %v", d)
 	}
 }
@@ -259,9 +264,10 @@ func TestExec_UnavailableStops(t *testing.T) {
 func TestExec_CancelDuringReadBatch(t *testing.T) {
 	slow := &fakeTool{name: "slow", delay: 5 * time.Second}
 	log := &fakeLog{}
-	e := newExec(log, AllowAll{}, slow, &fakeTool{name: "fast"})
+	fast := &fakeTool{name: "fast", finished: make(chan struct{})}
+	e := newExec(log, AllowAll{}, slow, fast)
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+	go func() { <-fast.finished; cancel() }()
 	t0 := time.Now()
 	res, err := e.Run(ctx, []providers.ContentBlock{call("1", "slow"), call("2", "fast"), call("3", "slow")})
 	if err != context.Canceled {
@@ -296,4 +302,111 @@ func TestExec_FilterApplied(t *testing.T) {
 	res, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "a")})
 	assert.NoErr(t, err)
 	assert.Eq(t, res[0].Text, "filtered")
+}
+
+// failLog fails selected operations.
+type failLog struct {
+	fakeLog
+	failSyncAppend, failAppend, failSync bool
+}
+
+var errDisk = errors.New("disk full")
+
+func (l *failLog) Append(typ string, data any) error {
+	if l.failAppend {
+		return errDisk
+	}
+	return l.fakeLog.Append(typ, data)
+}
+func (l *failLog) AppendSync(typ string, data any) error {
+	if l.failSyncAppend {
+		return errDisk
+	}
+	return l.fakeLog.AppendSync(typ, data)
+}
+func (l *failLog) Sync() error {
+	if l.failSync {
+		return errDisk
+	}
+	return l.fakeLog.Sync()
+}
+
+func TestExec_StartedSyncFailureSkipsMutatingCall(t *testing.T) {
+	w := &fakeTool{name: "write", kind: Mutating}
+	e := newExec(&failLog{failSyncAppend: true}, AllowAll{}, w)
+	res, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "write")})
+	assert.Eq(t, w.calls, 0)
+	assert.Eq(t, res[0].IsError, true)
+	assert.Contains(t, res[0].Text, "call not run")
+	if !errors.Is(err, errDisk) {
+		t.Fatalf("want wrapped disk error, got %v", err)
+	}
+}
+
+func TestExec_AppendFailureReturnsError(t *testing.T) {
+	e := newExec(&failLog{failAppend: true}, AllowAll{}, &fakeTool{name: "a"})
+	res, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "a")})
+	assert.Eq(t, len(res), 1)
+	if !errors.Is(err, errDisk) {
+		t.Fatalf("want wrapped disk error, got %v", err)
+	}
+	assert.Contains(t, err.Error(), "event log")
+}
+
+func TestExec_SyncFailureReturnsError(t *testing.T) {
+	e := newExec(&failLog{failSync: true}, AllowAll{}, &fakeTool{name: "a"})
+	_, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "a")})
+	if !errors.Is(err, errDisk) {
+		t.Fatalf("want wrapped disk error, got %v", err)
+	}
+	assert.Contains(t, err.Error(), "event log")
+}
+
+func TestExec_LogFailureNotMaskedByUnavailable(t *testing.T) {
+	g := gateFunc(func(Tool) (Decision, error) { return Unavailable, nil })
+	e := newExec(&failLog{failAppend: true}, g, &fakeTool{name: "w", kind: Mutating})
+	_, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "w")})
+	var ee *ExitError
+	if !errors.As(err, &ee) || ee.Code != ExitApprovalNeeded {
+		t.Fatalf("lost ExitError: %v", err)
+	}
+	if !errors.Is(err, errDisk) {
+		t.Fatalf("lost log error: %v", err)
+	}
+}
+
+func TestExec_LogFailureNotMaskedByCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e := newExec(&failLog{failSync: true}, AllowAll{}, &fakeTool{name: "a"})
+	_, err := e.Run(ctx, []providers.ContentBlock{call("1", "a")})
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, errDisk) {
+		t.Fatalf("want both errors, got %v", err)
+	}
+}
+
+type ctxGate struct{ entered chan struct{} }
+
+func (g ctxGate) Allow(ctx context.Context, _ Tool, _ json.RawMessage) (Decision, error) {
+	close(g.entered)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func TestExec_CancelDuringApproval(t *testing.T) {
+	log := &fakeLog{}
+	w := &fakeTool{name: "write", kind: Mutating}
+	g := ctxGate{entered: make(chan struct{})}
+	e := newExec(log, g, w)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-g.entered; cancel() }()
+	res, err := e.Run(ctx, []providers.ContentBlock{call("1", "write"), call("2", "write")})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	assert.Eq(t, w.calls, 0)
+	assert.Eq(t, len(res), 2)
+	st := statuses(log)
+	assert.Eq(t, st[0], "cancelled")
+	assert.Eq(t, st[1], "cancelled")
 }
