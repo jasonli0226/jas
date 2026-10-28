@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -126,4 +128,166 @@ func (Ls) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core
 	}
 	sort.Strings(names)
 	return core.Result{Output: Truncate([]byte(strings.Join(names, "\n")), p.OutputLimit())}, nil
+}
+
+const (
+	newFileMode fs.FileMode = 0o644
+	newDirMode  fs.FileMode = 0o755
+)
+
+// renameFile is the rename used by atomicWrite; tests swap it to inject failures.
+var renameFile = os.Rename
+
+// Mutating returns the file-mutating tools: write, edit.
+func Mutating() []core.Tool {
+	return []core.Tool{Write{}, Edit{}}
+}
+
+// atomicWrite writes data to path via a temp file in the same directory,
+// fsyncs it, renames it over path, then fsyncs the directory. On any failure
+// the original file is untouched and the temp file is removed.
+func atomicWrite(path string, data []byte, mode fs.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".jas-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func(err error) error {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		return cleanup(err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return cleanup(err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := renameFile(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+// Write creates or overwrites a file atomically.
+type Write struct{}
+
+func (Write) Name() string { return "write" }
+func (Write) Description() string {
+	return "Create or overwrite a file in the project with the given content. Parent directories are created. The write is atomic."
+}
+func (Write) Kind() core.Kind { return core.Mutating }
+func (Write) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{` +
+		`"path":{"type":"string","description":"File path, relative to the project root."},` +
+		`"content":{"type":"string","description":"Full new content of the file."}},` +
+		`"required":["path","content"]}`)
+}
+
+func (Write) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+	var a struct {
+		Path    string  `json:"path"`
+		Content *string `json:"content"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return errResult("invalid arguments: %v", err)
+	}
+	if a.Content == nil {
+		return errResult("invalid arguments: content is required")
+	}
+	full, err := p.Resolve(a.Path)
+	if err != nil {
+		return errResult("%v", err)
+	}
+	mode := newFileMode
+	if info, err := os.Stat(full); err == nil {
+		if !info.Mode().IsRegular() {
+			return errResult("write %s: not a regular file", a.Path)
+		}
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return errResult("write %s: %v", a.Path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(full), newDirMode); err != nil {
+		return errResult("write %s: %v", a.Path, err)
+	}
+	if err := atomicWrite(full, []byte(*a.Content), mode); err != nil {
+		return errResult("write %s: %v", a.Path, err)
+	}
+	return core.Result{Output: fmt.Sprintf("wrote %s (%d bytes)", a.Path, len(*a.Content))}, nil
+}
+
+// Edit replaces one exact occurrence of a string in a file.
+type Edit struct{}
+
+func (Edit) Name() string { return "edit" }
+func (Edit) Description() string {
+	return "Replace exactly one occurrence of old_string with new_string in a file. Matching is exact (including whitespace and line endings); fails if old_string is missing or matches more than once."
+}
+func (Edit) Kind() core.Kind { return core.Mutating }
+func (Edit) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{` +
+		`"path":{"type":"string","description":"File path, relative to the project root."},` +
+		`"old_string":{"type":"string","description":"Exact text to replace; must occur exactly once."},` +
+		`"new_string":{"type":"string","description":"Replacement text."}},` +
+		`"required":["path","old_string","new_string"]}`)
+}
+
+func (Edit) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+	var a struct {
+		Path      string  `json:"path"`
+		OldString string  `json:"old_string"`
+		NewString *string `json:"new_string"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return errResult("invalid arguments: %v", err)
+	}
+	if a.OldString == "" {
+		return errResult("old_string must not be empty")
+	}
+	if a.NewString == nil {
+		return errResult("invalid arguments: new_string is required")
+	}
+	full, err := p.Resolve(a.Path)
+	if err != nil {
+		return errResult("%v", err)
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return errResult("edit %s: %v", a.Path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return errResult("edit %s: not a regular file", a.Path)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return errResult("edit %s: %v", a.Path, err)
+	}
+	content := string(data)
+	switch n := strings.Count(content, a.OldString); n {
+	case 0:
+		return errResult("old_string not found in %s", a.Path)
+	case 1:
+	default:
+		return errResult("old_string matches %d times in %s; include more surrounding context", n, a.Path)
+	}
+	updated := strings.Replace(content, a.OldString, *a.NewString, 1)
+	if err := atomicWrite(full, []byte(updated), info.Mode().Perm()); err != nil {
+		return errResult("edit %s: %v", a.Path, err)
+	}
+	return core.Result{Output: "edited " + a.Path}, nil
 }
