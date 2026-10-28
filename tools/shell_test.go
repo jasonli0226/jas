@@ -116,6 +116,39 @@ func TestShell_TimeoutKillsGroup(t *testing.T) {
 	waitDead(t, readPid(t, pidFile))
 }
 
+func TestShell_BackgroundChildKilledAfterNormalExit(t *testing.T) {
+	p := policy(t)
+	r := call(t, Shell{}, p, `{"command":"sleep 30 >/dev/null 2>&1 & echo $! > pid"}`)
+	assert.Eq(t, r.IsError, false)
+	waitDead(t, readPid(t, filepath.Join(p.Root, "pid")))
+}
+
+func TestShell_BackgroundChildHoldingPipeDoesNotStall(t *testing.T) {
+	p := policy(t)
+	start := time.Now()
+	r := call(t, Shell{}, p, `{"command":"sleep 30 & echo $! > pid"}`)
+	assert.Eq(t, r.IsError, false)
+	assert.Eq(t, time.Since(start) < time.Second, true)
+	waitDead(t, readPid(t, filepath.Join(p.Root, "pid")))
+}
+
+func TestShell_TimeoutKeepsPartialOutput(t *testing.T) {
+	r := call(t, Shell{}, policy(t), shellArgs(t, "echo partial; sleep 30", 1))
+	assert.Eq(t, r.IsError, true)
+	assert.Contains(t, r.Output, "partial")
+	assert.Contains(t, r.Output, "[timed out after 1s]")
+}
+
+func TestShellEnv_NeverNil(t *testing.T) {
+	for _, n := range baseEnv {
+		t.Setenv(n, "x")
+		os.Unsetenv(n)
+	}
+	env := ShellEnv(nil)
+	assert.Eq(t, env != nil, true)
+	assert.Eq(t, len(env), 0)
+}
+
 func TestShell_TimeoutResolution(t *testing.T) {
 	assert.Eq(t, shellTimeout(core.ExecPolicy{}, 99999), maxShellTimeout)
 	assert.Eq(t, shellTimeout(core.ExecPolicy{}, 0), defaultShellTimeout)

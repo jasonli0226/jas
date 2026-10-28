@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -38,7 +39,8 @@ func ShellEnv(extra []string) []string {
 	for _, n := range extra {
 		allowed[n] = true
 	}
-	var env []string
+	// Non-nil on purpose: a nil Cmd.Env would make the child inherit everything.
+	env := []string{}
 	for _, kv := range os.Environ() {
 		if name, _, ok := strings.Cut(kv, "="); ok && allowed[name] {
 			env = append(env, kv)
@@ -110,31 +112,56 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 
 	limit := p.OutputLimit()
 	out := &cappedBuffer{max: limit * captureFactor}
+	// Own the pipe (instead of cmd.Stdout = writer) so Wait returns as soon as
+	// the shell exits, even when a background grandchild still holds the pipe.
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return errResult("could not run command: %v", err)
+	}
+	defer pr.Close()
 	cmd := exec.CommandContext(tctx, "sh", "-c", a.Command)
 	cmd.Dir = p.Root
 	cmd.Env = ShellEnv(p.Env)
-	cmd.Stdout = out
-	cmd.Stderr = out
+	cmd.Stdout = pw
+	cmd.Stderr = pw
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	cmd.WaitDelay = shellWaitDelay
 
-	runErr := cmd.Run()
+	copied := make(chan struct{})
+	go func() {
+		defer close(copied)
+		_, _ = io.Copy(out, pr)
+	}()
+	startErr := cmd.Start()
+	pw.Close()
+	if startErr != nil {
+		return errResult("could not run command: %v", startErr)
+	}
+	pgid := cmd.Process.Pid
+	runErr := cmd.Wait()
+	// Grandchildren must not outlive the call: kill the group on every path
+	// (ESRCH when it is already gone is fine), which also closes the pipe.
+	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	select {
+	case <-copied:
+	case <-time.After(shellWaitDelay):
+	}
 	if ctx.Err() != nil {
 		return core.Result{}, fmt.Errorf("shell: cancelled: %w", ctx.Err())
-	}
-	if errors.Is(tctx.Err(), context.DeadlineExceeded) {
-		return errResult("command timed out after %s", timeout)
-	}
-	var exitErr *exec.ExitError
-	if runErr != nil && !errors.As(runErr, &exitErr) && !errors.Is(runErr, exec.ErrWaitDelay) {
-		return errResult("could not run command: %v", runErr)
 	}
 	text := Truncate(out.buf.Bytes(), limit)
 	if out.dropped > 0 && !strings.Contains(text, "[truncated") {
 		text += fmt.Sprintf("\n[truncated: %d more bytes]", out.dropped)
+	}
+	if errors.Is(tctx.Err(), context.DeadlineExceeded) {
+		return core.Result{Output: text + fmt.Sprintf("\n[timed out after %s]", timeout), IsError: true}, nil
+	}
+	var exitErr *exec.ExitError
+	if runErr != nil && !errors.As(runErr, &exitErr) {
+		return errResult("could not run command: %v", runErr)
 	}
 	if exitErr != nil {
 		text += fmt.Sprintf("\n[exit status %d]", exitErr.ExitCode())
