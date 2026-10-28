@@ -97,6 +97,33 @@ func TestDecide_NoTTYSkipsWithWarning(t *testing.T) {
 	assert.Contains(t, string(buf[:n]), "skipping untrusted AGENTS.md (pass --trust-project to load)")
 }
 
+func TestDecide_PromptSanitizesRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "evil\x1b[2K‮name")
+	assert.NoErr(t, os.MkdirAll(root, 0o755))
+	var prompt string
+	_, err := core.DecideContext(root, []byte("x"), newStore(t), true, false, func(p string) string { prompt = p; return "n" })
+	assert.NoErr(t, err)
+	assert.NotContains(t, prompt, "\x1b")
+	assert.NotContains(t, prompt, "‮")
+	assert.Contains(t, prompt, "evil")
+}
+
+func TestDecide_FlagIgnoresCorruptStore(t *testing.T) {
+	st := newStore(t)
+	assert.NoErr(t, os.WriteFile(st.Path, []byte("{not json"), 0o600))
+	load, err := core.DecideContext(t.TempDir(), []byte("x"), st, false, true, nil)
+	assert.NoErr(t, err)
+	assert.Eq(t, load, true)
+}
+
+func TestFindContextFile_BoundedRead(t *testing.T) {
+	root := t.TempDir()
+	assert.NoErr(t, os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(strings.Repeat("a", core.MaxContextBytes*2)), 0o644))
+	_, c, ok := core.FindContextFile(root)
+	assert.Eq(t, ok, true)
+	assert.Eq(t, len(c), core.MaxContextBytes+1)
+}
+
 func TestFindContextFile(t *testing.T) {
 	root := t.TempDir()
 	_, _, ok := core.FindContextFile(root)
