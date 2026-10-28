@@ -138,9 +138,9 @@ const (
 // renameFile is the rename used by atomicWrite; tests swap it to inject failures.
 var renameFile = os.Rename
 
-// Mutating returns the file-mutating tools: write, edit.
+// Mutating returns the mutating tools: write, edit, shell.
 func Mutating() []core.Tool {
-	return []core.Tool{Write{}, Edit{}}
+	return []core.Tool{Write{}, Edit{}, Shell{}}
 }
 
 // atomicWrite writes data to path via a temp file in the same directory,
