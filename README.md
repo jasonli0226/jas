@@ -6,30 +6,46 @@
 
 ## The pitch
 
-jas is a single Go binary (~12MB, <50ms cold start) that is:
+jas is a single static Go binary that is:
 
-- **tiny & fast** — static binary, no runtime, streaming loop in ~200 lines
+- **lean** — fewer turns and tokens per task: cache-friendly prompts, parallel
+  reads, capped and elided tool output; streaming loop in ~200 lines
 - **parallel** — one agent per git worktree, N tasks at once *(planned v2)*
-- **visible** — live status board; every step is a JSONL event (audit + resume)
-- **pluggable** — Tool interface + MCP client; OpenAI-compatible endpoints (OpenRouter, vLLM, ollama)
+- **visible** — every step is a JSONL event (audit + resume); live status
+  board *(planned v2)*
+- **pluggable** — Tool interface; OpenAI-compatible endpoints (OpenRouter,
+  vLLM, ollama); MCP client *(planned v2)*
 
 The model is the brain; jas is the nervous system.
 
 ## Usage (v1)
 
-```sh
-export JAS_BASE_URL=https://openrouter.ai/api/v1
-export JAS_MODEL=anthropic/claude-sonnet-4.6
-export JAS_API_KEY=...
+Configure once from the CLI; settings are stored in `~/.jas/` (pi-style):
 
+```sh
+jas                                         # first run: interactive onboarding
+jas auth add openrouter                     # key → ~/.jas/auth.json (0600), no echo
+jas config set base_url https://openrouter.ai/api/v1
+jas config set model anthropic/claude-sonnet-4.6
+jas config list                             # effective values + where each came from
+```
+
+Then:
+
+```sh
 jas run "add a header comment to main.go"           # one-shot task
-jas run --approve=mutating "…"                      # gate mutating tools (#1)
+jas run --approve=mutating "…"                      # confirm shell + file edits (#1)
+jas run --model z-ai/glm-5.3 "…"                    # one-run override
 jas run --json "…"                                  # emit events to stdout as JSONL
 ```
 
-v1 loads `AGENTS.md` / `CLAUDE.md` from cwd into the system prompt, tracks a
-context budget (elides old tool results), and writes a versioned JSONL event
-log. See [docs/design.md](docs/design.md) §4.
+`JAS_BASE_URL`, `JAS_MODEL`, `JAS_API_KEY` (and a `JAS_*` var per setting)
+override stored config — use them in CI and containers.
+
+v1 loads `AGENTS.md` / `CLAUDE.md` from the project root (after a one-time
+trust prompt), tracks a context budget (elides old tool results), and writes a
+versioned JSONL event log. Exit codes are a documented contract for CI. See
+[docs/design.md](docs/design.md) §4.
 
 ## Planned (v2+)
 
@@ -44,7 +60,8 @@ Farm, attach, and the TUI status board ship in v2 — not part of the v1 cut
 
 ## Design
 
-Full design in [docs/design.md](docs/design.md). Real-world scenarios in
+Full design in [docs/design.md](docs/design.md); how jas compares with pi is
+§14. Real-world scenarios in
 [docs/use-cases.md](docs/use-cases.md) — one-shot tasks, CI runs, N-way farm,
 attach, per-project scenario policies (and what jas deliberately isn't).
 Core bets:
