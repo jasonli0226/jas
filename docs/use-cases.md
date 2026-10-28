@@ -38,13 +38,20 @@ corrupt — crash mid-task, re-run, the log still tells you what happened.
 
 ## 3. CI / scripted use (`jas run --json` — v1)
 
-Machine-readable output for pipelines and wrappers:
+Machine-readable output for pipelines and wrappers. Approver defaults to
+`never` (YOLO), so treat the job container (or an explicit
+`--approve` / FS / network posture) as the real boundary — same stance as
+design.md §3.1 and the anti-use-cases below.
 
 ```sh
-jas run --json "check all TODO comments in src/ and list them with file:line" \
+# Prefer a throwaway container; jas itself is not the sandbox.
+docker run --rm -v "$PWD":/work -w /work jas:ci \
+  jas run --json "check all TODO comments in src/ and list them with file:line" \
   | jq -c 'select(.type == "tool_result")'
 ```
 
+Exit contract (v1): `0` only when the task finishes cleanly; non-zero on
+context-full, turn-cap, unrecoverable tool errors, or a denied approval.
 The event stream is the same JSONL written to the session log — one format for
 humans (terminal) and machines (CI, scripts). This is the seam the v2 RPC mode
 will formalize.
@@ -57,8 +64,10 @@ One task, N attempts, pick the best diff:
 jas farm --n 3 "fix all failing tests in pkg/store"
 ```
 
-- Git worktree per task — each agent works in an isolated checkout, they can't
-  clobber each other.
+- Non-overlapping git worktrees per task (they won't clobber each other's
+  working trees). Worktrees still share the host FS and `$HOME` — not a
+  sandbox. Isolation answer is bubblewrap/Docker in v1 docs, and per-task
+  containers in v3 (design.md §3.1 / §9).
 - Review queue: diffs come back side by side; accept / merge / discard.
 - Built on the v1 core + the JSONL wire format (each worker speaks the same
   protocol).
