@@ -2,7 +2,7 @@
 
 > A tiny, fast coding-agent harness in Go. Parallel tasks, live status, pluggable tools.
 
-**Status:** 🚧 v1 in progress — see [docs/design.md](docs/design.md)
+**Status:** v1 — `jas run`, `jas config`, `jas auth`. See [docs/design.md](docs/design.md).
 
 ## The pitch
 
@@ -18,34 +18,160 @@ jas is a single static Go binary that is:
 
 The model is the brain; jas is the nervous system.
 
-## Usage (v1)
+## Install
 
-Configure once from the CLI; settings are stored in `~/.jas/` (pi-style):
+The repo is private, so install from a clone (Go 1.27+):
 
 ```sh
-jas                                         # first run: interactive onboarding
-jas auth add openrouter                     # key → ~/.jas/auth.json (0600), no echo
+go install ./cmd/jas            # from the repo root; or: make build  ->  ./bin/jas
+```
+
+The module path is `github.com/jasonli0226/jas`; once the repo is public,
+`go install github.com/jasonli0226/jas/cmd/jas@latest` works too. The binary
+is static (`CGO_ENABLED=0`), about 7 MB. Linux and macOS only.
+
+## Quick start
+
+Run `jas` with no arguments the first time for interactive onboarding
+(provider, API key read without echo, default model). Or configure by hand;
+settings live in `~/.jas/` (`JAS_HOME` overrides):
+
+```sh
+jas auth add openrouter                            # key -> ~/.jas/auth.json (0600), no echo
+jas auth add openrouter --env OPENROUTER_API_KEY   # store a reference, not the key
 jas config set base_url https://openrouter.ai/api/v1
-jas config set model anthropic/claude-sonnet-4.6
-jas config list                             # effective values + where each came from
+jas config set model z-ai/glm-5.3
+jas config list                                    # effective values + where each came from
 ```
 
 Then:
 
 ```sh
 jas run "add a header comment to main.go"           # one-shot task
-jas run --approve=mutating "…"                      # confirm shell + file edits (#1)
-jas run --model z-ai/glm-5.3 "…"                    # one-run override
-jas run --json "…"                                  # emit events to stdout as JSONL
+jas run --approve=mutating "..."                    # confirm shell + file edits
+jas run --model z-ai/glm-5.3 "..."                  # one-run override
+jas run --json "..."                                # event stream on stdout as JSONL
+jas run --trust-project "..."                       # load AGENTS.md without asking
 ```
 
-`JAS_BASE_URL`, `JAS_MODEL`, `JAS_API_KEY` (and a `JAS_*` var per setting)
-override stored config — use them in CI and containers.
+Subcommands: `jas run`, `jas config set|get|unset|list|init`,
+`jas auth add|list|rm|rotate`, `jas --version`. Run flags: `--json`,
+`--model`, `--provider`, `--base-url`, `--approve`, `--max-turns`,
+`--trust-project`. There is deliberately no `--api-key` flag (argv leaks via
+shell history and `ps`).
 
-v1 loads `AGENTS.md` / `CLAUDE.md` from the project root (after a one-time
-trust prompt), tracks a context budget (elides old tool results), and writes a
-versioned JSONL event log. Exit codes are a documented contract for CI. See
-[docs/design.md](docs/design.md) §4.
+## Configuration
+
+Precedence: flag > `JAS_*` env var > `~/.jas/config.json` > built-in default.
+Every key `k` has a `JAS_<K>` env var; `JAS_API_KEY` supplies the key (use
+these in CI and containers, where there is no `~/.jas/`).
+
+```sh
+jas config set model z-ai/glm-5.3
+jas config set base_url https://openrouter.ai/api/v1
+jas config set approve mutating                 # persisted default for --approve
+jas config set max_turns 80
+jas config set models.my-local.context_window 32768
+jas config get model
+jas config unset base_url
+jas config list                                 # value + source of every key
+```
+
+Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
+`max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`, and
+per-model `models.<name>.context_window`.
+
+API keys come from `auth.json` (literal, mode 0600), a `$ENV_NAME` reference
+stored there, or `JAS_API_KEY`. `jas auth list` shows names and sources,
+never values.
+
+A local model through ollama needs no key:
+
+```sh
+jas config set provider ollama
+jas config set base_url http://localhost:11434/v1
+jas config set model qwen2.5-coder
+```
+
+Project instructions: `AGENTS.md` (or `CLAUDE.md`) in the project root is
+loaded into the system prompt after a one-time trust prompt (answers are
+stored in `~/.jas/trust.json`; `--trust-project` skips the prompt). The
+content is redacted and size-capped first.
+
+## Approval ladder
+
+`--approve` (or `jas config set approve`) gates tool calls; each level gates a
+superset of the one before.
+
+| level | prompts before |
+|---|---|
+| `never` (default) | nothing |
+| `shell` | every `shell` call |
+| `mutating` | every `shell`, `write` and `edit` call |
+
+A denied call returns `status: denied` to the model and the run continues.
+With no TTY (CI, piped stdin) a gated call cannot be answered: jas records
+`approval: unavailable` and exits 5.
+
+## Exit codes
+
+| code | meaning |
+|---|---|
+| 0 | model gave a final answer |
+| 1 | provider failure after retries, config error, or internal error |
+| 2 | usage error (bad flags, missing model/key) |
+| 3 | context full |
+| 4 | turn cap (`max_turns`) hit |
+| 5 | approval required but no TTY to ask |
+| 130 | interrupted (Ctrl-C / SIGTERM) |
+
+Tool errors are results the model sees; they never set the exit code. Every
+run appends a versioned JSONL event log at
+`~/.jas/sessions/<id>/events.jsonl`; the same code appears in its
+`session_ended` event.
+
+## Shell safety: this is YOLO
+
+**The `shell` tool is not sandboxed.** Path confinement and the deny floor
+apply to the file tools only. `shell` gets an allowlisted environment
+(`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`) but can still reach
+anything your user can: `cat ~/.aws/credentials`, `curl`, `python -c`. jas
+does not pretend to filter command lines. Use `--approve=shell` or
+`--approve=mutating` to review calls, and for isolation run jas inside
+bubblewrap or Docker.
+
+bubblewrap (read-only root, writable project, network kept for the API):
+
+```sh
+bwrap --ro-bind / / --bind "$PWD" "$PWD" --dev /dev --proc /proc \
+  --unshare-all --share-net jas run "..."
+```
+
+The root is still readable, including `~/.aws` and `~/.ssh`. To hide `$HOME`,
+add `--tmpfs "$HOME"` before the `--bind` (if the project is under `$HOME`,
+the later bind re-exposes it) and pass the key through `JAS_API_KEY`, since
+`~/.jas` will be hidden:
+
+```sh
+JAS_API_KEY="$OPENROUTER_API_KEY" bwrap --ro-bind / / --tmpfs "$HOME" \
+  --bind "$PWD" "$PWD" --dev /dev --proc /proc --unshare-all --share-net \
+  jas run --model z-ai/glm-5.3 "..."
+```
+
+Docker: mount only the project, e.g.
+`docker run --rm -v "$PWD":/work -w /work -e JAS_API_KEY <image-with-jas> jas run "..."`.
+
+## Benchmarks
+
+`make bench` measures cold start and runs three fixed tasks against a fixture
+repo; `BENCH_AGENT=pi make bench` does the same for pi. Results, jas vs pi on
+the same model, are in [docs/benchmarks.md](docs/benchmarks.md).
+`make perf` runs the gated cold-start test (`JAS_PERF_TESTS=1`).
+
+## Demo
+
+To record the demo GIF, install [vhs](https://github.com/charmbracelet/vhs)
+and run `vhs demo.tape`.
 
 ## Planned (v2+)
 

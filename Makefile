@@ -1,0 +1,23 @@
+LDFLAGS := -s -w
+MAX_SIZE := 15728640
+
+.PHONY: build test perf bench size
+
+build:
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/jas ./cmd/jas
+
+test:
+	go vet ./...
+	go test ./...
+
+perf:
+	JAS_PERF_TESTS=1 go test -run Version ./cmd/jas/
+
+# Needs OPENROUTER_API_KEY. BENCH_AGENT=pi compares against pi.
+bench: build
+	bench/coldstart.sh bin/jas
+	bench/run.sh $(or $(BENCH_AGENT),jas)
+
+size: build
+	@sz=$$(wc -c < bin/jas); echo "bin/jas: $$sz bytes"; \
+	if [ "$$sz" -ge $(MAX_SIZE) ]; then echo "binary >= 15MB" >&2; exit 1; fi
