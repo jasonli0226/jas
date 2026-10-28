@@ -19,6 +19,8 @@ command -v jq >/dev/null || { echo "run.sh: jq is required" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+# Agent stderr goes to a file that outlives the run (it may hold provider errors).
+logdir="$(mktemp -d "${TMPDIR:-/tmp}/jas-bench-logs.XXXXXX")"
 
 printf '%-62s | %5s | %13s | %17s | %13s | %7s\n' task turns "prompt tokens" "completion tokens" "cached tokens" "wall s"
 while IFS= read -r task; do
@@ -27,25 +29,28 @@ while IFS= read -r task; do
   cp -R "$root/bench/fixture/." "$work/"
   git -C "$work" init -q
   out="$tmp/out.jsonl"
+  log="$logdir/agent-$(date +%s%N).log"
+  rc=0
   start=$(date +%s%N)
   case "$agent" in
     jas)
       (cd "$work" && JAS_HOME="$tmp/home" JAS_API_KEY="$OPENROUTER_API_KEY" JAS_BASE_URL="$base_url" JAS_MODEL="$model" \
-        "$root/bin/jas" run --json "$task" >"$out" 2>"$tmp/err.txt" </dev/null) || true
+        "$root/bin/jas" run --json "$task" >"$out" 2>"$log" </dev/null) || rc=$?
       sums=$(jq -s -r '[.[] | select(.type=="usage")] |
-        "\(length) \(map(.prompt_tokens)|add // 0) \(map(.completion_tokens)|add // 0) \(map(.cached_tokens)|add // 0)"' "$out")
+        "\(length) \(map(.prompt_tokens)|add // 0) \(map(.completion_tokens)|add // 0) \(map(.cached_tokens)|add // 0)"' "$out" 2>/dev/null) || sums=""
       ;;
     pi)
-      (cd "$work" && pi --mode json -p --model "$model" "$task" >"$out" 2>"$tmp/err.txt" </dev/null) || true
+      (cd "$work" && pi --mode json -p --model "$model" "$task" >"$out" 2>"$log" </dev/null) || rc=$?
       # pi's input excludes cache reads; add them back so prompt tokens are comparable.
       sums=$(jq -s -r '[.[] | select(.type=="turn_end") | .message.usage] |
-        "\(length) \(map(.input + .cacheRead)|add // 0) \(map(.output)|add // 0) \(map(.cacheRead)|add // 0)"' "$out")
+        "\(length) \(map(.input + .cacheRead)|add // 0) \(map(.output)|add // 0) \(map(.cacheRead)|add // 0)"' "$out" 2>/dev/null) || sums=""
       ;;
     *) echo "run.sh: unknown agent '$agent' (jas|pi)" >&2; exit 2 ;;
   esac
   end=$(date +%s%N)
+  [ -n "$sums" ] || { echo "  (could not parse agent output; reporting zeros)" >&2; sums="0 0 0 0"; }
   read -r turns prompt completion cached <<<"$sums"
   printf '%-62s | %5s | %13s | %17s | %13s | %7s\n' "$task" "$turns" "$prompt" "$completion" "$cached" \
     "$(awk -v s="$start" -v e="$end" 'BEGIN{printf "%.1f", (e-s)/1e9}')"
-  if [ "$turns" = 0 ]; then echo "  (no usage recorded; stderr: $(head -c 300 "$tmp/err.txt"))" >&2; fi
+  if [ "$turns" = 0 ] || [ "$rc" != 0 ]; then echo "  (agent exit code $rc; stderr log: $log)" >&2; fi
 done <"$root/bench/tasks.txt"

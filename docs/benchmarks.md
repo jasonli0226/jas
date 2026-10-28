@@ -17,6 +17,19 @@ Method follows design §7. Reproduce with `make bench` (jas) and
   to match jas's OpenAI-style `prompt_tokens`.
 - Linux x86_64, Go 1.27.3, jas built with `make build` (7,479,456 bytes).
 
+### Provenance
+
+- Date: 2026-10-29. n = 1 per task per agent.
+- jas: built from the working tree on top of commit `bc2e7be` (Task 15 changed
+  no jas source files, only `bench/`, docs and a test), before the Task 15
+  commit existed.
+- pi: version 1.4.0 (`pi --version`), default tools and system prompt.
+- Model: `z-ai/glm-5.3` via OpenRouter for both.
+- The jas rows come from the first `bench/run.sh` run. The pi rows come from a
+  re-run after `bench/run.sh` gained `</dev/null` on the agent command (pi read
+  the task list from stdin and stopped after one task). jas does not read
+  stdin in `--approve=never` mode, so its numbers were not re-run.
+
 ## Hygiene
 
 | metric | result | target |
@@ -42,14 +55,19 @@ Method follows design §7. Reproduce with `make bench` (jas) and
 Reading it:
 
 - "Add a header comment to main.go" took 3 turns in jas (target: at most 3). Met.
-- jas sent about 5.6x fewer prompt tokens in total (18.9k vs 105k). Uncached
-  prompt tokens, which is what is billed at full price, were 8.1k for jas and
-  16.3k for pi.
-- pi's cache-hit rate is higher (84% vs 57%) because it re-sends a much larger
-  prompt prefix every turn. jas's rate is lower in absolute terms mainly on
-  the shortest runs, where there are few repeated turns to hit the cache.
+- Totals, mixed result: jas sent about 5.6x fewer prompt tokens (18.9k vs
+  105k) and fewer uncached prompt tokens (8.1k vs 16.3k), but used about
+  twice the completion tokens (3,985 vs 2,045) and was slower overall (34.4 s
+  vs 26.6 s). Turns were 13 vs 14.
+- Part of the prompt-token gap is the size of each agent's system prompt and
+  tool definitions, not only loop efficiency. That also confounds cost:
+  cached, uncached and completion tokens are priced differently, and no
+  dollar cost was computed.
+- pi's cache-hit rate was higher (84% vs 57% in total; 80-94% per task vs
+  24-66%). The cause has not been investigated. Untested hypotheses: prompt
+  prefix stability, or provider cache routing.
 - jas used more completion tokens on the test-writing task (3.4k vs 1.5k) and
-  was slower on it (7 turns, 27 s).
+  was slower on it (7 turns, 27 s vs 6 turns, 15 s).
 
 ## Caveats
 

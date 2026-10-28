@@ -150,7 +150,9 @@ bwrap --ro-bind / / --bind "$PWD" "$PWD" --dev /dev --proc /proc \
 The root is still readable, including `~/.aws` and `~/.ssh`. To hide `$HOME`,
 add `--tmpfs "$HOME"` before the `--bind` (if the project is under `$HOME`,
 the later bind re-exposes it) and pass the key through `JAS_API_KEY`, since
-`~/.jas` will be hidden:
+`~/.jas` will be hidden. The jas binary must live outside `$HOME` (for
+example `/usr/local/bin`; `go install` puts it in `~/go/bin`, which the tmpfs
+hides) or be bound in with `--ro-bind ~/go/bin/jas /usr/local/bin/jas`:
 
 ```sh
 JAS_API_KEY="$OPENROUTER_API_KEY" bwrap --ro-bind / / --tmpfs "$HOME" \
