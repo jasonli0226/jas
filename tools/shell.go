@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -80,6 +81,32 @@ func shellTimeout(p core.ExecPolicy, secs int) time.Duration {
 	return min(d, maxShellTimeout)
 }
 
+var envCmdRe = regexp.MustCompile(`\b(env|printenv)\b`)
+
+// shellTokenSep splits a command line into candidate path words.
+func shellTokenSep(r rune) bool {
+	return strings.ContainsRune(" \t\r\n;|&<>()\"'`=,{}", r)
+}
+
+// blockedCommand is the shell's best-effort deny filter: it refuses commands
+// that mention env/printenv or any word matching the deny floor. It is NOT a
+// security boundary; a shell can always construct paths this does not see.
+func blockedCommand(p core.ExecPolicy, cmd string) bool {
+	if envCmdRe.MatchString(cmd) {
+		return true
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		cmd = strings.NewReplacer("${HOME}", home, "$HOME", home).Replace(cmd)
+	}
+	cmd = strings.ReplaceAll(cmd, `\`, "")
+	for _, tok := range strings.FieldsFunc(cmd, shellTokenSep) {
+		if p.DeniedToken(tok) {
+			return true
+		}
+	}
+	return false
+}
+
 // Shell runs a command with sh -c in the project root.
 type Shell struct{}
 
@@ -105,6 +132,9 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 	}
 	if strings.TrimSpace(a.Command) == "" {
 		return errResult("command is required")
+	}
+	if blockedCommand(p, a.Command) {
+		return errResult("blocked by deny pattern (best-effort, not a security boundary)")
 	}
 	timeout := shellTimeout(p, a.Timeout)
 	tctx, cancel := context.WithTimeout(ctx, timeout)

@@ -51,14 +51,15 @@ func report(err error) int {
 	if err == nil {
 		return core.ExitOK
 	}
+	redact := newRedactor(os.Getenv, nil).Redact
 	var ee *core.ExitError
 	if errors.As(err, &ee) {
 		if ee.Code != core.ExitInterrupted {
-			fmt.Fprintln(os.Stderr, "jas:", err)
+			fmt.Fprintln(os.Stderr, redact("jas: "+err.Error()))
 		}
 		return ee.Code
 	}
-	fmt.Fprintln(os.Stderr, "jas:", err)
+	fmt.Fprintln(os.Stderr, redact("jas: "+err.Error()))
 	return core.ExitFailure
 }
 

@@ -70,6 +70,7 @@ func (Grep) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 		return errResult("project root: %v", err)
 	}
 
+	denied := p.DenyMatcher()
 	var lines []string
 	total := 0
 	walkErr := filepath.WalkDir(start, func(path string, d fs.DirEntry, err error) error {
@@ -78,6 +79,12 @@ func (Grep) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 		}
 		if err != nil {
 			return nil // unreadable entry: skip
+		}
+		if denied(path) { // silently skip every denied entry, not just the start
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			if d.Name() == ".git" {

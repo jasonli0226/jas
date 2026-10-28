@@ -69,13 +69,13 @@ func TestShell_EnvAllowlist(t *testing.T) {
 	t.Setenv("JAS_API_KEY", "sk-test")
 	t.Setenv("JAS_EXTRA_OK", "visible")
 	p := policy(t)
-	r := call(t, Shell{}, p, shellArgs(t, "printenv", 0))
+	r := call(t, Shell{}, p, shellArgs(t, "set", 0))
 	assert.Eq(t, r.IsError, false)
 	assert.NotContains(t, r.Output, "JAS_")
 	assert.Contains(t, r.Output, "PATH=")
 	p.Env = []string{"JAS_EXTRA_OK"}
-	r = call(t, Shell{}, p, `{"command":"printenv"}`)
-	assert.Contains(t, r.Output, "JAS_EXTRA_OK=visible")
+	r = call(t, Shell{}, p, `{"command":"set"}`)
+	assert.Contains(t, r.Output, "JAS_EXTRA_OK='visible'")
 	assert.NotContains(t, r.Output, "JAS_API_KEY")
 }
 
@@ -198,4 +198,26 @@ func TestMutating_IncludesShell(t *testing.T) {
 		names = append(names, tl.Name())
 	}
 	assert.Eq(t, strings.Join(names, ","), "write,edit,shell")
+}
+
+func TestShell_BlocksPrintenvBestEffort(t *testing.T) {
+	p := policy(t)
+	write(t, p, "marker", "x")
+	const want = "blocked by deny pattern (best-effort, not a security boundary)"
+	for _, cmd := range []string{
+		"printenv", "env", "env | sort", "echo hi; /usr/bin/env", "cat .env", "cat sub/.env.local",
+		"cat 'secrets/a'", "cat ./key.pem", "head -1 id_rsa", "cat ~/.ssh/id_ed25519",
+		"cat $HOME/.aws/credentials", "cat " + p.Root + "/.env", "x=.env; cat \"$x\"x",
+	} {
+		r := call(t, Shell{}, p, shellArgs(t, "touch ran; "+cmd, 0))
+		if !r.IsError || r.Output != want {
+			t.Errorf("%q: want blocked, got %+v", cmd, r)
+		}
+		if _, err := os.Stat(filepath.Join(p.Root, "ran")); err == nil {
+			t.Fatalf("%q: command ran", cmd)
+		}
+	}
+	r := call(t, Shell{}, p, shellArgs(t, "cat marker && echo envoy.go", 0))
+	assert.Eq(t, r.IsError, false)
+	assert.Contains(t, r.Output, "x")
 }

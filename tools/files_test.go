@@ -196,3 +196,58 @@ func TestWrite_RefusesOutsideRoot(t *testing.T) {
 	r = call(t, Edit{}, p, `{"path":"../escape.txt","old_string":"a","new_string":"b"}`)
 	assert.Eq(t, r.IsError, true)
 }
+
+func TestEdit_RefusesRedactedMarker(t *testing.T) {
+	p := policy(t)
+	write(t, p, "a.txt", "key=[REDACTED:assignment]\nother\n")
+	write(t, p, "testdata/b.txt", "key=[REDACTED:assignment]\nother\n")
+	const want = "region contains redacted content; re-read the file and edit around the redacted value"
+
+	r := call(t, Edit{}, p, `{"path":"a.txt","old_string":"[REDACTED:assignment]","new_string":"x"}`)
+	assert.Eq(t, r.IsError, true)
+	assert.Eq(t, r.Output, want)
+	r = call(t, Edit{}, p, `{"path":"a.txt","old_string":"other","new_string":"[REDACTED:x]"}`)
+	assert.Eq(t, r.Output, want)
+	r = call(t, Write{}, p, `{"path":"c.txt","content":"a [REDACTED:jwt] b"}`)
+	assert.Eq(t, r.Output, want)
+	_, err := os.Stat(filepath.Join(p.Root, "c.txt"))
+	assert.Eq(t, os.IsNotExist(err), true)
+
+	r = call(t, Edit{}, p, `{"path":"a.txt","old_string":"other","new_string":"fine"}`)
+	assert.Eq(t, r.IsError, false)
+
+	p.RedactSkip = []string{"testdata/**"}
+	r = call(t, Edit{}, p, `{"path":"testdata/b.txt","old_string":"[REDACTED:assignment]","new_string":"x"}`)
+	assert.Eq(t, r.IsError, false)
+	r = call(t, Write{}, p, `{"path":"testdata/c.txt","content":"[REDACTED:jwt]"}`)
+	assert.Eq(t, r.IsError, false)
+}
+
+func TestRead_DeniedByFloor(t *testing.T) {
+	p := policy(t)
+	write(t, p, ".env", "TOKEN=abc")
+	r := call(t, Read{}, p, `{"path":".env"}`)
+	assert.Eq(t, r.IsError, true)
+	assert.Contains(t, r.Output, "path denied by policy")
+	r = call(t, Write{}, p, `{"path":"sub/.env","content":"x"}`)
+	assert.Contains(t, r.Output, "path denied by policy")
+}
+
+func TestLsGrep_SkipDeniedEntries(t *testing.T) {
+	p := policy(t)
+	write(t, p, ".env", "needle=1")
+	write(t, p, "secrets/a.txt", "needle=2")
+	write(t, p, "sub/.env.local", "needle=3")
+	write(t, p, "sub/key.pem", "needle=4")
+	write(t, p, "ok.txt", "needle=5")
+	assert.NoErr(t, os.Symlink(".env", filepath.Join(p.Root, "link")))
+
+	r := call(t, Ls{}, p, `{}`)
+	assert.Eq(t, r.Output, "ok.txt\nsub/")
+	r = call(t, Ls{}, p, `{"path":"sub"}`)
+	assert.Eq(t, r.Output, "")
+	r = call(t, Grep{}, p, `{"pattern":"needle"}`)
+	assert.Eq(t, r.Output, "ok.txt:1:needle=5")
+	r = call(t, Grep{}, p, `{"pattern":"needle","path":"secrets"}`)
+	assert.Eq(t, r.IsError, true)
+}

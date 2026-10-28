@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -148,4 +149,20 @@ func TestNewSessionID(t *testing.T) {
 	id := NewSessionID(time.Date(2006, 10, 29, 15, 4, 5, 0, time.UTC))
 	assert.Eq(t, len(id), len("20061029T150405-abcdef"))
 	assert.Eq(t, id[:16], "20061029T150405-")
+}
+
+func TestEventLog_ArgsRedacted(t *testing.T) {
+	const secret = "sk-or-v1-abcdef0123456789"
+	r := &Redactor{Exact: []string{secret}}
+	p := filepath.Join(t.TempDir(), "e.jsonl")
+	l, err := OpenEventLog(p, nil, r.Redact)
+	assert.NoErr(t, err)
+	args := json.RawMessage(`{"command":"curl -H 'x: ` + secret + `'"}`)
+	assert.NoErr(t, l.Append(EvToolStarted, map[string]any{"tool": "shell", "args": args}))
+	assert.NoErr(t, l.Append("assistant_message", map[string]any{"text": "key is " + secret}))
+	assert.NoErr(t, l.Close())
+	b, err := os.ReadFile(p)
+	assert.NoErr(t, err)
+	assert.NotContains(t, string(b), secret)
+	assert.Contains(t, string(b), "[REDACTED:exact]")
 }

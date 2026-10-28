@@ -1,0 +1,1 @@
+client_secret: hunter2-very-long-secret-value

@@ -57,27 +57,28 @@ func runCmd(ctx context.Context, args []string) error {
 	if o.json {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
-	// TODO(Task 11): pass the secret redactor instead of nil.
-	log, err := core.OpenEventLog(path, tee, nil)
+	policy := core.ExecPolicy{Root: root} // Task 13 fills RedactSkip from config
+	red := newRedactor(os.Getenv, policy.RedactSkip)
+	log, err := core.OpenEventLog(path, tee, red.Redact)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
-	log = core.NewUILog(log, ui)
+	log = core.NewUILog(log, core.NewRedactingUI(ui, red.Redact))
 
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
-		Policy: core.ExecPolicy{Root: root},
+		Policy: policy,
 		Gate: &core.Approver{
 			Level: o.approve, In: os.Stdin, Out: os.Stderr,
 			Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
 		},
-		Log: log,
+		Log: log, Filter: red.Filter,
 	}
 	// TODO(Task 13): pass per-model overrides from config instead of nil.
 	window, known := settings.ContextWindow(o.model, nil)
 	if !known {
-		fmt.Fprintf(os.Stderr, "jas: unknown context window for model %q; assuming %d tokens\n", o.model, window)
+		fmt.Fprintln(os.Stderr, red.Redact(fmt.Sprintf("jas: unknown context window for model %q; assuming %d tokens", o.model, window)))
 	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: &providers.OpenAI{BaseURL: o.baseURL, APIKey: o.apiKey, IdleTimeout: sseIdleTimeout},
@@ -93,6 +94,16 @@ func runCmd(ctx context.Context, args []string) error {
 		fmt.Println()
 	}
 	return err
+}
+
+// newRedactor builds the process-wide secret redactor: the API key value
+// plus the built-in patterns.
+func newRedactor(getenv func(string) string, skip []string) *core.Redactor {
+	r := &core.Redactor{SkipPaths: skip}
+	if k := getenv("JAS_API_KEY"); k != "" {
+		r.Exact = []string{k}
+	}
+	return r
 }
 
 // parseRun reads flags and JAS_* settings. getenv is injected for testing.

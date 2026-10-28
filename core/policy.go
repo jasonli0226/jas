@@ -57,14 +57,11 @@ func (p ExecPolicy) Resolve(path string) (string, error) {
 	if !within(root, resolved) {
 		return "", fmt.Errorf("path outside project root: %s", path)
 	}
-	if err := p.checkDeny(resolved); err != nil {
+	if err := p.checkDeny(path, resolved); err != nil {
 		return "", err
 	}
 	return resolved, nil
 }
-
-// checkDeny is the seam for the deny-list (Task 11).
-func (p ExecPolicy) checkDeny(string) error { return nil }
 
 // evalExisting resolves symlinks of the longest existing prefix of path and
 // re-appends the missing tail.

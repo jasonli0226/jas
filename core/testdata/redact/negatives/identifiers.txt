@@ -1,0 +1,8 @@
+id: 550e8400-e29b-41d4-a716-446655440000
+commit 57a149c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6
+short 6ec0660
+fixture: dGhpcyBpcyBhIHRlc3QgZml4dHVyZSBmb3IgYmFzZTY0IGRlY29kaW5nIG9ubHk=
+checksum sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+tokenizer := NewTokenizer(config)
+password: ""
+secret_name: my-config-map-name

@@ -121,6 +121,9 @@ func (Ls) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		n := e.Name()
+		if p.Denied(filepath.Join(full, n)) { // also follows a symlink entry to its target
+			continue
+		}
 		if e.IsDir() {
 			n += "/"
 		}
@@ -183,6 +186,23 @@ func atomicWrite(path string, data []byte, mode fs.FileMode) error {
 	return d.Sync()
 }
 
+const redactedRegionMsg = "region contains redacted content; re-read the file and edit around the redacted value"
+
+// refuseRedacted refuses a mutation whose text carries a redaction marker
+// (the model would otherwise persist "[REDACTED:...]" over the real value),
+// unless the file matches redact_skip_paths.
+func refuseRedacted(p core.ExecPolicy, full string, texts ...string) (core.Result, bool) {
+	if p.RedactSkipped(full) {
+		return core.Result{}, false
+	}
+	for _, t := range texts {
+		if strings.Contains(t, core.RedactedMarker) {
+			return core.Result{Output: redactedRegionMsg, IsError: true}, true
+		}
+	}
+	return core.Result{}, false
+}
+
 // Write creates or overwrites a file atomically.
 type Write struct{}
 
@@ -212,6 +232,9 @@ func (Write) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (c
 	full, err := p.Resolve(a.Path)
 	if err != nil {
 		return errResult("%v", err)
+	}
+	if res, refused := refuseRedacted(p, full, *a.Content); refused {
+		return res, nil
 	}
 	mode := newFileMode
 	if info, err := os.Stat(full); err == nil {
@@ -265,6 +288,9 @@ func (Edit) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (co
 	full, err := p.Resolve(a.Path)
 	if err != nil {
 		return errResult("%v", err)
+	}
+	if res, refused := refuseRedacted(p, full, a.OldString, *a.NewString); refused {
+		return res, nil
 	}
 	info, err := os.Stat(full)
 	if err != nil {
