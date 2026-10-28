@@ -69,8 +69,13 @@ var redactRules = []redactRule{
 }
 
 // assignRe captures: 1 key, 2 separator, 3 quote/space, 4 value (replaced).
-// The value stops at &, whitespace and quotes.
-var assignRe = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:secret|token|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)(?:[_-][A-Za-z0-9_-]*)?["']?[ \t]*)(:=|[:=])([ \t]*["']?)([A-Za-z0-9_\-+/=.~!@#$%^*]{16,})`)
+// The value stops at &, whitespace and quotes. After the trigger word the key
+// may continue with a snake/kebab suffix or one of a few camelCase tails
+// (Key, AccessKey, Value, Hash: secretKey, jwtSecretKey, tokenValue,
+// passwordHash). Arbitrary camelCase tails (tokenState, maxTokenSize) are not
+// matched, which keeps source-code identifiers out; the gap is camelCase
+// keys with other tails such as apiKeyProd.
+var assignRe = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:secret|token|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)(?:[_-][A-Za-z0-9_-]*|(?i:key)|(?-i:AccessKey|Key|Value|Hash))?["']?[ \t]*)(:=|[:=])([ \t]*["']?)([A-Za-z0-9_\-+/=.~!@#$%^*]{16,})`)
 
 func mark(kind string) string { return RedactedMarker + kind + "]" }
 

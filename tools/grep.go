@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -151,7 +152,13 @@ func grepFile(path string, re *regexp.Regexp, emit func(line int, text string)) 
 	if bytes.IndexByte(head, 0) >= 0 {
 		return
 	}
-	sc := bufio.NewScanner(r)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return
+	}
+	// Collapse PEM private-key blocks first: body lines have no BEGIN header
+	// of their own, so per-line redaction could never recognise them.
+	sc := bufio.NewScanner(strings.NewReader(core.RedactPrivateKeys(string(data))))
 	sc.Buffer(make([]byte, 0, 64<<10), grepMaxFileSize)
 	for n := 1; sc.Scan(); n++ {
 		if re.Match(sc.Bytes()) {

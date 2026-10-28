@@ -89,7 +89,7 @@ func shellTokenSep(r rune) bool {
 }
 
 // blockedCommand is the shell's best-effort deny filter: it refuses commands
-// that mention env/printenv or any word matching the deny floor. It is NOT a
+// that run env/printenv (in command position) or mention any word matching the deny floor. It is NOT a
 // security boundary; a shell can always construct paths this does not see.
 func blockedCommand(p core.ExecPolicy, cmd string) bool {
 	if envCmdRe.MatchString(cmd) {

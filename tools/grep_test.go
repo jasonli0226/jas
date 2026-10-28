@@ -55,3 +55,12 @@ func TestGrep_Errors(t *testing.T) {
 	assert.Eq(t, r.IsError, false)
 	assert.Eq(t, r.Output, "no matches")
 }
+
+func TestGrep_KeyBodyNotLeaked(t *testing.T) {
+	p := policy(t)
+	write(t, p, "notes.txt", "head\n-----BEGIN RSA PRIVATE KEY-----\nBODYLINE1AAAA\n-----END RSA PRIVATE KEY-----\nneedle\n")
+	r := call(t, Grep{}, p, `{"pattern":"BODYLINE"}`)
+	assert.NotContains(t, r.Output, "BODYLINE")
+	r = call(t, Grep{}, p, `{"pattern":"needle"}`)
+	assert.Contains(t, r.Output, "needle")
+}
