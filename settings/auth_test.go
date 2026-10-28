@@ -92,3 +92,22 @@ func TestAuth_RotateReplacesKey(t *testing.T) {
 		t.Fatal("rotate unknown provider should fail")
 	}
 }
+
+func TestAuth_KeylessProviders(t *testing.T) {
+	for _, p := range []string{"ollama", "custom", ""} {
+		k, _, err := ResolveKey(p, envOf(nil), nil)
+		assert.NoErr(t, err)
+		assert.Eq(t, k, "")
+	}
+}
+
+func TestAuth_EnvNameValidated(t *testing.T) {
+	const secret = "sk-or-v1-abcdef"
+	err := AuthAdd(authPath(t), "openrouter", AuthEntry{Env: secret}, envOf(nil))
+	if err == nil {
+		t.Fatal("secret-looking env name should be rejected")
+	}
+	assert.NotContains(t, err.Error(), secret)
+	assert.NoErr(t, ValidEnvName("OPENROUTER_API_KEY"))
+	assert.NoErr(t, ValidEnvName("$OPENROUTER_API_KEY"))
+}

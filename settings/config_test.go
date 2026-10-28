@@ -99,3 +99,16 @@ func TestBuild(t *testing.T) {
 	}
 	assert.Contains(t, err.Error(), "JAS_APPROVE")
 }
+
+func TestConfig_RejectsNaNAndCredentialURLs(t *testing.T) {
+	for _, v := range []string{"NaN", "nan", "Inf", "+Inf"} {
+		if _, err := (File{}).Set("elide_at", v); err == nil {
+			t.Errorf("elide_at=%s should fail", v)
+		}
+	}
+	_, err := File{}.Set("base_url", "https://user:hunter2@host/v1")
+	if err == nil {
+		t.Fatal("userinfo in base_url should fail")
+	}
+	assert.NotContains(t, err.Error(), "hunter2")
+}

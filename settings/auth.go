@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -79,16 +80,43 @@ func ResolveKey(provider string, env func(string) string, auth map[string]AuthEn
 	if e.Key != "" {
 		return e.Key, "auth.json", nil
 	}
-	if provider == ProviderOllama {
-		return "", "none", nil
+	if KeyRequired(provider) {
+		return "", "", fmt.Errorf("no API key for %s: run `jas auth add %s` or set %s", provider, provider, EnvAPIKey)
 	}
-	return "", "", fmt.Errorf("no API key for %s: run `jas auth add %s` or set %s", provider, provider, EnvAPIKey)
+	return "", "none", nil
+}
+
+// KeyRequired reports whether provider cannot run without an API key. Only
+// openrouter needs one; ollama, custom and unset providers may be keyless.
+func KeyRequired(provider string) bool { return provider == ProviderOpenRouter }
+
+var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// ValidEnvName checks an --env value without echoing it (a mistyped key
+// must not be printed back).
+func ValidEnvName(name string) error {
+	if !envNameRE.MatchString(strings.TrimPrefix(name, "$")) {
+		return errors.New("invalid environment variable name (want letters, digits and underscores, e.g. OPENROUTER_API_KEY); did you paste the key itself?")
+	}
+	return nil
+}
+
+// CheckPlaintext is the single JAS_NO_PLAINTEXT_KEYS gate for literal keys.
+func CheckPlaintext(env func(string) string) error {
+	if env(EnvNoPlaintext) == "1" {
+		return fmt.Errorf("%s=1: refusing to store a literal key; use `jas auth add <provider> --env NAME`", EnvNoPlaintext)
+	}
+	return nil
 }
 
 // AuthAdd stores an entry for provider.
 func AuthAdd(path, provider string, e AuthEntry, env func(string) string) error {
-	if e.Env == "" && env(EnvNoPlaintext) == "1" {
-		return fmt.Errorf("%s=1: refusing to store a literal key; use `jas auth add %s --env NAME`", EnvNoPlaintext, provider)
+	if e.Env != "" {
+		if err := ValidEnvName(e.Env); err != nil {
+			return err
+		}
+	} else if err := CheckPlaintext(env); err != nil {
+		return err
 	}
 	m, err := LoadAuth(path)
 	if err != nil {
@@ -111,8 +139,8 @@ func AuthRotate(path, provider, key string, env func(string) string) error {
 	if old.Env != "" {
 		return fmt.Errorf("%s uses env reference $%s; rotate the variable instead", provider, strings.TrimPrefix(old.Env, "$"))
 	}
-	if env(EnvNoPlaintext) == "1" {
-		return fmt.Errorf("%s=1: refusing to store a literal key", EnvNoPlaintext)
+	if err := CheckPlaintext(env); err != nil {
+		return err
 	}
 	m[provider] = AuthEntry{Key: key}
 	return SaveAuth(path, m)

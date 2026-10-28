@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -142,6 +143,9 @@ func oneOf(opts ...string) func(string) error {
 
 func validURL(s string) error {
 	u, err := url.Parse(s)
+	if err == nil && u.User != nil {
+		return fmt.Errorf("must not contain credentials (user:password@); store keys with `jas auth add`")
+	}
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("%q is not a valid http(s) URL", s)
 	}
@@ -167,7 +171,7 @@ func nonNegativeInt(s string) error {
 // fractionOpen accepts 0 < x <= 1.
 func fractionOpen(s string) error {
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || f <= 0 || f > 1 {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 || f > 1 {
 		return fmt.Errorf("%q is not valid: want a number above 0 and at most 1", s)
 	}
 	return nil

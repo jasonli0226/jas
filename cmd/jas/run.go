@@ -57,7 +57,7 @@ func runCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return usageErr("%v", err)
 	}
-	auth, err := settings.LoadAuth(filepath.Join(home, authFile))
+	auth, err := loadAuthForRun(filepath.Join(home, authFile), cfg.Provider)
 	if err != nil {
 		return err
 	}
@@ -161,4 +161,19 @@ func settingsHome() (string, error) {
 		return "", errors.New("cannot locate home directory: set JAS_HOME")
 	}
 	return h, nil
+}
+
+// loadAuthForRun loads auth.json only when key resolution may need it:
+// never when JAS_API_KEY is set. For a provider that may run keyless, an
+// unreadable auth.json is a warning rather than a failure.
+func loadAuthForRun(path, provider string) (map[string]settings.AuthEntry, error) {
+	if os.Getenv(settings.EnvAPIKey) != "" {
+		return nil, nil
+	}
+	auth, err := settings.LoadAuth(path)
+	if err != nil && !settings.KeyRequired(provider) {
+		fmt.Fprintf(os.Stderr, "jas: warning: ignoring stored keys: %v\n", err)
+		return nil, nil
+	}
+	return auth, err
 }

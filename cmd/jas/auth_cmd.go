@@ -81,10 +81,13 @@ func authMutate(op, path, provider, envName string) error {
 		return settings.AuthRemove(path, provider)
 	case "add":
 		if envName != "" {
+			if err := settings.ValidEnvName(envName); err != nil {
+				return usageErr("%v", err)
+			}
 			return settings.AuthAdd(path, provider, settings.AuthEntry{Env: strings.TrimPrefix(envName, "$")}, os.Getenv)
 		}
-		if os.Getenv(settings.EnvNoPlaintext) == "1" {
-			return usageErr("%s=1: refusing to store a literal key; use `jas auth add %s --env NAME`", settings.EnvNoPlaintext, provider)
+		if err := settings.CheckPlaintext(os.Getenv); err != nil {
+			return usageErr("%v", err)
 		}
 		key, err := readSecret(bufio.NewReader(os.Stdin), "API key for "+provider+" (input hidden)")
 		if err != nil {
@@ -95,7 +98,10 @@ func authMutate(op, path, provider, envName string) error {
 		}
 		return settings.AuthAdd(path, provider, settings.AuthEntry{Key: key}, os.Getenv)
 	}
-	// rotate: fail on an unknown provider before prompting for a key.
+	// rotate: fail on a policy or unknown-provider problem before prompting.
+	if err := settings.CheckPlaintext(os.Getenv); err != nil {
+		return usageErr("%v", err)
+	}
 	m, err := settings.LoadAuth(path)
 	if err != nil {
 		return err

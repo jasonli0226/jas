@@ -119,7 +119,7 @@ func configInit(path, home string, file settings.File) error {
 		}
 	}
 	if provider != settings.ProviderOllama {
-		key, err := readSecret(in, "API key (input hidden; leave empty to skip)")
+		key, err := readSecret(in, "API key (input hidden; empty to skip, then use JAS_API_KEY or `jas auth add`)")
 		if err != nil {
 			return err
 		}
