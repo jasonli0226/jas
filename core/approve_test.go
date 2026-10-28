@@ -85,12 +85,31 @@ func TestApprover_NoTTY(t *testing.T) {
 
 func TestApprover_SummaryTruncated(t *testing.T) {
 	var out bytes.Buffer
-	a := &core.Approver{Level: core.AllMutating, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
-	args, _ := json.Marshal(map[string]string{"path": strings.Repeat("a", 500)})
-	_, err := a.Allow(context.Background(), toolByName(t, "write"), args)
+	a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
+	args, _ := json.Marshal(map[string]string{"command": strings.Repeat("a", 2500)})
+	_, err := a.Allow(context.Background(), toolByName(t, "shell"), args)
 	assert.NoErr(t, err)
-	assert.Contains(t, out.String(), "approve write: "+strings.Repeat("a", 200)+"? [y/N] ")
-	assert.NotContains(t, out.String(), strings.Repeat("a", 201))
+	assert.Contains(t, out.String(), strings.Repeat("a", 2000)+" …[+500 more chars]? [y/N] ")
+}
+
+func TestApprover_SanitizesControlChars(t *testing.T) {
+	var out bytes.Buffer
+	a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
+	args, _ := json.Marshal(map[string]string{"command": "a\x1b[2Kb\bc\x00d\u202ee"})
+	_, err := a.Allow(context.Background(), toolByName(t, "shell"), args)
+	assert.NoErr(t, err)
+	for _, bad := range []string{"\x1b", "\b", "\x00", "\u202e"} {
+		assert.NotContains(t, out.String(), bad)
+	}
+	assert.Contains(t, out.String(), `a\x1b[2Kb\x08c\x00d\u202ee`)
+}
+
+func TestApprover_EmptySummaryFallsBackToArgs(t *testing.T) {
+	var out bytes.Buffer
+	a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
+	_, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"cmd":"rm -rf /"}`))
+	assert.NoErr(t, err)
+	assert.Contains(t, out.String(), `approve shell: {"cmd":"rm -rf /"}? [y/N] `)
 }
 
 func TestApprover_CtrlCWhilePrompting(t *testing.T) {
