@@ -16,8 +16,12 @@ import (
 var version = "dev"
 
 const usage = `usage:
-  jas run [--json] [--model M] [--base-url U] "task"
-  jas --version`
+  jas run [--json] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] "task"
+  jas config set|get|unset|list|init
+  jas auth add|list|rm|rotate
+  jas --version
+
+example: jas config set model z-ai/glm-5.3`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -40,6 +44,10 @@ func dispatch(ctx context.Context, args []string) int {
 		return core.ExitOK
 	case "run":
 		return report(runCmd(ctx, args[1:]))
+	case "config":
+		return report(configCmd(args[1:]))
+	case "auth":
+		return report(authCmd(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "jas: unknown command %q\n%s\n", args[0], usage)
 		return core.ExitUsage
@@ -51,7 +59,11 @@ func report(err error) int {
 	if err == nil {
 		return core.ExitOK
 	}
-	redact := newRedactor(os.Getenv, nil).Redact
+	redactor := reportRedactor
+	if redactor == nil {
+		redactor = newRedactor(os.Getenv("JAS_API_KEY"), nil)
+	}
+	redact := redactor.Redact
 	var ee *core.ExitError
 	if errors.As(err, &ee) {
 		if ee.Code != core.ExitInterrupted {

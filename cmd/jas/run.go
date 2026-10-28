@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,25 +20,50 @@ import (
 )
 
 const (
-	defaultHomeDir     = ".jas"
-	sessionsDir        = "sessions"
-	eventsFile         = "events.jsonl"
-	sseIdleTimeout     = 60 * time.Second
-	defaultMaxTurnsEnv = core.DefaultMaxTurns
+	sessionsDir    = "sessions"
+	eventsFile     = "events.jsonl"
+	configFile     = "config.json"
+	authFile       = "auth.json"
+	sseIdleTimeout = 60 * time.Second
 )
 
-type runOpts struct {
-	json           bool
-	model, baseURL string
-	apiKey, prompt string
-	maxTurns       int
-	approve        core.Level
+type runArgs struct {
+	json   bool
+	prompt string
+	flags  map[string]string // setting key -> value, only flags that were passed
 }
 
+// reportRedactor masks the resolved API key in top-level error messages.
+var reportRedactor *core.Redactor
+
 func runCmd(ctx context.Context, args []string) error {
-	o, err := parseRun(args, os.Getenv)
+	ra, err := parseRun(args)
 	if err != nil {
 		return err
+	}
+	home, err := settingsHome()
+	if err != nil {
+		return err
+	}
+	file, err := settings.LoadFile(filepath.Join(home, configFile))
+	if err != nil {
+		return err
+	}
+	cfg, err := settings.Resolve(ra.flags, os.Getenv, file).Build()
+	if err != nil {
+		return usageErr("%v", err)
+	}
+	level, err := core.ParseLevel(cfg.Approve)
+	if err != nil {
+		return usageErr("%v", err)
+	}
+	auth, err := settings.LoadAuth(filepath.Join(home, authFile))
+	if err != nil {
+		return err
+	}
+	key, _, err := settings.ResolveKey(cfg.Provider, os.Getenv, auth)
+	if err != nil {
+		return usageErr("%v", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -47,18 +71,15 @@ func runCmd(ctx context.Context, args []string) error {
 	}
 	root := core.FindRoot(cwd)
 
-	home, err := jasHome(os.Getenv)
-	if err != nil {
-		return err
-	}
 	path := filepath.Join(home, sessionsDir, core.NewSessionID(time.Now()), eventsFile)
 	var tee io.Writer
 	var ui core.UI = core.NewPrinter(os.Stdout)
-	if o.json {
+	if ra.json {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
-	policy := core.ExecPolicy{Root: root} // Task 13 fills RedactSkip from config
-	red := newRedactor(os.Getenv, policy.RedactSkip)
+	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths}
+	red := newRedactor(key, policy.RedactSkip)
+	reportRedactor = red
 	log, err := core.OpenEventLog(path, tee, red.Redact)
 	if err != nil {
 		return err
@@ -70,91 +91,74 @@ func runCmd(ctx context.Context, args []string) error {
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
 		Policy: policy,
 		Gate: &core.Approver{
-			Level: o.approve, In: os.Stdin, Out: os.Stderr,
+			Level: level, In: os.Stdin, Out: os.Stderr,
 			Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
 		},
 		Log: log, Filter: red.Filter,
 	}
-	// TODO(Task 13): pass per-model overrides from config instead of nil.
-	window, known := settings.ContextWindow(o.model, nil)
+	window, known := settings.ContextWindow(cfg.Model, file.ContextOverrides())
 	if !known {
-		fmt.Fprintln(os.Stderr, red.Redact(fmt.Sprintf("jas: unknown context window for model %q; assuming %d tokens", o.model, window)))
+		fmt.Fprintln(os.Stderr, red.Redact(fmt.Sprintf("jas: unknown context window for model %q; assuming %d tokens (set models.%s.context_window)", cfg.Model, window, cfg.Model)))
 	}
 	_, err = core.Run(ctx, core.RunConfig{
-		Provider: &providers.OpenAI{BaseURL: o.baseURL, APIKey: o.apiKey, IdleTimeout: sseIdleTimeout},
-		Model:    o.model, Prompt: o.prompt, System: core.BuildSystem(core.BasePrompt, ""),
-		Exec: exec, Log: log, UI: ui, MaxTurns: o.maxTurns,
-		Budget: &core.Budget{Window: window, ElideAt: core.DefaultElideAt, Keep: core.DefaultKeepToolResults},
+		Provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
+		Model:    cfg.Model, Prompt: ra.prompt, System: core.BuildSystem(core.BasePrompt, ""),
+		Exec: exec, Log: log, UI: ui, MaxTurns: cfg.MaxTurns,
+		Budget: &core.Budget{Window: window, ElideAt: cfg.ElideAt, Keep: cfg.KeepToolResults},
 		SessionMeta: map[string]any{
-			"base_url": o.baseURL, "approve": o.approve.String(), "root": root, "context_files": []string{},
+			"base_url": cfg.BaseURL, "approve": level.String(), "root": root, "context_files": []string{},
 			"context_window": window, "window_known": known,
 		},
 	})
-	if err == nil && !o.json {
+	if err == nil && !ra.json {
 		fmt.Println()
 	}
 	return err
 }
 
-// newRedactor builds the process-wide secret redactor: the API key value
-// plus the built-in patterns.
-func newRedactor(getenv func(string) string, skip []string) *core.Redactor {
+// newRedactor builds the process-wide secret redactor: the resolved API key
+// (from any source) plus the built-in patterns.
+func newRedactor(key string, skip []string) *core.Redactor {
 	r := &core.Redactor{SkipPaths: skip}
-	if k := getenv("JAS_API_KEY"); k != "" {
-		r.Exact = []string{k}
+	if key != "" {
+		r.Exact = []string{key}
 	}
 	return r
 }
 
-// parseRun reads flags and JAS_* settings. getenv is injected for testing.
-// Task 13 replaces the env lookups with the settings package.
-func parseRun(args []string, getenv func(string) string) (runOpts, error) {
+// parseRun reads the run flags. Only flags that were passed are recorded, so
+// they override env and stored config.
+func parseRun(args []string) (runArgs, error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	var o runOpts
-	fs.BoolVar(&o.json, "json", false, "emit the event stream as JSONL on stdout")
-	fs.StringVar(&o.model, "model", getenv("JAS_MODEL"), "model name (JAS_MODEL)")
-	fs.StringVar(&o.baseURL, "base-url", getenv("JAS_BASE_URL"), "provider base URL (JAS_BASE_URL)")
-	approve := fs.String("approve", getenv("JAS_APPROVE"), "approval level: never|shell|mutating (JAS_APPROVE)")
+	var ra runArgs
+	fs.BoolVar(&ra.json, "json", false, "emit the event stream as JSONL on stdout")
+	for _, k := range settings.Keys {
+		if k.Flag {
+			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
+		}
+	}
 	if err := fs.Parse(args); err != nil {
-		return o, usageErr("%v", err)
+		return ra, usageErr("%v", err)
 	}
 	if fs.NArg() != 1 || strings.TrimSpace(fs.Arg(0)) == "" {
-		return o, usageErr(`expected exactly one task argument: jas run [flags] "task"`)
+		return ra, usageErr(`expected exactly one task argument: jas run [flags] "task"`)
 	}
-	o.prompt = fs.Arg(0)
-	if *approve != "" {
-		lvl, err := core.ParseLevel(*approve)
-		if err != nil {
-			return o, usageErr("%v", err)
+	ra.prompt = fs.Arg(0)
+	ra.flags = map[string]string{}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name != "json" {
+			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
-		o.approve = lvl
-	}
-	o.apiKey = getenv("JAS_API_KEY")
-	if o.model == "" {
-		return o, usageErr("missing model: set JAS_MODEL or pass --model")
-	}
-	if o.baseURL == "" {
-		return o, usageErr("missing base URL: set JAS_BASE_URL or pass --base-url")
-	}
-	o.maxTurns = defaultMaxTurnsEnv
-	if v := getenv("JAS_MAX_TURNS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			return o, usageErr("invalid JAS_MAX_TURNS %q: want a positive integer", v)
-		}
-		o.maxTurns = n
-	}
-	return o, nil
+	})
+	return ra, nil
 }
 
-func jasHome(getenv func(string) string) (string, error) {
-	if h := getenv("JAS_HOME"); h != "" {
-		return h, nil
-	}
-	uh, err := os.UserHomeDir()
-	if err != nil {
+// settingsHome returns the jas home dir ($JAS_HOME or ~/.jas).
+func settingsHome() (string, error) {
+	h := settings.Home()
+	if h == "" {
 		return "", errors.New("cannot locate home directory: set JAS_HOME")
 	}
-	return filepath.Join(uh, defaultHomeDir), nil
+	return h, nil
 }

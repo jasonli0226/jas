@@ -20,8 +20,14 @@ import (
 // runJas runs the shared test binary with a clean JAS_* environment.
 func runJas(t *testing.T, env []string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
+	return runJasIn(t, t.TempDir(), env, args...)
+}
+
+// runJasIn is runJas with an explicit working directory.
+func runJasIn(t *testing.T, dir string, env []string, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
 	cmd := exec.Command(testutil.JasBinary(t), args...)
-	cmd.Dir = t.TempDir()
+	cmd.Dir = dir
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "JAS_HOME=" + testutil.TempHome(t)}, env...)
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
