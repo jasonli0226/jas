@@ -21,6 +21,9 @@ const usage = `usage:
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// After the first signal, restore default handling so a second Ctrl-C
+	// kills the process even if shutdown is stuck.
+	go func() { <-ctx.Done(); stop() }()
 	code := dispatch(ctx, os.Args[1:])
 	stop()
 	os.Exit(code)
@@ -51,7 +54,7 @@ func report(err error) int {
 	var ee *core.ExitError
 	if errors.As(err, &ee) {
 		if ee.Code != core.ExitInterrupted {
-			fmt.Fprintln(os.Stderr, "jas:", ee.Reason)
+			fmt.Fprintln(os.Stderr, "jas:", err)
 		}
 		return ee.Code
 	}

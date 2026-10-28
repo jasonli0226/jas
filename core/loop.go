@@ -43,12 +43,22 @@ type Summary struct {
 	Turns int
 	Usage providers.Usage
 	Final string
+	// Messages is the final conversation history, for inspection.
+	Messages []providers.Message
 }
 
 type runState struct {
 	c        RunConfig
 	messages []providers.Message
 	sum      Summary
+	logErr   error // first event-log failure outside the Executor
+}
+
+// note records the first event-log failure.
+func (s *runState) note(err error) {
+	if err != nil && s.logErr == nil {
+		s.logErr = fmt.Errorf("event log: %w", err)
+	}
 }
 
 // Run drives the agent loop: stream a response, run its tool calls, repeat
@@ -160,11 +170,11 @@ func (s *runState) cancelUses(uses []providers.ContentBlock) []providers.Content
 	out := make([]providers.ContentBlock, len(uses))
 	for i, u := range uses {
 		out[i] = providers.ContentBlock{Type: providers.BlockToolResult, ToolUseID: u.ToolUseID, Text: cancelledOutput, IsError: true}
-		_ = s.c.Log.Append(EvToolResult, map[string]any{
+		s.note(s.c.Log.Append(EvToolResult, map[string]any{
 			"call_id": u.ToolUseID, "tool": u.Name, "status": statusCancelled, "output": cancelledOutput,
-		})
+		}))
 	}
-	_ = s.c.Log.Sync()
+	s.note(s.c.Log.Sync())
 	return out
 }
 
@@ -172,13 +182,13 @@ func (s *runState) recordUsage(u providers.Usage) {
 	s.sum.Usage.PromptTokens += u.PromptTokens
 	s.sum.Usage.CompletionTokens += u.CompletionTokens
 	s.sum.Usage.CachedTokens += u.CachedTokens
-	_ = s.c.Log.Append(EvUsage, map[string]any{
+	s.note(s.c.Log.Append(EvUsage, map[string]any{
 		"prompt_tokens": u.PromptTokens, "completion_tokens": u.CompletionTokens, "cached_tokens": u.CachedTokens,
-	})
+	}))
 }
 
 func (s *runState) logAssistant(msg providers.Message, final bool) {
-	_ = s.c.Log.Append(EvAssistantMessage, map[string]any{"text": textOf(msg), "final": final})
+	s.note(s.c.Log.Append(EvAssistantMessage, map[string]any{"text": textOf(msg), "final": final}))
 }
 
 func textOf(m providers.Message) string {
@@ -208,16 +218,26 @@ func classify(err error) (string, int) {
 }
 
 // finish writes session_ended and converts a non-zero code to an *ExitError.
+// A log failure turns an otherwise clean run into exit 1; for other codes it is
+// joined to the returned error so errors.Is finds it.
 func (s *runState) finish(status string, code int, reason string) (Summary, error) {
-	err := s.c.Log.AppendSync(EvSessionEnded, map[string]any{
+	if code == ExitOK && s.logErr != nil {
+		status, code, reason = endFailed, ExitFailure, "event log failure"
+	}
+	s.sum.Messages = s.messages
+	s.note(s.c.Log.AppendSync(EvSessionEnded, map[string]any{
 		"status": status, "exit_code": code, "turns": s.sum.Turns,
 		"prompt_tokens": s.sum.Usage.PromptTokens, "completion_tokens": s.sum.Usage.CompletionTokens,
-	})
-	if code != ExitOK {
-		return s.sum, &ExitError{Code: code, Reason: reason}
+	}))
+	if code == ExitOK && s.logErr != nil { // only session_ended itself failed
+		code, reason = ExitFailure, "event log failure"
 	}
-	if err != nil {
-		return s.sum, fmt.Errorf("event log: %w", err)
+	if code == ExitOK {
+		return s.sum, nil
 	}
-	return s.sum, nil
+	ee := &ExitError{Code: code, Reason: reason}
+	if s.logErr != nil {
+		return s.sum, errors.Join(ee, s.logErr)
+	}
+	return s.sum, ee
 }

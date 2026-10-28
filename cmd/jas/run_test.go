@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -68,6 +70,27 @@ func TestCLI_MaxTurnsFromEnv(t *testing.T) {
 	url, _ := testutil.FakeOpenAI(t, []fake.Turn{call, call})
 	_, _, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=k", "JAS_MAX_TURNS=1"}, "run", "task")
 	assert.Eq(t, code, 4)
+}
+
+func TestCLI_SigintExits130(t *testing.T) {
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "partial", Block: true}})
+	cmd := exec.Command(testutil.JasBinary(t), "run", "--json", "task")
+	cmd.Dir = t.TempDir()
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "JAS_HOME=" + testutil.TempHome(t), "JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=k"}
+	stdout, err := cmd.StdoutPipe()
+	assert.NoErr(t, err)
+	assert.NoErr(t, cmd.Start())
+	// Wait until the run is under way (session_started is on stdout), then interrupt.
+	buf := make([]byte, 1)
+	if _, err := stdout.Read(buf); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	assert.NoErr(t, cmd.Process.Signal(syscall.SIGINT))
+	_, _ = io.Copy(io.Discard, stdout)
+	var ee *exec.ExitError
+	if !errors.As(cmd.Wait(), &ee) || ee.ExitCode() != 130 {
+		t.Fatalf("want exit 130, got %v", ee)
+	}
 }
 
 func TestCLI_Version(t *testing.T) {

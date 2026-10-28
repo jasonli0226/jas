@@ -21,7 +21,9 @@ type Turn struct {
 	Calls []Call
 	Usage providers.Usage
 	Err   error // returned instead of finishing the stream
-	Block bool  // after emitting Text/Calls, wait for ctx cancel and fail with ctx.Err()
+	// OnEmit, if set, runs after Text/Calls were delivered and before Block waits.
+	OnEmit func()
+	Block  bool // after emitting Text/Calls, wait for ctx cancel and fail with ctx.Err()
 }
 
 // Provider replays Turns in order and records each Request it receives.
@@ -82,6 +84,9 @@ func (p *Provider) play(ctx context.Context, i int, t Turn, out chan<- providers
 		if err := send(providers.StreamEvent{ToolCallDelta: d}); err != nil {
 			return err
 		}
+	}
+	if t.OnEmit != nil {
+		t.OnEmit()
 	}
 	if t.Block {
 		<-ctx.Done()

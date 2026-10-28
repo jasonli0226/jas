@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
@@ -158,8 +157,9 @@ func TestRun_CtrlCSynthesizesCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { <-bt.started; cancel() }()
-	_, err := core.Run(ctx, r.cfg)
+	sum, err := core.Run(ctx, r.cfg)
 	assert.Eq(t, exitCode(t, err), core.ExitInterrupted)
+	assertWellFormed(t, sum.Messages, 3)
 	evs := r.events(t)
 	results := map[string]string{}
 	started := 0
@@ -184,8 +184,8 @@ func TestRun_CtrlCSynthesizesCancelled(t *testing.T) {
 func TestRun_CancelMidStreamSynthesizesCancelled(t *testing.T) {
 	r := newRig(t, []fake.Turn{{Calls: []fake.Call{{Name: "ls", Args: `{}`}}, Block: true}})
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(50*time.Millisecond, cancel)
-	_, err := core.Run(ctx, r.cfg)
+	r.prov.Turns[0].OnEmit = cancel
+	sum, err := core.Run(ctx, r.cfg)
 	assert.Eq(t, exitCode(t, err), core.ExitInterrupted)
 	evs := r.events(t)
 	var got []string
@@ -195,6 +195,7 @@ func TestRun_CancelMidStreamSynthesizesCancelled(t *testing.T) {
 		}
 	}
 	assert.Eq(t, strings.Join(got, ","), "cancelled")
+	assertWellFormed(t, sum.Messages, 1)
 	assert.Eq(t, lastEnded(t, evs)["status"].(string), "interrupted")
 }
 
@@ -219,4 +220,89 @@ func TestBuildSystem(t *testing.T) {
 	assert.Eq(t, core.BuildSystem("base", ""), "base")
 	assert.Contains(t, core.BuildSystem("base", "ctx"), "ctx")
 	assert.Contains(t, core.BasePrompt, "interrupted")
+}
+
+// assertWellFormed checks every tool_use has a tool_result with the same ID.
+func assertWellFormed(t *testing.T, msgs []providers.Message, wantUses int) {
+	t.Helper()
+	uses, results := map[string]bool{}, map[string]bool{}
+	for _, m := range msgs {
+		for _, b := range m.Content {
+			switch b.Type {
+			case providers.BlockToolUse:
+				uses[b.ToolUseID] = true
+			case providers.BlockToolResult:
+				results[b.ToolUseID] = true
+			}
+		}
+	}
+	assert.Eq(t, len(uses), wantUses)
+	for id := range uses {
+		if !results[id] {
+			t.Fatalf("tool_use %s has no tool_result", id)
+		}
+	}
+}
+
+// failLog fails Append/AppendSync for the listed event types.
+type failLog struct {
+	core.EventLog
+	fail map[string]bool
+}
+
+var errBoom = errors.New("disk full")
+
+func (l failLog) Append(typ string, d any) error {
+	if l.fail[typ] {
+		return errBoom
+	}
+	return l.EventLog.Append(typ, d)
+}
+func (l failLog) AppendSync(typ string, d any) error {
+	if l.fail[typ] {
+		return errBoom
+	}
+	return l.EventLog.AppendSync(typ, d)
+}
+
+func TestRun_UsageLogFailureIsExit1(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "hi"}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"usage": true}}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitFailure)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("log error not surfaced: %v", err)
+	}
+	end := lastEnded(t, r.events(t))
+	assert.Eq(t, end["status"].(string), "failed")
+	assert.Eq(t, end["exit_code"].(float64), 1.0)
+}
+
+func TestRun_LogFailureKeepsStrongerCode(t *testing.T) {
+	call := fake.Turn{Calls: []fake.Call{{Name: "ls", Args: `{}`}}}
+	r := newRig(t, []fake.Turn{call})
+	r.cfg.MaxTurns = 1
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"assistant_message": true}}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitTurnCap)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("log error not joined: %v", err)
+	}
+}
+
+func TestRun_SessionEndedFailureReported(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Err: &providers.HTTPError{Status: 503}}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"session_ended": true}}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitFailure)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("session_ended failure dropped: %v", err)
+	}
+}
+
+func TestRun_SessionEndedFailureOnSuccessIsExit1(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "hi"}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"session_ended": true}}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitFailure)
 }
