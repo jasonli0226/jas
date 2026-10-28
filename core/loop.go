@@ -35,6 +35,7 @@ type RunConfig struct {
 	Log         EventLog
 	UI          UI
 	MaxTurns    int
+	Budget      *Budget        // nil = no context budget
 	SessionMeta map[string]any // merged into session_started
 }
 
@@ -103,6 +104,9 @@ func (s *runState) loop(ctx context.Context) (status string, code int, reason st
 // run is over (successfully or not).
 func (s *runState) turn(ctx context.Context) (done bool, status string, code int, reason string) {
 	c := s.c
+	if c.Budget != nil && c.Budget.WouldExceed(s.messages) {
+		return true, endContextFull, ExitContextFull, "context window full"
+	}
 	req := providers.Request{
 		Model: c.Model, System: c.System, Tools: c.Exec.Reg.Specs(),
 		Messages: slices.Clone(s.messages),
@@ -124,6 +128,9 @@ func (s *runState) turn(ctx context.Context) (done bool, status string, code int
 	streamErr := <-errc
 	if usage != nil {
 		s.recordUsage(*usage)
+		if c.Budget != nil {
+			c.Budget.Observe(usage.PromptTokens, len(req.Messages))
+		}
 	}
 	msg, uses, doneErr := acc.Done()
 	if streamErr == nil && doneErr != nil {
@@ -145,7 +152,23 @@ func (s *runState) turn(ctx context.Context) (done bool, status string, code int
 		st, code := classify(err)
 		return true, st, code, err.Error()
 	}
+	s.elide()
 	return false, "", 0, ""
+}
+
+// elide replaces old tool results with stubs when the budget says so.
+func (s *runState) elide() {
+	if s.c.Budget == nil {
+		return
+	}
+	msgs, st := s.c.Budget.MaybeElide(s.messages)
+	if st == nil {
+		return
+	}
+	s.messages = msgs
+	s.note(s.c.Log.Append(EvElided, map[string]any{
+		"count": st.Count, "tokens_before": st.TokensBefore, "tokens_after": st.TokensAfter,
+	}))
 }
 
 // streamFailed maps a provider error to an exit. On cancellation, tool calls

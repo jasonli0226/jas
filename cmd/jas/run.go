@@ -16,6 +16,7 @@ import (
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/providers"
+	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/tools"
 )
 
@@ -73,12 +74,19 @@ func runCmd(ctx context.Context, args []string) error {
 		},
 		Log: log,
 	}
+	// TODO(Task 13): pass per-model overrides from config instead of nil.
+	window, known := settings.ContextWindow(o.model, nil)
+	if !known {
+		fmt.Fprintf(os.Stderr, "jas: unknown context window for model %q; assuming %d tokens\n", o.model, window)
+	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: &providers.OpenAI{BaseURL: o.baseURL, APIKey: o.apiKey, IdleTimeout: sseIdleTimeout},
 		Model:    o.model, Prompt: o.prompt, System: core.BuildSystem(core.BasePrompt, ""),
 		Exec: exec, Log: log, UI: ui, MaxTurns: o.maxTurns,
+		Budget: &core.Budget{Window: window, ElideAt: core.DefaultElideAt, Keep: core.DefaultKeepToolResults},
 		SessionMeta: map[string]any{
 			"base_url": o.baseURL, "approve": o.approve.String(), "root": root, "context_files": []string{},
+			"context_window": window, "window_known": known,
 		},
 	})
 	if err == nil && !o.json {
