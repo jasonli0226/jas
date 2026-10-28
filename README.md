@@ -44,7 +44,10 @@ Farm, attach, and the TUI status board ship in v2 — not part of the v1 cut
 
 ## Design
 
-Full design in [docs/design.md](docs/design.md). Core bets:
+Full design in [docs/design.md](docs/design.md). Real-world scenarios in
+[docs/use-cases.md](docs/use-cases.md) — one-shot tasks, CI runs, N-way farm,
+attach, per-project scenario policies (and what jas deliberately isn't).
+Core bets:
 
 1. Small core, pluggable everything — 6 interfaces total (§3)
 2. goroutines + errgroup for parallel tools & tasks
