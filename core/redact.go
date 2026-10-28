@@ -62,16 +62,23 @@ type redactRule struct {
 var redactRules = []redactRule{
 	{"private_key", regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----(?:.*?-----END [A-Z ]*PRIVATE KEY-----|.*)`)},
 	{"jwt", regexp.MustCompile(`eyJ[\w-]+\.[\w-]+\.[\w-]+`)},
-	{"openai_key", regexp.MustCompile(`sk-[A-Za-z0-9_-]{20,}`)},
-	{"github_token", regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}`)},
-	{"aws_key_id", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
+	{"openai_key", regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`)},
+	{"github_token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}`)},
+	{"aws_key_id", regexp.MustCompile(`\bAKIA[0-9A-Z]{16}`)},
 	{"bearer", regexp.MustCompile(`Bearer [A-Za-z0-9._~+/-]{20,}=*`)},
 }
 
-// assignRe captures: 1 key+separator (kept), 2 value (replaced).
-var assignRe = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:secret|token|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*["']?[ \t]*(?::=|[:=])[ \t]*["']?)([A-Za-z0-9_\-+/=.~!@#$%^&*]{16,})`)
+// assignRe captures: 1 key, 2 separator, 3 quote/space, 4 value (replaced).
+// The value stops at &, whitespace and quotes.
+var assignRe = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:secret|token|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)(?:[_-][A-Za-z0-9_-]*)?["']?[ \t]*)(:=|[:=])([ \t]*["']?)([A-Za-z0-9_\-+/=.~!@#$%^*]{16,})`)
 
 func mark(kind string) string { return RedactedMarker + kind + "]" }
+
+// RedactPrivateKeys replaces PEM private-key blocks only. It is stateless, so
+// callers can apply it to a whole file before slicing out a line range.
+func RedactPrivateKeys(s string) string {
+	return redactRules[0].re.ReplaceAllLiteralString(s, mark(redactRules[0].kind))
+}
 
 // Redact replaces every secret found in s with [REDACTED:<kind>].
 func (r *Redactor) Redact(s string) string {
@@ -98,9 +105,13 @@ func redactAssignments(s string) string {
 	var b strings.Builder
 	last := 0
 	for _, m := range idx {
-		vs, ve := m[4], m[5]
+		vs, ve := m[8], m[9]
 		v := s[vs:ve]
-		if strings.Contains(v, RedactedMarker) || shannon(v) < assignMinEntropy || looksLikeCode(v) {
+		if strings.Contains(v, RedactedMarker) || shannon(v) < assignMinEntropy {
+			continue
+		}
+		// Code-shape exemptions only where source code assigns: `:=` or a call.
+		if (s[m[4]:m[5]] == ":=" || (ve < len(s) && s[ve] == '(')) && looksLikeCode(v) {
 			continue
 		}
 		b.WriteString(s[last:vs])

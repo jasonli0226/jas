@@ -251,3 +251,20 @@ func TestLsGrep_SkipDeniedEntries(t *testing.T) {
 	r = call(t, Grep{}, p, `{"pattern":"needle","path":"secrets"}`)
 	assert.Eq(t, r.IsError, true)
 }
+
+func TestRead_OffsetCannotSliceIntoPrivateKey(t *testing.T) {
+	p := policy(t)
+	write(t, p, "notes.txt", "head\n-----BEGIN RSA PRIVATE KEY-----\nBODYLINE1AAAA\nBODYLINE2BBBB\n-----END RSA PRIVATE KEY-----\ntail\n")
+	for _, args := range []string{`{"path":"notes.txt","offset":3}`, `{"path":"notes.txt","offset":4,"limit":1}`, `{"path":"notes.txt","offset":2}`} {
+		r := call(t, Read{}, p, args)
+		assert.NotContains(t, r.Output, "BODYLINE")
+		assert.NotContains(t, r.Output, "END RSA")
+	}
+}
+
+func TestDeny_NestedSecretsDir(t *testing.T) {
+	p := policy(t)
+	write(t, p, "sub/secrets/x", "v")
+	r := call(t, Read{}, p, `{"path":"sub/secrets/x"}`)
+	assert.Contains(t, r.Output, "path denied by policy")
+}

@@ -81,7 +81,7 @@ func shellTimeout(p core.ExecPolicy, secs int) time.Duration {
 	return min(d, maxShellTimeout)
 }
 
-var envCmdRe = regexp.MustCompile(`\b(env|printenv)\b`)
+var envCmdRe = regexp.MustCompile(`(?m)(?:^|[;|&(\x60]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|exec)\s+)*(?:[./~][^\s;|&()\x60]*/)?(?:env|printenv)(?:\s|$|[;|&)\x60])`)
 
 // shellTokenSep splits a command line into candidate path words.
 func shellTokenSep(r rune) bool {

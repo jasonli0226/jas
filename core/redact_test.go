@@ -80,6 +80,9 @@ func TestRedactor_FilterAndSkip(t *testing.T) {
 }
 
 func TestRedact_RealRepoFPSample(t *testing.T) {
+	if raceEnabled {
+		t.Skip("slow under -race; run with plain go test")
+	}
 	root := filepath.Join(runtime.GOROOT(), "src")
 	if _, err := os.Stat(root); err != nil {
 		t.Skip("GOROOT/src unavailable")

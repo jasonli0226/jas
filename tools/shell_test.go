@@ -69,14 +69,34 @@ func TestShell_EnvAllowlist(t *testing.T) {
 	t.Setenv("JAS_API_KEY", "sk-test")
 	t.Setenv("JAS_EXTRA_OK", "visible")
 	p := policy(t)
-	r := call(t, Shell{}, p, shellArgs(t, "set", 0))
+	const probe = `echo "extra=${JAS_EXTRA_OK-unset} key=${JAS_API_KEY-unset} path=${PATH:+set}"`
+	r := call(t, Shell{}, p, shellArgs(t, probe, 0))
 	assert.Eq(t, r.IsError, false)
-	assert.NotContains(t, r.Output, "JAS_")
-	assert.Contains(t, r.Output, "PATH=")
+	assert.Eq(t, strings.TrimSpace(r.Output), "extra=unset key=unset path=set")
 	p.Env = []string{"JAS_EXTRA_OK"}
-	r = call(t, Shell{}, p, `{"command":"set"}`)
-	assert.Contains(t, r.Output, "JAS_EXTRA_OK='visible'")
-	assert.NotContains(t, r.Output, "JAS_API_KEY")
+	r = call(t, Shell{}, p, shellArgs(t, probe, 0))
+	assert.Eq(t, strings.TrimSpace(r.Output), "extra=visible key=unset path=set")
+}
+
+func TestShell_EnvOnlyInCommandPosition(t *testing.T) {
+	p := policy(t)
+	for _, cmd := range []string{
+		"go env GOPATH >/dev/null; echo ok",
+		"cat <<'EOF'\n#!/usr/bin/env python\nEOF\necho ok",
+		"echo python -m venv env",
+		"echo --env-file x",
+	} {
+		r := call(t, Shell{}, p, shellArgs(t, cmd, 0))
+		if r.IsError || strings.Contains(r.Output, "blocked") {
+			t.Errorf("%q: want run, got %+v", cmd, r)
+		}
+	}
+	for _, cmd := range []string{"env", "printenv", "ls; env", "echo $(printenv)", "true && env", "FOO=1 env", "echo x | /usr/bin/env", "sudo env", "(env)", "echo `env`"} {
+		r := call(t, Shell{}, p, shellArgs(t, cmd, 0))
+		if !r.IsError || !strings.Contains(r.Output, "blocked by deny pattern") {
+			t.Errorf("%q: want blocked, got %+v", cmd, r)
+		}
+	}
 }
 
 func TestShell_RunsInRoot(t *testing.T) {

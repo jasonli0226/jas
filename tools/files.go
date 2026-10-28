@@ -62,6 +62,8 @@ func (Read) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (co
 	if err != nil {
 		return errResult("read %s: %v", a.Path, err)
 	}
+	// Redact key blocks over the whole file: a slice may start after BEGIN.
+	data = []byte(core.RedactPrivateKeys(string(data)))
 	if a.Offset > 1 || a.Limit > 0 {
 		data = sliceLines(data, a.Offset, a.Limit)
 	}

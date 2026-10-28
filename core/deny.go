@@ -16,7 +16,7 @@ import (
 // root is or contains $HOME (confinement refuses everything else first);
 // otherwise they act through the shell tool's best-effort filter.
 var DenyFloor = []string{
-	".env*", "**/.env", "**/.env.*", "secrets/**", "**/*.pem", "**/id_rsa*",
+	".env*", "**/.env", "**/.env.*", "secrets/**", "**/secrets/**", "**/*.pem", "**/id_rsa*",
 	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**",
 }
 
