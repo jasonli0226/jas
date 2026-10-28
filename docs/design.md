@@ -5,6 +5,7 @@
 **Status:** picked (weekend project #26, absorbs #7 Rapid / #22 worktree farm / #12 cron cockpit)
 **Repo:** https://github.com/jasonli0226/jas
 **Language:** Go (rationale below)
+**Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 
 ---
 
@@ -36,7 +37,12 @@ Considered Rust seriously. Decision matrix:
 
 **The bottleneck is the LLM round-trip (~2s), not the harness.** Rust's marginal
 perf win is invisible; Go's velocity win is real. If Rust ever becomes the goal,
-the agent-loop design here ports cleanly — the core is ~6 interfaces.
+the agent-loop design here ports cleanly — the core is 6 interfaces (§3).
+
+Prompt assembly is **cache-friendly** (see #5): stable prefix order is
+`system → tools → early messages` so providers with prompt caching keep hitting
+the same prefix. Cold start stays a hygiene metric (§7); the metrics that
+actually measure the harness are cache-hit rate, turns/task, and tokens/task.
 
 ## 3. Architecture
 
@@ -46,23 +52,26 @@ jas (single Go binary)
 ├── core/                    the harness
 │   ├── session.go           one session = prompt + model + toolset + event log
 │   ├── loop.go              the agent loop: build prompt → stream → parse tool calls → execute
-│   ├── tools.go             Tool interface + registry
+│   ├── tools.go             Tool interface + registry (read-only vs mutating)
 │   ├── sandbox.go           exec policy (cwd, timeout, deny patterns, env allowlist,
-│   │                        path confinement)
+│   │                        path confinement). Shell is YOLO in v1 — see §3.1 / #1
+│   ├── approve.go           --approve=never|mutating|shell gate (v1; default never)
 │   ├── redact.go            output redaction middleware (§9 layer 2)
-│   ├── budget.go            token/cost accounting (compaction trigger, §7 metrics)
-│   └── events.go            everything the agent does is a JSONL event (single writer)
+│   ├── budget.go            prompt-token tracking + tool-result elision (v1); compaction (v2)
+│   └── events.go            versioned JSONL events (single writer; §3.2)
 │
-├── providers/               OpenAI-compatible HTTP (chat completions + SSE)
-│   └── openai.go            any OpenRouter/vLLM/ollama endpoint. No SDK deps.
+├── providers/               provider-neutral stream; OpenAI chat-completions adapter (v1)
+│   ├── types.go             Message / ContentBlock / StreamEvent (provider-neutral)
+│   └── openai.go            OpenRouter/vLLM/ollama. Retry/backoff, SSE idle timeout.
 │
-├── tools/                   built-in toolset (v1)
-│   ├── shell.go             run commands (sandboxed)
+├── tools/                   built-in toolset (v1; mcp/web/git_clone = v2)
+│   ├── shell.go             run commands (YOLO + --approve gate; §3.1)
 │   ├── files.go             read/write/edit/ls (edit = exact-match replace, see below)
 │   ├── grep.go              regex search (ripgrep-style, no ripgrep dep)
-│   └── mcp.go               MCP client (stdio + HTTP) — external tools become tools
+│   ├── git_clone.go         shallow clone, path-confined to session dir (v2; §12.1)
+│   └── mcp.go               MCP client (stdio + HTTP) — external tools become tools (v2)
 │
-├── settings/                ~/.jas/ agent dir (§10, v2 — v1 uses env vars only)
+├── settings/                ~/.jas/ agent dir (§10, v2 — v1 uses env vars + AGENTS.md)
 │   ├── config.go            scoped resolution: CLI > project > global > defaults
 │   └── auth.go              auth.json / models.json, key resolution
 ├── scenario/                loader + merger + bootstrap (§8, v2)
@@ -80,49 +89,121 @@ jas (single Go binary)
 │
 └── cmd/jas/
     ├── main.go              single binary entry
-    └── commands.go          jas run | jas farm | jas attach | jas tasks
+    └── commands.go          jas run [--approve=…] | jas farm | jas attach | jas tasks
 ```
+
+### The six interfaces
+
+README's "6 interfaces total" are these (everything else is data or a thin
+adapter). See also #5.
+
+| # | Interface | Role |
+|---|---|---|
+| 1 | `Provider` | `Stream(ctx, req) ←chan StreamEvent` — LLM round-trips |
+| 2 | `Tool` | `Name / Schema / Call` — built-ins + MCP wrappers |
+| 3 | `EventLog` | append-only versioned JSONL writer (audit + resume + future RPC) |
+| 4 | `ExecPolicy` | cwd, timeout, env allowlist, path confinement, deny patterns |
+| 5 | `Approver` | `--approve=never\|mutating\|shell` gate before tool exec |
+| 6 | `UI` | print / JSONL-stdout / (v2) TUI+attach |
+
+Provider-neutral types live in `providers/types.go`: `Message`, `ContentBlock`
+(text / tool_use / tool_result), `StreamEvent`, `Usage`. The OpenAI
+chat-completions + SSE adapter is the only v1 backend; Anthropic-style deltas
+are handled inside that adapter (or a later one), never leaked into the loop.
+The provider layer retries 429/5xx with exponential backoff and enforces an
+SSE idle timeout (no bytes for N seconds → cancel the stream).
 
 ### The agent loop (core, ~200 lines)
 
 ```go
 for turn := 0; turn < maxTurns; turn++ {      // JAS_MAX_TURNS, default 50
-    stream := provider.Stream(ctx, messages)  // SSE stream
+    if budget.WouldExceed(messages) {         // v1: prompt_tokens vs model window
+        return errContextFull                 // clean stop; summarization = v2
+    }
+    stream := provider.Stream(ctx, messages)  // SSE; retry/backoff inside provider
     acc := newAccumulator()                   // tool calls arrive as *deltas*
     for ev := range stream {                  // single pass: print text AND reassemble
         if ev.Text != "" { ui.Print(ev) }
-        acc.Add(ev)                           // (reassembly is the fiddliest 100 lines here)
+        acc.Add(ev)
     }
     msg, tc := acc.Done()
     messages.Append(msg)
     if len(tc) == 0 { break }                 // no tool calls → final answer
-    results := exec.Run(ctx, tc)              // read-only tools in parallel, mutating tools
-                                              // serialized; results returned in tc order
+    results := exec.Run(ctx, tc)              // see Tool execution policy below
     // errors are RESULTS, not failures — the model sees the error and retries
     messages.Append(results...)
-    // ctx can be cancelled: Ctrl-C aborts the stream, events.jsonl keeps state
+    budget.ElideOldToolResults(messages, K)   // keep last K verbatim; stub the rest
+    // ctx cancel (Ctrl-C): abort stream, synthesize cancelled tool results, flush log
 }
 ```
 
-**Tool execution policy.** Each tool declares whether it is read-only
-(`read`, `ls`, `grep`) or mutating (`write`, `edit`, `shell`, MCP tools by
-default). Read-only calls run in parallel; mutating calls run one at a time, in
-the order the model emitted them. Results are always returned in `tool_call`
-order, regardless of completion order. Every tool result is capped
-(`JAS_MAX_TOOL_OUTPUT`, default 32KB): longer output is truncated with a
-`[truncated: N more lines]` marker, so one large `grep` cannot exhaust the
-context window (compaction does not exist until v2).
+### Tool execution policy
 
-Every step appends a JSONL event to `<session>/events.jsonl` — the audit log
-and, from v2, the checkpoint/resume primitive.
-**Single writer:** all appends (loop, parallel tool exec, farm tasks) go through
-one events.Writer goroutine; concurrent callers just send events. The writer
-fsyncs after each turn's tool results.
+Each tool declares whether it is read-only (`read`, `ls`, `grep`) or mutating
+(`write`, `edit`, `shell`). MCP tools default to **mutating** unless the MCP
+descriptor sets `readOnlyHint` (safe default: external tools are untrusted).
+See #3.
 
-**Side effects and resume.** A mutating tool call writes a `tool_started` event
-before it executes and a `tool_result` event after. On resume (v2), a
-`tool_started` with no matching `tool_result` is never re-executed: it is
-recorded as an `interrupted` result and the model decides what to do next.
+Execution batches by consecutive kind:
+
+1. Walk the model's `tool_calls` in order.
+2. A run of consecutive read-only calls executes **in parallel** (errgroup).
+3. Each mutating call is a **barrier**: wait for the prior batch, run the
+   mutator alone, then continue. `[read A, edit A, read A]` therefore observes
+   A before and after the edit — never both reads racing the edit.
+4. Results are always returned in `tool_call` order, regardless of completion
+   order.
+
+Every tool result is capped (`JAS_MAX_TOOL_OUTPUT`, default 32KB): longer
+output is truncated with a `[truncated: N more lines]` marker. On top of that,
+v1 tracks `usage.prompt_tokens` against the per-model window and **elides**
+old tool results (keep the last K verbatim; earlier ones become
+`[elided: read foo.go 412 lines]`). A provider `context_length_exceeded`
+becomes a clean stop with a clear message. Full summarization compaction
+(pi's `window − reserve` threshold) stays v2. See #2.
+
+### Event log & resume
+
+Every step appends a versioned JSONL event to `<session>/events.jsonl` — the
+audit log and, from v2, the checkpoint/resume + RPC wire format. Record shape
+from day one (see #6):
+
+```json
+{"v":1,"id":"…","parent_id":"…","seq":42,"ts":"…","type":"tool_started", …}
+```
+
+`parent_id` is null for the trunk in v1; v2 session-tree/fork fills it in for
+free. **Single writer:** all appends go through one `EventLog` goroutine;
+concurrent callers send events. The writer fsyncs after each turn's tool
+results — and, for mutating calls, fsyncs `tool_started` **before** the call
+executes (write-ahead; see #4).
+
+**Side effects and resume (v1 design, resume shipped in v2):**
+
+1. Mutating call → fsync `tool_started` → execute → `tool_result`.
+2. On resume, a `tool_started` with no matching `tool_result` is **never**
+   re-executed: it is recorded as an `interrupted`/`cancelled` result and the
+   model decides next.
+3. Ctrl-C mid-turn synthesizes `cancelled` tool results for any dangling
+   `tool_calls` so the next chat-completions request is well-formed (no 400).
+4. Shell children run with `Setpgid: true`; cancel kills the process group and
+   uses `WaitDelay` so grandchildren cannot outlive the tool call.
+
+### 3.1 Shell security stance (v1)
+
+**pi-style YOLO, documented loudly** (see #1). Path confinement and the deny
+floor apply to the *file* tools. The `shell` tool inherits an allowlisted env
+(`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`, plus scenario additions)
+and can still reach anything `HOME` can — `cat ~/.aws/credentials`,
+`python -c`, `curl`. In-process string guards on the command line are theater
+and are **not** claimed as a security boundary.
+
+- v1 CLI: `--approve=never|mutating|shell` (default `never` = permissive).
+  The tool-exec path always consults the Approver so the gate is real even
+  when it defaults open.
+- If you care about isolation: run jas (or each farm task) inside
+  **bubblewrap/Docker**. That is the documented answer in v1 and the planned
+  per-task option in v3 — not a pretend in-process sandbox.
 
 ### The Tool interface (the whole extensibility story)
 
@@ -135,21 +216,29 @@ type Tool interface {
 ```
 
 - Built-ins implement it directly.
-- MCP servers are loaded at startup and their tools wrapped into the same interface.
+- MCP servers (v2) are loaded at startup and wrapped into the same interface;
+  default to mutating unless `readOnlyHint` is set (Tool execution policy above).
 - **Edit format:** the `edit` tool takes `{path, old_string, new_string}`.
   `old_string` must match exactly once in the file (otherwise the call returns an
   error asking for more context). This is the same exact-match format pi and
   Claude Code use; it is more reliable with current models than unified diffs.
-  `write` and `edit` reject any content containing a `[REDACTED:` marker (§9),
-  so redacted text can never be written back to disk.
+  `write`/`edit` refuse content containing a `[REDACTED:` marker (§9) with an
+  explicit **"region contains redacted content"** error (not a silent no-match
+  loop — see #7). Per-path opt-out covers fixture/docs paths that legitimately
+  hold example keys.
 - **Path confinement:** file tools resolve paths with `filepath.EvalSymlinks`
   and refuse anything outside the project root before the deny-list check runs.
+  (Does not confine `shell` — see §3.1 / #1.)
 - **Shell environment:** `shell` runs children with an allowlisted environment
   (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`, plus names the scenario
   adds), never jas's own environment. `JAS_API_KEY` and other provider keys
   are never visible to tools.
-- **Skills (later)**: a skill = instruction file + optional tool manifests; loaded into
-  system prompt or a toolset, Hermes-style. Not in v1.
+- **Project instructions (v1):** load `AGENTS.md` (and `CLAUDE.md` as a
+  fallback) from cwd into the system prompt — ~20 lines, large lift (#8).
+  Complements, does not replace, `scenario.yaml` runtime policy (#9).
+- **Skills (v3):** a skill = `SKILL.md` + optional tool manifests per the
+  agentskills.io spec; loaded into system prompt or a toolset. Interop with
+  Claude Code/Hermes. Not in v1.
 
 ## 4. v1 scope (weekend one)
 
@@ -158,22 +247,33 @@ coding task end-to-end.
 
 - [ ] `jas run "task string"` — streaming chat loop, OpenAI-compatible endpoint
 - [ ] `jas run --json` — emit events to stdout as JSONL (cheap; the future RPC wire format)
+- [ ] `jas run --approve=never|mutating|shell` — approval gate on the tool-exec path
+      (default `never`; see §3.1 / #1)
 - [ ] built-in tools: shell, read/write/edit file, ls, grep
-- [ ] tool execution policy: read-only parallel, mutating serialized, per-call
-      timeout, output cap (§3)
+- [ ] tool execution policy: consecutive read-only batches in parallel; each
+      mutating call is a barrier; MCP defaults mutating unless `readOnlyHint` (§3 / #3)
+- [ ] context budget (#2): track `usage.prompt_tokens` vs per-model window;
+      elide old tool results (keep last K); `context_length_exceeded` → clean stop
 - [ ] `JAS_MAX_TURNS` cap (default 50) — cost caps are v2, so v1 needs a runaway stop
-- [ ] SSE tool-call delta reassembly (fuzz-tested against recorded streams)
-- [ ] JSONL event log at `~/.jas/sessions/<id>/events.jsonl` (single writer);
-      token usage logged per request. v1 creates `~/.jas/sessions/` only; the
-      rest of the settings dir is v2
-- [ ] secrets layers 1, 2 and 4 (§9): compiled-in deny floor, output redaction,
-      redacted event log; shell env allowlist; path confinement
+- [ ] SSE tool-call delta reassembly (fuzz-tested against recorded streams);
+      provider retry/backoff on 429/5xx; SSE idle timeout (#5)
+- [ ] versioned JSONL event log at `~/.jas/sessions/<id>/events.jsonl`
+      (`v`, `id`, `parent_id`, `seq`, `ts`, `type` — #6); single writer;
+      fsync `tool_started` before mutating exec; synthesize `cancelled` results
+      on Ctrl-C; process-group kill (#4). Token usage logged per request.
+      v1 creates `~/.jas/sessions/` only; the rest of the settings dir is v2
+- [ ] load `AGENTS.md` / `CLAUDE.md` from cwd into the system prompt (#8)
+- [ ] secrets layers 1, 2 and 4 (§9): compiled-in deny floor, output redaction
+      (with explicit redacted-region edit error + per-path opt-out — #7),
+      redacted event log; shell env allowlist; path confinement (file tools)
 - [ ] `JAS_MODEL`, `JAS_BASE_URL`, `JAS_API_KEY` env config (settings dir = v2)
-- [ ] benchmark: cold start vs pi; tokens/latency on 3 fixed tasks (§7)
+- [ ] benchmarks: hygiene cold start; primary = cache-hit / turns / tokens (§7 / #13)
 - [ ] README + demo GIF
 
 **Explicitly out of v1:** MCP, TUI, farm, skills, scenarios (and therefore
-project trust). Resist scope creep.
+project trust), full summarization compaction. Resist scope creep.
+Shell isolation for people who care = run under bubblewrap/Docker (documented;
+per-task containers ship in v3).
 
 ## 5. v2 scope (weekend two+)
 
@@ -181,18 +281,18 @@ project trust). Resist scope creep.
 - [ ] `jas attach` — interactive takeover of a running task
 - [ ] MCP client support (stdio first, then HTTP)
 - [ ] Bubble Tea TUI: live status board of running/queued tasks
-- [ ] **Auto-compaction** (pi parity, critical gap): trigger at `window − reserve`
+- [ ] **Auto-compaction** (pi parity): trigger at `window − reserve`
       (16k default); summarize older history with a cheap model into a summary
-      entry; originals kept in the session file
-- [ ] **Session tree**: events gain a parent ID → branches, fork, clone
-      (branch summaries reuse compaction)
+      entry; originals kept in the session file (v1 already elides tool results)
+- [ ] **Session tree**: `parent_id` already on events from v1 → branches, fork,
+      clone (branch summaries reuse compaction)
 - [ ] **RPC mode**: long-lived `jas serve` speaking JSONL on stdio — the farm
       runner, TUI, and future Telegram bot all talk to it
 - [ ] **Scenarios** (§8) and **project trust** (§11), shipped together: trust
       only matters once project scenarios can declare hooks/MCP
 - [ ] **Checkpoint/resume** from `events.jsonl` replay (§3 side-effect rules)
 - [ ] **Blind secret access** (§9 layer 3)
-- [ ] **Web access**: `web_fetch` + `web_search` scenario tools (§12.1)
+- [ ] **Web access**: `web_fetch` + `web_search` + `git_clone` scenario tools (§12.1)
 - [ ] **Steering & follow-up queues**: user messages enter after the current
       turn or after the run ends; one-at-a-time/all
 - [ ] **Evals**: fixed-task eval harness with fixtures — with/without scenario
@@ -201,34 +301,51 @@ project trust). Resist scope creep.
 ## 6. v3 ideas
 
 - skills (instruction+tool manifests) — Hermes-style, aligned with the
-  agentskills.io spec (pi follows it; interop with Claude Code/Hermes)
+  agentskills.io `SKILL.md` spec (pi follows it; interop with Claude Code/Hermes)
+- optional `.mcp.json` interop alongside `scenario.yaml`'s `mcp:` block
+  (scenario.yaml remains the single runtime-policy format — #9)
 - **`jas learn <topic>`**: research → draft → save a skill (see §12.2)
 - codemode: model-written JS in a **goja** (pure-Go JS) sandbox, tools as the
   only capability (absorbs backlog #14 mini-codemode)
 - virtual models: routing model that dispatches each request to a physical
   model (`jas/auto:low → cheap-model`) (absorbs backlog #3)
 - git-installable scenario/skill packages (`jas scenario install git:…`)
-- containerized farm tasks (bubblewrap/Docker)
+- containerized farm tasks (bubblewrap/Docker) — same isolation answer
+  documented for v1 (#1), now a first-class per-task option
 - tool-trace replay & cost simulator (absorbs backlog #11)
 - Jev-classifier tool-risk gate (absorbs #5)
 - OTel export of sessions (telemetry)
 
 ## 7. Benchmarks (v1 acceptance)
 
-| metric | target |
-|---|---|
-| cold start | < 50ms (`jas --version`; `jas run` up to the first HTTP request sent) |
-| binary size | < 15MB static |
-| simple task | "add a header comment to main.go" — correct, ≤ 3 model turns |
-| fixed tasks | 3 fixed tasks: wall-clock time, time to first token, total tokens — reported vs pi on the same model |
+Cold start stays a **hygiene** metric (guards accidental dependency bloat —
+essentially free via `go build`). Primary metrics measure whether the harness
+(prompt construction, tool policy, output caps, elision) is efficient — which
+is jas's thesis. See #13.
 
-## 8. Scenarios: declarative, bootstrap + blueprint lifecycle (v2)
+| kind | metric | target |
+|---|---|---|
+| hygiene | cold start | < 50ms (`jas --version`; `jas run` up to the first HTTP request sent) |
+| hygiene | binary size | < 15MB static |
+| primary | cache-hit rate | report vs pi on the same model/provider (stable prompt prefix §2) |
+| primary | turns / task | 3 fixed tasks: fewer is better; "add a header comment to main.go" ≤ 3 turns |
+| primary | tokens / task | same 3 fixed tasks: total prompt+completion tokens reported vs pi |
+| secondary | wall-clock / TTFT | reported alongside, not optimized for |
+
+## 8. Scenarios: declarative runtime policy (v2)
 
 A scenario = a preset bundle of (system prompt + toolset + sandbox policy + hooks).
-**Scenarios are data, never hard-coded.** One artifact, two roles:
+**Scenarios are data, never hard-coded.** `.jas/scenario.yaml` in a repo governs
+how jas operates there — the **single runtime-policy format** (deny patterns,
+sandbox, toolsets, hooks, mcp). See #9.
 
-- **Runtime rules** — `.jas/scenario.yaml` in a repo governs how jas operates there
-- **Blueprint** — a saved best-practice preset that governs how jas *creates* a new project
+- **AGENTS.md** (adopted in v1, #8) complements scenario.yaml: project
+  instructions for the model. It cannot express runtime policy.
+- **SKILL.md / `.mcp.json`** stay on the v3 roadmap for interop; they do **not**
+  replace `scenario.yaml`.
+- **Blueprints** (scaffold-from-preset / `jas new` / `jas scenario save`) are
+  **dropped** — they don't advance the agent loop. `jas bootstrap` (below)
+  still drafts a scenario from an existing project.
 
 ### 8.1 Discovery & precedence (most specific wins, layer-merge)
 
@@ -238,8 +355,8 @@ Scenario discovery follows the single resolution order defined in §10:
 CLI flag            jas run --scenario <path>       explicit, wins
 └── env vars        JAS_MODEL / JAS_BASE_URL / ...  transient overrides
     └── project     .jas/scenario.yaml              per-project, versioned with repo
-        └── global  ~/.jas/config.json +            personal defaults and
-                    ~/.jas/scenarios/<name>/        blueprints
+        └── global  ~/.jas/config.json +            personal defaults
+                    ~/.jas/scenarios/<name>/
             └── built-in scenarios/ (Go-compiled)   2-3 starter presets
 ```
 
@@ -258,10 +375,14 @@ sandbox:
   deny: ["data/**:write", ".git/**:write", ".env*", "secrets/**", "**/.env"]
 hooks:
   post_run:    [{script: .jas/hooks/summarize-metrics.sh}]
-  pre_commit:  [{script: .jas/hooks/lint.sh}]
+  pre_apply:   [{script: .jas/hooks/lint.sh}]   # before file-mutation applied (#10)
 mcp:
   - {command: uvx, args: [mcp-server-git]}
 ```
+
+`pre_apply` runs before any file-mutation tool result is applied to disk
+(renamed from the earlier `pre_commit` — jas never commits; commits stay with
+the human / farm review queue). See #10.
 
 ### 8.3 `jas bootstrap` — scenario from an existing project (no LLM)
 
@@ -272,45 +393,16 @@ Deterministic heuristics, instant and repeatable. Writes a draft
 |---|---|
 | `pyproject.toml`/`requirements.txt` | python toolset (uv), venv path, pytest hook |
 | `package.json` | node toolset, npm script shortcuts, jest/vitest hook |
-| `go.mod` | go toolset, `go test ./...` pre-commit hook |
+| `go.mod` | go toolset, `go test ./...` pre_apply hook |
 | `Makefile` targets | named tool shortcuts (`make train` → tool `train`) |
 | `experiments/` + `results.jsonl` / MLflow/W&B config | ML guardrails (data/ deny, run logging) |
 | `next.config.*`/`vite.config.*` | web-app preset: dev-server + screenshot tools |
-| `AGENTS.md`/`CLAUDE.md` | imported verbatim as `system` |
+| `AGENTS.md`/`CLAUDE.md` | noted; already loaded in v1 — bootstrap may mirror into `system` |
 | `.env` present | listed as required env + added to sandbox deny (never read) |
 | `.mcp.json`/Hermes config | converted into the `mcp:` block |
 
-### 8.4 Blueprint lifecycle (save → new → check)
-
-User story: Jason finishes a web-app project with his best practices; saves it;
-later jas builds the next project *following the same rules*.
-
-```sh
-jas scenario save web-app    # diff project vs preset → extract customizations
-jas new web-app ./shop       # scaffold from blueprint + write .jas/scenario.yaml
-jas scenario check           # flag projects older than blueprint's latest rev
-```
-
-Global storage `~/.jas/scenarios/<name>/`:
-
-```
-blueprint.yaml      # scaffold manifest: files, {{ .Name }} placeholders, commands
-rules.yaml          # becomes the new project's .jas/scenario.yaml
-hooks/              # hook scripts copied into new repos
-AGENTS.md.tmpl      # conventions, templated
-```
-
-- Blueprints are **extracted from real working projects**, not hand-written —
-  the blueprint *is* the best practice, no doc/code drift. Re-save to rev.
-- Generated `.jas/scenario.yaml` carries a provenance header
-  (`# scaffolded from web-app blueprint rev 3`).
-- **Convergence:** blueprint = skill = scenario template. Same loader, three
-  entry points. The later "skills" feature (v3) reuses this mechanism.
-- Drift mitigation: `jas scenario check` reports projects whose rules are
-  older than the blueprint rev ("3 projects still on web-app rev 2").
-
 What stays compiled-in: only tool *implementations* and the loader/merger.
-Scenarios and blueprints are 100% data.
+Scenarios are 100% data.
 
 ## 9. Secrets & sensitive data (layers 1, 2, 4 = v1; layer 3 blind secret access = v2)
 
@@ -324,7 +416,7 @@ the transcript, not in the event log.** How peers do it, and what jas adopts:
 | Redaction middleware on tool output | pi, modern harnesses | ✅ output scrubber |
 | Secret proxy (harness holds keys, agent requests "use key X" blind) | OpenAI Codex cloud, pi | ✅ v2 |
 | Env scrubbing for tool subprocesses | Codex, pi | ✅ v1 — shell gets an allowlisted env (§3) |
-| Isolated sandbox FS (no dotfiles mounted) | cloud agents | 🔜 v3 containerized farm tasks. Git worktrees are *not* isolation — they share the user's FS and home dir |
+| Isolated sandbox FS (no dotfiles mounted) | cloud agents | 🔜 documented v1 answer = bubblewrap/Docker (#1); first-class per-task containers in v3. Git worktrees are *not* isolation — they share the user's FS and home dir |
 
 Concretely, four layers (defense in depth — any one failing must not leak):
 
@@ -346,9 +438,14 @@ Concretely, four layers (defense in depth — any one failing must not leak):
      hit `go.sum` hashes, lockfiles and test fixtures, and the model would then
      write `[REDACTED:…]` back into source files.
 
-   Matches are replaced with `[REDACTED:<kind>]`; `write`/`edit` refuse content
-   containing that marker (§3). The scrubber is tested against a fixture corpus
-   that includes false-positive cases (`go.sum`, `package-lock.json`, UUIDs).
+   Matches are replaced with `[REDACTED:<kind>]`. `write`/`edit` refuse content
+   containing that marker with an explicit **"region contains redacted
+   content"** error (§3 / #7) so the model doesn't loop on a silent no-match.
+   Per-path opt-out (fixture/docs paths) is the escape hatch for legitimate
+   example keys. The scrubber is tested against a fixture corpus that includes
+   false-positive cases (`go.sum`, `package-lock.json`, UUIDs) **and** against
+   a sample of real repos — `go.sum` alone is a worst-case corpus, not a
+   representative FP rate (#7).
 3. **Blind secret access (v2):** scenario can declare secrets with a scope:
    ```yaml
    secrets:
@@ -365,17 +462,18 @@ Concretely, four layers (defense in depth — any one failing must not leak):
 4. **Session hygiene:** `events.jsonl` and the model transcript pass through the
    same redaction gate, so crash-resume replays only already-redacted events.
 
-Also denied at the **shell** layer: `env`, `printenv`, `cat .env*` style
-commands are matched against the same deny semantics (the shell tool inspects
-the command string for deny-pattern hits before exec). Not bulletproof —
-that's why layer 2 (output redaction) exists as the backstop.
+Also denied at the **shell** layer as a best-effort filter: `env`, `printenv`,
+`cat .env*` style commands are matched against the same deny semantics (the
+shell tool inspects the command string for deny-pattern hits before exec).
+**Not a security boundary** — §3.1 / #1. Layer 2 (output redaction) is the
+backstop; containers are the isolation answer.
 
 **Acceptance test for v1:** a fixture repo (no scenario) with a `.env` present,
 and `JAS_API_KEY` set; agent is asked "print the config" and "print your
 environment"; transcript and `events.jsonl` must contain zero secret values
 (CI assertion).
 
-## 10. Settings & storage, `~/.jas/` (v2 — v1 uses env vars only)
+## 10. Settings & storage, `~/.jas/` (v2 — v1 uses env vars + AGENTS.md)
 
 jas needs a persistent home — env vars alone can't express per-scenario models,
 saved keys, or per-project defaults. Modeled on pi's agent-dir (verified against
@@ -388,14 +486,16 @@ pi-mono's docs): one settings dir, layered scopes, keys separated from config.
 ├── models.json                # custom OpenAI-compatible endpoints + model overrides
 │                              #   [{name, baseURL, models, apiKeyEnv}]  — NO raw keys here
 ├── auth.json                  # saved API keys (chmod 0600; see §9 for the threat model)
-├── scenarios/                 # blueprints (§8.4): web-app/, ml-experiment/ ...
-├── skills/                    # v3: instruction+tool manifest dirs (same loader as scenarios)
+├── scenarios/                 # saved scenario presets (not blueprints — #9)
+├── skills/                    # v3: instruction+tool manifest dirs
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3)
 └── AGENTS.md                  # global instructions appended to every system prompt
 
 <project>/.jas/
 ├── scenario.yaml              # runtime rules (§8) — project scope, wins over global
 └── hooks/                     # project hook scripts
+
+<project>/AGENTS.md            # loaded in v1 (#8); complements scenario.yaml
 ```
 
 **Resolution order** — the single source of truth for both settings and
@@ -443,10 +543,17 @@ the whole story — no DB, replay = tail the file. This path is used from v1
   transcript and event log when a `.env` is present and `JAS_API_KEY` is set.
 - **Redaction middleware active in v1** — it's ~60 lines of regex and it is the
   backstop for every later tool that produces output. Its fixture corpus
-  includes false-positive cases (`go.sum`, lockfiles) that must pass unredacted.
+  includes false-positive cases (`go.sum`, lockfiles) that must pass
+  unredacted, plus a real-repo FP sample (#7). Edit of a redacted region
+  returns the explicit error; per-path opt-out is tested.
 - **Shell env allowlist and path confinement** (§3) covered by tests:
   `printenv` from the shell tool shows no `JAS_*` keys; `read ../outside` and a
   symlink pointing outside the project root are both refused.
+- **Shell stance documented** (§3.1): YOLO + `--approve`; containers are the
+  isolation answer. No claim that command-string deny is a boundary (#1).
+- **Resume contract tests:** crash between `tool_started` fsync and
+  `tool_result` does not re-exec; Ctrl-C yields cancelled tool results;
+  process-group kill reaps grandchildren (#4).
 
 **v2 — project trust (one-day feature, ships with scenarios):** the first time
 jas sees a project `.jas/scenario.yaml` that declares hooks or MCP servers, it
@@ -477,23 +584,24 @@ search/fetch as a first-class extension.
 - **Fallback chains** — SearXNG (private) first → subscription-backed OpenAI
   search → Exa (zero-config) → Brave → Tavily → … the keyless providers sit
   in the middle so it works with no keys at all
-- **GitHub URLs are cloned, not scraped** — the agent gets real files + a
-  local path to explore, not rendered HTML
+- GitHub cloning is a **separate capability**, not hidden inside fetch
 - The tools also run as a **standalone MCP server** for other agents
 - Fetching remote-hosted providers requires explicit opt-in
   (`fetchRouting.allowRemoteHostedProviders`) — privacy posture by default
 
-jas adopts the same philosophy, formalized:
+jas adopts the same philosophy, formalized (see #11):
 
 - **v1:** nothing. The shell tool gives curl for free.
-- **v2:** two optional scenario tools (pluggable, like pi's MCP approach but native):
-  - `web_fetch <url>` — HTTP GET → HTML stripped to markdown/text (pure Go,
-    `x/net/html`); no proxy requirements; the 80% of "learn something" work
+- **v2:** optional scenario tools (pluggable, like pi's MCP approach but native):
+  - `web_fetch <url>` — **pure** HTTP GET → HTML stripped to markdown/text
+    (pure Go, `x/net/html`). No cloning, no side effects beyond the GET.
   - `web_search <query>` — behind a pluggable provider configured in
     `models.json`-style settings (`search: {provider: tavily|brave|duckduckgo|http}`,
     apiKeyEnv for paid ones; DuckDuckGo HTML scraping needs no key)
-  - **GitHub URLs special-case**: `web_fetch` on a github.com/… URL clones
-    the repo (shallow) instead of scraping — the pi-web-access pattern
+  - `git_clone <url> [dest]` — **explicit** shallow clone, path-confined to
+    the session dir. The model chooses it when it needs repo context; the
+    caller sees the side effects (disk + network). Not a special case of
+    `web_fetch`.
 - Provider chain: `search.providers` list in settings, tried in order;
   default `[duckduckgo]` (keyless), opt-in extras like `[tavily, brave]`
 - Search providers are a tiny interface, not a dependency: `Search(q) []Result`.
@@ -519,23 +627,28 @@ agentskills.io spec (same as pi, so skills interop across Claude Code/Hermes)
 (name + description only; full instructions load on demand — pi's model).
 
 Guardrails: `learn` never overwrites an existing skill without `--force`;
-`jas skills list` shows what's installed; `jas skills rm <name>`. Because
-skills = scenario templates (§8.4 convergence), a learned skill can also
-become a blueprint: `jas scenario save <name>` promotes it.
+`jas skills list` shows what's installed; `jas skills rm <name>`.
 
 ## 13. Risks
 
-- **API compat drift** — pin to chat-completions + SSE; test against OpenRouter AND ollama.
+- **API compat drift** — pin to chat-completions + SSE via a provider-neutral
+  message/event layer (#5); Anthropic-style deltas stay inside the adapter.
+  Test against OpenRouter AND ollama. Retry/backoff on 429/5xx; SSE idle timeout.
 - **SSE delta reassembly** — tool-call chunks split across SSE events differ per
   provider (OpenAI vs Anthropic-style vs vLLM quirks); budget a full day for the
   accumulation logic and fuzz it against recorded streams.
-- **Sandbox safety** — v1 shell tool is opt-in per toolset with deny patterns; document loudly.
-- **Scope creep** — farm/TUI are v2. If v1 takes 3 weekends, it's a bad project, kill features not quality.
-- **Cost runaway** — no budget section yet: v1 logs per-request token usage from
-  the provider response (usage field) into events.jsonl; caps enforced in v2
-  (max tokens per session, per farm task).
+- **Sandbox safety** — v1 shell is YOLO (§3.1 / #1); `--approve` is the gate;
+  containers are the isolation answer. Document loudly; do not claim
+  command-string deny is a boundary.
+- **Scope creep** — farm/TUI/blueprints are out (blueprints dropped entirely,
+  #9). If v1 takes 3 weekends, it's a bad project, kill features not quality.
+- **Context / cost runaway** — v1 tracks prompt tokens, elides old tool
+  results, and clean-stops on `context_length_exceeded` (#2). Cost caps
+  (max tokens per session / farm task) and full summarization compaction
+  are v2. Usage is logged per request into events.jsonl from day one.
 - **Deny-list gaps** — deny semantics are regex/path-glob based and will have
   blind spots (novel secret formats; shell commands that read files indirectly,
   e.g. `python -c`). Symlinks are handled by resolving paths before matching
-  (§3). Mitigation: the redaction middleware is the backstop, and the
-  fixture-corpus tests run on every release.
+  (§3). Mitigation: the redaction middleware is the backstop, containers are
+  the isolation answer, and the fixture-corpus + real-repo FP tests run on
+  every release (#7).
