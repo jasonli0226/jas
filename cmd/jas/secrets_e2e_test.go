@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,12 +15,14 @@ import (
 )
 
 const (
-	secretsJasKey      = "sk-jas-test-0123456789abcdefghij"
-	redactMarker       = "[REDACTED:"
-	minRedactedResults = 2 // the two layer-2 bypass commands
+	secretsJasKey = "sk-jas-test-0123456789abcdefghij"
+	redactMarker  = "[REDACTED:"
 )
 
 func TestSecrets_ZeroLeakAcceptance(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not on PATH; the layer-2 bypass case needs it")
+	}
 	repo := testutil.NewFixtureRepo(t)
 	call := func(name, args string) fake.Turn {
 		return fake.Turn{Calls: []fake.Call{{Name: name, Args: args}}}
@@ -30,7 +33,7 @@ func TestSecrets_ZeroLeakAcceptance(t *testing.T) {
 		call("shell", `{"command":"cat .env"}`),
 		call("shell", `{"command":"printenv"}`),
 		call("shell", `{"command":"env | grep KEY"}`),
-		call("grep", `{"pattern":"API_KEY","path":"."}`),
+		call("grep", `{"pattern":"(?i)api_key","path":"."}`),
 		call("shell", `{"command":"python3 -c \"print(open('.e'+'nv').read())\""}`),
 		call("shell", `{"command":"cat config.yaml"}`),
 		{Text: "I saw everything: .env, config.yaml, printenv, grep output."},
@@ -76,17 +79,67 @@ func TestSecrets_ZeroLeakAcceptance(t *testing.T) {
 		}
 	}
 
-	// Layer 2 proof: the bypass results reached the tool and were redacted.
-	if n := strings.Count(string(reqs[len(reqs)-1]), redactMarker); n < minRedactedResults {
-		t.Errorf("want >= %d %s markers in the final request, got %d", minRedactedResults, redactMarker, n)
+	assertPerLayer(t, string(events), secrets)
+}
+
+type toolResult struct {
+	Output string `json:"output"`
+	Status string `json:"status"`
+	Tool   string `json:"tool"`
+}
+
+// Indexes of tool_result events, in script order.
+const (
+	resReadEnv = iota
+	resReadConfig
+	resCatEnv
+	resPrintenv
+	resEnvGrep
+	resGrep
+	resPython
+	resCatConfig
+	resCount
+)
+
+const (
+	denyFloorMsg  = "path denied by policy"
+	denyFilterMsg = "blocked by deny pattern"
+)
+
+func assertPerLayer(t *testing.T, events string, secrets []string) {
+	t.Helper()
+	var res []toolResult
+	for _, line := range strings.Split(events, "\n") {
+		var ev struct {
+			Type string `json:"type"`
+			toolResult
+		}
+		if line == "" || json.Unmarshal([]byte(line), &ev) != nil || ev.Type != "tool_result" {
+			continue
+		}
+		res = append(res, ev.toolResult)
 	}
-	redacted := 0
-	for _, line := range strings.Split(string(events), "\n") {
-		if strings.Contains(line, `"tool_result"`) && strings.Contains(line, redactMarker) {
-			redacted++
+	if len(res) != resCount {
+		t.Fatalf("want %d tool_result events, got %d", resCount, len(res))
+	}
+	blocked := func(i int, msg string) {
+		if res[i].Status != "error" || !strings.Contains(res[i].Output, msg) {
+			t.Errorf("result %d (%s): want error containing %q, got %s %q", i, res[i].Tool, msg, res[i].Status, res[i].Output)
 		}
 	}
-	if redacted < minRedactedResults {
-		t.Errorf("want >= %d tool_result events with %s, got %d", minRedactedResults, redactMarker, redacted)
+	blocked(resReadEnv, denyFloorMsg)
+	for _, i := range []int{resCatEnv, resPrintenv, resEnvGrep} {
+		blocked(i, denyFilterMsg)
+	}
+	for _, i := range []int{resReadConfig, resGrep, resPython, resCatConfig} {
+		r := res[i]
+		if r.Status != "ok" || !strings.Contains(r.Output, redactMarker) {
+			t.Errorf("result %d (%s): want ok with %s, got %s %q", i, r.Tool, redactMarker, r.Status, r.Output)
+		}
+		for _, s := range secrets {
+			if strings.Contains(r.Output, s) {
+				t.Errorf("result %d (%s) contains secret %q", i, r.Tool, s)
+			}
+		}
 	}
 }
