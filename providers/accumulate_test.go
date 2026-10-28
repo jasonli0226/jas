@@ -2,7 +2,6 @@ package providers
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,56 +9,6 @@ import (
 
 	"github.com/jasonli0226/jas/internal/assert"
 )
-
-// parseChunk converts one OpenAI chat-completions chunk into StreamEvents.
-func parseChunk(t testing.TB, payload []byte) []StreamEvent {
-	t.Helper()
-	var c struct {
-		Choices []struct {
-			Delta struct {
-				Content   string `json:"content"`
-				ToolCalls []struct {
-					Index    int    `json:"index"`
-					ID       string `json:"id"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"delta"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-		Usage *struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-			Details          struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details"`
-		} `json:"usage"`
-	}
-	assert.NoErr(t, json.Unmarshal(payload, &c))
-	var evs []StreamEvent
-	for _, ch := range c.Choices {
-		if ch.Delta.Content != "" {
-			evs = append(evs, StreamEvent{Text: ch.Delta.Content})
-		}
-		for _, tc := range ch.Delta.ToolCalls {
-			evs = append(evs, StreamEvent{ToolCallDelta: &ToolCallDelta{
-				Index: tc.Index, ID: tc.ID, Name: tc.Function.Name, ArgsFragment: tc.Function.Arguments,
-			}})
-		}
-		if ch.FinishReason != "" {
-			evs = append(evs, StreamEvent{FinishReason: ch.FinishReason})
-		}
-	}
-	if c.Usage != nil {
-		evs = append(evs, StreamEvent{Usage: &Usage{
-			PromptTokens: c.Usage.PromptTokens, CompletionTokens: c.Usage.CompletionTokens,
-			CachedTokens: c.Usage.Details.CachedTokens,
-		}})
-	}
-	return evs
-}
 
 func fixtureEvents(t testing.TB, name string) []StreamEvent {
 	t.Helper()
@@ -69,7 +18,9 @@ func fixtureEvents(t testing.TB, name string) []StreamEvent {
 	out, errc := ReadSSE(context.Background(), f, 5*time.Second)
 	var evs []StreamEvent
 	for p := range out {
-		evs = append(evs, parseChunk(t, p)...)
+		chunk, err := parseChunk(p)
+		assert.NoErr(t, err)
+		evs = append(evs, chunk...)
 	}
 	assert.NoErr(t, <-errc)
 	return evs
