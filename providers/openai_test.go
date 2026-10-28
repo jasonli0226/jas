@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -44,7 +45,7 @@ func drainEvents(out <-chan StreamEvent, errc <-chan error) ([]StreamEvent, erro
 }
 
 func newOpenAI(url string) *OpenAI {
-	return &OpenAI{BaseURL: url, APIKey: testKey, Sleep: func(time.Duration) {}}
+	return &OpenAI{BaseURL: url, APIKey: testKey, Sleep: func(context.Context, time.Duration) error { return nil }}
 }
 
 func streamAll(t testing.TB, o *OpenAI) ([]StreamEvent, error) {
@@ -194,10 +195,11 @@ type sleepRecorder struct {
 	d  []time.Duration
 }
 
-func (s *sleepRecorder) sleep(d time.Duration) {
+func (s *sleepRecorder) sleep(_ context.Context, d time.Duration) error {
 	s.mu.Lock()
 	s.d = append(s.d, d)
 	s.mu.Unlock()
+	return nil
 }
 
 func TestOpenAI_RetriesOn429Then200(t *testing.T) {
@@ -329,6 +331,20 @@ func TestOpenAI_ErrorNeverContainsKey(t *testing.T) {
 		t.Fatalf("want *HTTPError, got %v", err)
 	}
 	assert.Eq(t, he.Status, 401)
+
+	// A provider echoing the key in its error body must be redacted.
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(401)
+		fmt.Fprintf(w, `{"error":"bad key %s"}`, testKey)
+	}))
+	defer echo.Close()
+	_, err = streamAll(t, newOpenAI(echo.URL))
+	if !errors.As(err, &he) {
+		t.Fatalf("want *HTTPError, got %v", err)
+	}
+	assert.NotContains(t, he.Body, testKey)
+	assert.NotContains(t, err.Error(), testKey)
+	assert.Contains(t, he.Body, "[REDACTED]")
 }
 
 func TestOpenAI_CachedTokens(t *testing.T) {
@@ -364,5 +380,75 @@ func TestParseChunk_Invalid(t *testing.T) {
 	_, err := parseChunk([]byte("{not json"))
 	if err == nil || !strings.Contains(err.Error(), "chunk") {
 		t.Fatalf("want chunk parse error, got %v", err)
+	}
+}
+
+func TestOpenAI_RetryAfterCapped(t *testing.T) {
+	var n int
+	body := readFixture(t, "text_only.sse")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		if n == 1 {
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(429)
+			return
+		}
+		sseHandler(body)(w, r)
+	}))
+	defer srv.Close()
+	rec := &sleepRecorder{}
+	o := newOpenAI(srv.URL)
+	o.Sleep = rec.sleep
+	_, err := streamAll(t, o)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(rec.d), 1)
+	assert.Eq(t, rec.d[0], 60*time.Second)
+}
+
+func TestOpenAI_CancelDuringBackoff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	o := &OpenAI{BaseURL: srv.URL, APIKey: testKey} // default Sleep
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	out, errc := o.Stream(ctx, Request{Model: "m"})
+	_, err := drainEvents(out, errc)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("cancellation did not interrupt backoff promptly")
+	}
+}
+
+func TestOpenAI_ParseErrorReleasesReadSSE(t *testing.T) {
+	// After a parse error, ReadSSE's goroutines must exit rather than block
+	// on an unread channel.
+	body := []byte("data: {not json\n\ndata: {\"choices\":[]}\n\ndata: {\"choices\":[]}\n\n")
+	srv := httptest.NewServer(sseHandler(body))
+	defer srv.Close()
+	before := runtime.NumGoroutine()
+	for i := 0; i < 20; i++ {
+		o := newOpenAI(srv.URL)
+		// No keep-alive so idle HTTP connection goroutines don't muddy the count.
+		o.HTTP = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+		_, err := streamAll(t, o)
+		if err == nil || !strings.Contains(err.Error(), "parse chunk") {
+			t.Fatalf("want parse error, got %v", err)
+		}
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for runtime.NumGoroutine() > before+2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if g := runtime.NumGoroutine(); g > before+2 {
+		t.Fatalf("goroutines leaked: before=%d after=%d", before, g)
 	}
 }

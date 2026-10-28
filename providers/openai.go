@@ -36,6 +36,7 @@ const (
 	defaultRetries   = 3
 	maxErrBodyBytes  = 4096
 	baseRetryBackoff = time.Second
+	maxRetryWait     = 60 * time.Second
 )
 
 // OpenAI talks to any OpenAI-compatible /chat/completions endpoint.
@@ -44,7 +45,8 @@ type OpenAI struct {
 	HTTP            *http.Client
 	IdleTimeout     time.Duration
 	Retries         int // retries after the first attempt; 0 means the default (3)
-	Sleep           func(time.Duration)
+	// Sleep waits d or returns ctx.Err() if ctx ends first; nil uses a timer.
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 var _ Provider = (*OpenAI)(nil)
@@ -64,6 +66,9 @@ func (o *OpenAI) Stream(ctx context.Context, req Request) (<-chan StreamEvent, <
 }
 
 func (o *OpenAI) run(ctx context.Context, req Request, out chan<- StreamEvent) error {
+	// Cancelling on every return path releases the ReadSSE goroutines.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	body, err := json.Marshal(encodeRequest(req))
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
@@ -112,7 +117,7 @@ func (o *OpenAI) doWithRetry(ctx context.Context, body []byte) (*http.Response, 
 	}
 	sleep := o.Sleep
 	if sleep == nil {
-		sleep = time.Sleep
+		sleep = sleepCtx
 	}
 	backoff := baseRetryBackoff
 	for attempt := 0; ; attempt++ {
@@ -127,7 +132,7 @@ func (o *OpenAI) doWithRetry(ctx context.Context, body []byte) (*http.Response, 
 		case resp.StatusCode/100 == 2:
 			return resp, nil
 		default:
-			herr := readHTTPError(resp)
+			herr := readHTTPError(resp, o.APIKey)
 			if herr.Status == http.StatusBadRequest && strings.Contains(herr.Body, "context_length_exceeded") {
 				return nil, fmt.Errorf("%w: %s", ErrContextLength, herr.Body)
 			}
@@ -142,7 +147,12 @@ func (o *OpenAI) doWithRetry(ctx context.Context, body []byte) (*http.Response, 
 		if attempt >= retries {
 			return nil, err
 		}
-		sleep(wait)
+		if wait > maxRetryWait {
+			wait = maxRetryWait
+		}
+		if err := sleep(ctx, wait); err != nil {
+			return nil, err
+		}
 		backoff *= 2
 	}
 }
@@ -161,10 +171,25 @@ func (o *OpenAI) send(ctx context.Context, client *http.Client, body []byte) (*h
 	return client.Do(hr)
 }
 
-func readHTTPError(resp *http.Response) *HTTPError {
+func readHTTPError(resp *http.Response, apiKey string) *HTTPError {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBodyBytes))
-	return &HTTPError{Status: resp.StatusCode, Body: string(b)}
+	body := string(b)
+	if apiKey != "" {
+		body = strings.ReplaceAll(body, apiKey, "[REDACTED]")
+	}
+	return &HTTPError{Status: resp.StatusCode, Body: body}
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func retryableStatus(s int) bool {
