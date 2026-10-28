@@ -1,5 +1,3 @@
-//go:build unix
-
 package tools
 
 import (
@@ -13,7 +11,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/jasonli0226/jas/core"
@@ -33,8 +30,8 @@ var baseEnv = []string{"PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR"}
 // ShellEnv builds the child environment: only the base allowlist plus the
 // extra names, taken from os.Environ().
 func ShellEnv(extra []string) []string {
-	allowed := make(map[string]bool, len(baseEnv)+len(extra))
-	for _, n := range baseEnv {
+	allowed := make(map[string]bool, len(baseEnv)+len(extraBaseEnv)+len(extra))
+	for _, n := range append(append([]string{}, baseEnv...), extraBaseEnv...) {
 		allowed[n] = true
 	}
 	for _, n := range extra {
@@ -107,12 +104,12 @@ func blockedCommand(p core.ExecPolicy, cmd string) bool {
 	return false
 }
 
-// Shell runs a command with sh -c in the project root.
+// Shell runs a command in the platform shell in the project root.
 type Shell struct{}
 
 func (Shell) Name() string { return "shell" }
 func (Shell) Description() string {
-	return "Run a shell command (sh -c) in the project root. Returns combined stdout and stderr, and the exit status when non-zero."
+	return "Run a shell command (" + shellInvocation() + ") in the project root. Returns combined stdout and stderr, and the exit status when non-zero."
 }
 func (Shell) Kind() core.Kind { return core.Mutating }
 func (Shell) Schema() json.RawMessage {
@@ -149,15 +146,11 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 		return errResult("could not run command: %v", err)
 	}
 	defer pr.Close()
-	cmd := exec.CommandContext(tctx, "sh", "-c", a.Command)
+	cmd, killGroup := shellSpawn(tctx, a.Command)
 	cmd.Dir = p.Root
 	cmd.Env = ShellEnv(p.Env)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
 	cmd.WaitDelay = shellWaitDelay
 
 	copied := make(chan struct{})
@@ -170,11 +163,11 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 	if startErr != nil {
 		return errResult("could not run command: %v", startErr)
 	}
-	pgid := cmd.Process.Pid
+	pid := cmd.Process.Pid
 	runErr := cmd.Wait()
 	// Grandchildren must not outlive the call: kill the group on every path
 	// (ESRCH when it is already gone is fine), which also closes the pipe.
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	killGroup(pid)
 	select {
 	case <-copied:
 	case <-time.After(shellWaitDelay):

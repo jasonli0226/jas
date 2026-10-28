@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # required to create the GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: 0
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          targets=(
+            "linux amd64 tar.gz"
+            "linux arm64 tar.gz"
+            "windows amd64 zip"
+          )
+          for target in "${targets[@]}"; do
+            set -- ${target}
+            goos="$1"; goarch="$2"; ext="$3"
+            name="jas_${VERSION}_${goos}_${goarch}"
+            bin="dist/${name}/jas"
+            [ "${goos}" = "windows" ] && bin="${bin}.exe"
+            GOOS="${goos}" GOARCH="${goarch}" go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "${bin}" ./cmd/jas
+            if [ "${ext}" = "tar.gz" ]; then
+              tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+            else
+              (cd dist && zip -qr "${name}.zip" "${name}")
+            fi
+          done
+          (cd dist && shasum -a 256 jas_*.tar.gz jas_*.zip > checksums.txt)
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/jas_*.tar.gz
+            dist/jas_*.zip
+            dist/checksums.txt
+          generate_release_notes: true
