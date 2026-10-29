@@ -118,15 +118,15 @@ With no TTY (CI, piped stdin) a gated call cannot be answered: jas records
 | code | meaning |
 |---|---|
 | 0 | model gave a final answer |
-| 1 | provider failure after retries, config error, or internal error |
-| 2 | usage error (bad flags, missing model/key) |
+| 1 | provider failure after retries, unreadable or corrupt `config.json`/`auth.json`/`trust.json`, or internal error |
+| 2 | usage error (bad flags, invalid setting value, missing model/key) |
 | 3 | context full |
 | 4 | turn cap (`max_turns`) hit |
 | 5 | approval required but no TTY to ask |
 | 130 | interrupted (Ctrl-C / SIGTERM) |
 
 Tool errors are results the model sees; they never set the exit code. Every
-run appends a versioned JSONL event log at
+run that gets past setup appends a versioned JSONL event log at
 `~/.jas/sessions/<id>/events.jsonl`; the same code appears in its
 `session_ended` event.
 
