@@ -202,16 +202,16 @@ removing one bumps `v`.
 | `session_started` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per file, first |
 | `session_resumed` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per reopen, after replay |
 | `user_message` | content (wire blocks), steer (optional bool) | when user sends a message or steering text |
-| `turn_started` | (empty) | at start of each turn |
+| `turn_started` | (empty) | at start of each user message, including a steer delivered after the final answer |
 | `assistant_message` | text, content (wire blocks), final (bool) | after each stream; final on the answer turn |
 | `usage` | prompt_tokens, completion_tokens, cached_tokens | after each provider response |
 | `tool_started` | tool, call_id, args, mutating | before exec (fsynced first if mutating) |
 | `approval` | call_id, tool, decision (granted\|denied\|unavailable) | when the Approver is consulted |
 | `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted), output | after exec |
 | `elided` | count, tokens_before, tokens_after | each elision pass |
-| `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each turn |
+| `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each user message; `turns` counts the model requests within it |
 | `model_changed` | model | when SetModel is called |
-| `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; absent after a crash | **Single writer:** all appends go through one `EventLog` goroutine;
+| `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash | **Single writer:** all appends go through one `EventLog` goroutine;
 concurrent callers send events. The writer fsyncs after each turn's tool
 results — and, for mutating calls, fsyncs `tool_started` **before** the call
 executes (write-ahead; see #4).
