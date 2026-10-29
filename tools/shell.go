@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,17 +31,25 @@ var baseEnv = []string{"PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR"}
 // ShellEnv builds the child environment: only the base allowlist plus the
 // extra names, taken from os.Environ().
 func ShellEnv(extra []string) []string {
-	allowed := make(map[string]bool, len(baseEnv)+len(extraBaseEnv)+len(extra))
-	for _, n := range append(append([]string{}, baseEnv...), extraBaseEnv...) {
-		allowed[n] = true
+	names := append(append(append([]string{}, baseEnv...), extraBaseEnv...), extra...)
+	return filterEnv(os.Environ(), names, envCaseFold)
+}
+
+// filterEnv keeps the environ entries whose name is in names. With fold set,
+// names compare case-insensitively (Windows spells PATH as Path). The result
+// is never nil: a nil Cmd.Env would make the child inherit everything.
+func filterEnv(environ, names []string, fold bool) []string {
+	key := func(n string) string { return n }
+	if fold {
+		key = strings.ToUpper
 	}
-	for _, n := range extra {
-		allowed[n] = true
+	allowed := make(map[string]bool, len(names))
+	for _, n := range names {
+		allowed[key(n)] = true
 	}
-	// Non-nil on purpose: a nil Cmd.Env would make the child inherit everything.
 	env := []string{}
-	for _, kv := range os.Environ() {
-		if name, _, ok := strings.Cut(kv, "="); ok && allowed[name] {
+	for _, kv := range environ {
+		if name, _, ok := strings.Cut(kv, "="); ok && name != "" && allowed[key(name)] {
 			env = append(env, kv)
 		}
 	}
@@ -92,16 +101,32 @@ func blockedCommand(p core.ExecPolicy, cmd string) bool {
 	if envCmdRe.MatchString(cmd) {
 		return true
 	}
-	if home := os.Getenv("HOME"); home != "" {
-		cmd = strings.NewReplacer("${HOME}", home, "$HOME", home).Replace(cmd)
-	}
-	cmd = strings.ReplaceAll(cmd, `\`, "")
+	home, _ := os.UserHomeDir()
+	cmd = normalizeCmd(cmd, home, runtime.GOOS == "windows")
 	for _, tok := range strings.FieldsFunc(cmd, shellTokenSep) {
 		if p.DeniedToken(tok) {
 			return true
 		}
 	}
 	return false
+}
+
+var userProfileRe = regexp.MustCompile(`(?i)%USERPROFILE%`)
+
+// normalizeCmd undoes the cheapest ways to hide a path from the deny filter:
+// it expands the home variable and drops the shell's escape character (\ for
+// sh; ^ for cmd.exe, where \ is the path separator and must stay).
+func normalizeCmd(cmd, home string, windows bool) string {
+	if windows {
+		if home != "" {
+			cmd = userProfileRe.ReplaceAllLiteralString(cmd, home)
+		}
+		return strings.ReplaceAll(cmd, "^", "")
+	}
+	if home != "" {
+		cmd = strings.NewReplacer("${HOME}", home, "$HOME", home).Replace(cmd)
+	}
+	return strings.ReplaceAll(cmd, `\`, "")
 }
 
 // Shell runs a command in the platform shell in the project root.
@@ -146,7 +171,11 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 		return errResult("could not run command: %v", err)
 	}
 	defer pr.Close()
-	cmd, killGroup := shellSpawn(tctx, a.Command)
+	cmd, tree, err := shellSpawn(tctx, a.Command)
+	if err != nil {
+		return errResult("could not run command: %v", err)
+	}
+	defer tree.close()
 	cmd.Dir = p.Root
 	cmd.Env = ShellEnv(p.Env)
 	cmd.Stdout = pw
@@ -163,11 +192,15 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 	if startErr != nil {
 		return errResult("could not run command: %v", startErr)
 	}
-	pid := cmd.Process.Pid
+	if err := tree.attach(cmd.Process); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return errResult("could not run command: %v", err)
+	}
 	runErr := cmd.Wait()
-	// Grandchildren must not outlive the call: kill the group on every path
-	// (ESRCH when it is already gone is fine), which also closes the pipe.
-	killGroup(pid)
+	// Grandchildren must not outlive the call: kill the tree on every path
+	// (already gone is fine), which also closes the pipe.
+	tree.kill()
 	select {
 	case <-copied:
 	case <-time.After(shellWaitDelay):

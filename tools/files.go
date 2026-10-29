@@ -149,8 +149,8 @@ func Mutating() []core.Tool {
 }
 
 // atomicWrite writes data to path via a temp file in the same directory,
-// fsyncs it, renames it over path, then fsyncs the directory. On any failure
-// the original file is untouched and the temp file is removed.
+// fsyncs it, renames it over path, then fsyncs the directory (unix only).
+// On any failure the original file is untouched and the temp file is removed.
 func atomicWrite(path string, data []byte, mode fs.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".jas-*.tmp")
@@ -180,12 +180,7 @@ func atomicWrite(path string, data []byte, mode fs.FileMode) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return syncDir(dir)
 }
 
 const redactedRegionMsg = "region contains redacted content; re-read the file and edit around the redacted value"
