@@ -198,3 +198,23 @@ func TestCLI_ConfigSetRejectsCredentialURL(t *testing.T) {
 	assert.Eq(t, code, 2)
 	assert.NotContains(t, errOut, "pw123")
 }
+
+func TestCLI_JasHomeInsideRootIsDenied(t *testing.T) {
+	const key = "zq9homeinrootvalue55"
+	repo := t.TempDir()
+	home := filepath.Join(repo, "state")
+	assert.NoErr(t, os.MkdirAll(home, 0o700))
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"other":{"key":"`+key+`"}}`), 0o600))
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "read", Args: `{"path":"state/auth.json"}`}}},
+		{Text: "done"},
+	})
+	out, errOut, code := runJasIn(t, repo, []string{"JAS_HOME=" + home, "JAS_MODEL=m", "JAS_BASE_URL=" + url}, "run", "--json", "read auth")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	assert.Contains(t, out, "path denied by policy")
+	for _, b := range bodies() {
+		assert.NotContains(t, string(b), key)
+	}
+}

@@ -79,7 +79,7 @@ func runCmd(ctx context.Context, args []string) error {
 	if ra.json {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
-	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths}
+	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home)}}
 	red := newRedactor(key, policy.RedactSkip)
 	reportRedactor = red
 	ui = core.NewRedactingUI(ui, red.Redact)
@@ -123,6 +123,18 @@ func runCmd(ctx context.Context, args []string) error {
 		fmt.Println()
 	}
 	return err
+}
+
+// homeDenyPattern denies file tools access to jas's own state (keys, config,
+// trust) wherever JAS_HOME puts it; the deny floor covers only ~/.jas.
+func homeDenyPattern(home string) string {
+	if r, err := filepath.EvalSymlinks(home); err == nil {
+		home = r
+	}
+	if abs, err := filepath.Abs(home); err == nil {
+		home = abs
+	}
+	return filepath.ToSlash(home) + "/**"
 }
 
 // newRedactor builds the process-wide secret redactor: the resolved API key
