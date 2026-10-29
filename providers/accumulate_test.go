@@ -87,6 +87,15 @@ func TestAccumulator_MissingNameErrors(t *testing.T) {
 	}
 }
 
+func TestAccumulator_MissingIDErrors(t *testing.T) {
+	var a Accumulator
+	a.Add(StreamEvent{ToolCallDelta: &ToolCallDelta{Index: 0, Name: "ls", ArgsFragment: "{}"}})
+	_, _, err := a.Done()
+	if err == nil {
+		t.Fatal("expected error for call with no id")
+	}
+}
+
 func TestAccumulator_EmptyArgsBecomeEmptyObject(t *testing.T) {
 	var a Accumulator
 	a.Add(StreamEvent{ToolCallDelta: &ToolCallDelta{Index: 0, ID: "x", Name: "ls"}})

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,7 +39,7 @@ func (Read) Schema() json.RawMessage {
 		`"required":["path"]}`)
 }
 
-func (Read) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+func (Read) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
 	var a struct {
 		Path   string `json:"path"`
 		Offset int    `json:"offset"`
@@ -58,8 +59,11 @@ func (Read) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (co
 	if !info.Mode().IsRegular() {
 		return errResult("read %s: not a regular file", a.Path)
 	}
-	data, err := os.ReadFile(full)
+	data, err := readFileCtx(ctx, full)
 	if err != nil {
+		if ok, cerr := cancelled(ctx, "read"); ok {
+			return core.Result{}, cerr
+		}
 		return errResult("read %s: %v", a.Path, err)
 	}
 	// Redact key blocks over the whole file: a slice may start after BEGIN.
@@ -100,7 +104,7 @@ func (Ls) Schema() json.RawMessage {
 		`"required":[]}`)
 }
 
-func (Ls) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+func (Ls) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
 	var a struct {
 		Path string `json:"path"`
 	}
@@ -116,12 +120,18 @@ func (Ls) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core
 	if err != nil {
 		return errResult("%v", err)
 	}
+	if ok, cerr := cancelled(ctx, "ls"); ok {
+		return core.Result{}, cerr
+	}
 	entries, err := os.ReadDir(full)
 	if err != nil {
 		return errResult("ls %s: %v", a.Path, err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
+		if ok, cerr := cancelled(ctx, "ls"); ok {
+			return core.Result{}, cerr
+		}
 		n := e.Name()
 		if p.Denied(filepath.Join(full, n)) { // also follows a symlink entry to its target
 			continue
@@ -150,8 +160,12 @@ func Mutating() []core.Tool {
 
 // atomicWrite writes data to path via a temp file in the same directory,
 // fsyncs it, renames it over path, then fsyncs the directory (unix only).
-// On any failure the original file is untouched and the temp file is removed.
-func atomicWrite(path string, data []byte, mode fs.FileMode) error {
+// On any failure, including ctx ending before the rename, the original file
+// is untouched and the temp file is removed.
+func atomicWrite(ctx context.Context, path string, data []byte, mode fs.FileMode) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".jas-*.tmp")
 	if err != nil {
@@ -166,13 +180,17 @@ func atomicWrite(path string, data []byte, mode fs.FileMode) error {
 	if err := tmp.Chmod(mode); err != nil {
 		return cleanup(err)
 	}
-	if _, err := tmp.Write(data); err != nil {
+	if err := copyCtx(ctx, tmp, bytes.NewReader(data)); err != nil {
 		return cleanup(err)
 	}
 	if err := tmp.Sync(); err != nil {
 		return cleanup(err)
 	}
 	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}
@@ -215,7 +233,7 @@ func (Write) Schema() json.RawMessage {
 		`"required":["path","content"]}`)
 }
 
-func (Write) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+func (Write) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
 	var a struct {
 		Path    string  `json:"path"`
 		Content *string `json:"content"`
@@ -242,10 +260,16 @@ func (Write) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (c
 	} else if !os.IsNotExist(err) {
 		return errResult("write %s: %v", a.Path, err)
 	}
+	if ok, cerr := cancelled(ctx, "write"); ok {
+		return core.Result{}, cerr
+	}
 	if err := os.MkdirAll(filepath.Dir(full), newDirMode); err != nil {
 		return errResult("write %s: %v", a.Path, err)
 	}
-	if err := atomicWrite(full, []byte(*a.Content), mode); err != nil {
+	if err := atomicWrite(ctx, full, []byte(*a.Content), mode); err != nil {
+		if ok, cerr := cancelled(ctx, "write"); ok {
+			return core.Result{}, cerr
+		}
 		return errResult("write %s: %v", a.Path, err)
 	}
 	return core.Result{Output: fmt.Sprintf("wrote %s (%d bytes)", a.Path, len(*a.Content))}, nil
@@ -267,7 +291,7 @@ func (Edit) Schema() json.RawMessage {
 		`"required":["path","old_string","new_string"]}`)
 }
 
-func (Edit) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+func (Edit) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
 	var a struct {
 		Path      string  `json:"path"`
 		OldString string  `json:"old_string"`
@@ -296,8 +320,11 @@ func (Edit) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (co
 	if !info.Mode().IsRegular() {
 		return errResult("edit %s: not a regular file", a.Path)
 	}
-	data, err := os.ReadFile(full)
+	data, err := readFileCtx(ctx, full)
 	if err != nil {
+		if ok, cerr := cancelled(ctx, "edit"); ok {
+			return core.Result{}, cerr
+		}
 		return errResult("edit %s: %v", a.Path, err)
 	}
 	content := string(data)
@@ -309,7 +336,10 @@ func (Edit) Call(_ context.Context, p core.ExecPolicy, args json.RawMessage) (co
 		return errResult("old_string matches %d times in %s; include more surrounding context", n, a.Path)
 	}
 	updated := strings.Replace(content, a.OldString, *a.NewString, 1)
-	if err := atomicWrite(full, []byte(updated), info.Mode().Perm()); err != nil {
+	if err := atomicWrite(ctx, full, []byte(updated), info.Mode().Perm()); err != nil {
+		if ok, cerr := cancelled(ctx, "edit"); ok {
+			return core.Result{}, cerr
+		}
 		return errResult("edit %s: %v", a.Path, err)
 	}
 	return core.Result{Output: "edited " + a.Path}, nil

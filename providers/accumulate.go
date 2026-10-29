@@ -44,7 +44,7 @@ func (a *Accumulator) Add(ev StreamEvent) {
 }
 
 // Done returns the assistant message and its tool_use blocks (in index order).
-// It errors only if a tool call never received a name.
+// It errors if a tool call never received a name or an id.
 func (a *Accumulator) Done() (Message, []ContentBlock, error) {
 	msg := Message{Role: RoleAssistant}
 	if a.text.Len() > 0 {
@@ -63,6 +63,9 @@ func (a *Accumulator) Done() (Message, []ContentBlock, error) {
 		if c.name == "" {
 			return Message{}, nil, fmt.Errorf("tool call %d: %w", i, errMissingName)
 		}
+		if c.id == "" {
+			return Message{}, nil, fmt.Errorf("tool call %d: %w", i, errMissingID)
+		}
 		args := c.args.String()
 		if strings.TrimSpace(args) == "" {
 			args = "{}"
@@ -78,4 +81,7 @@ func (a *Accumulator) Done() (Message, []ContentBlock, error) {
 	return msg, uses, nil
 }
 
-var errMissingName = errors.New("missing tool name")
+var (
+	errMissingName = errors.New("missing tool name")
+	errMissingID   = errors.New("missing tool call id")
+)

@@ -1,9 +1,12 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,4 +270,63 @@ func TestDeny_NestedSecretsDir(t *testing.T) {
 	write(t, p, "sub/secrets/x", "v")
 	r := call(t, Read{}, p, `{"path":"sub/secrets/x"}`)
 	assert.Contains(t, r.Output, "path denied by policy")
+}
+
+func TestFileTools_CancelledContext(t *testing.T) {
+	cases := []struct {
+		name string
+		tool core.Tool
+		args string
+	}{
+		{"read", Read{}, `{"path":"f.txt"}`},
+		{"ls", Ls{}, `{}`},
+		{"write", Write{}, `{"path":"new.txt","content":"x"}`},
+		{"edit", Edit{}, `{"path":"f.txt","old_string":"hello","new_string":"bye"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := policy(t)
+			write(t, p, "f.txt", "hello\n")
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			_, err := tc.tool.Call(ctx, p, json.RawMessage(tc.args))
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want context.Canceled", err)
+			}
+			got, rerr := os.ReadFile(filepath.Join(p.Root, "f.txt"))
+			assert.NoErr(t, rerr)
+			assert.Eq(t, string(got), "hello\n")
+			if _, serr := os.Stat(filepath.Join(p.Root, "new.txt")); !os.IsNotExist(serr) {
+				t.Fatalf("new.txt exists after cancelled write (stat err %v)", serr)
+			}
+		})
+	}
+}
+
+// cancelOnRead cancels its context on the first Read and counts bytes served.
+type cancelOnRead struct {
+	r      io.Reader
+	cancel context.CancelFunc
+	n      int
+}
+
+func (c *cancelOnRead) Read(b []byte) (int, error) {
+	c.cancel()
+	n, err := c.r.Read(b)
+	c.n += n
+	return n, err
+}
+
+func TestCopyCtx_StopsBetweenChunks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	src := &cancelOnRead{r: bytes.NewReader(make([]byte, 4*ioChunk)), cancel: cancel}
+	var dst bytes.Buffer
+	err := copyCtx(ctx, &dst, src)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if src.n > ioChunk {
+		t.Fatalf("read %d bytes after cancel, want at most one chunk (%d)", src.n, ioChunk)
+	}
 }
