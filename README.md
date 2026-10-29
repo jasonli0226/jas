@@ -104,6 +104,36 @@ loaded into the system prompt after a one-time trust prompt (answers are
 stored in `~/.jas/trust.json`; `--trust-project` skips the prompt). The
 content is redacted and size-capped first.
 
+## Skills
+
+jas loads [Agent Skills](https://agentskills.io): a directory holding a
+`SKILL.md` whose frontmatter has a `name` and a `description`. Skills from
+pi, Claude Code and opencode work as they are. jas scans, in order:
+
+| Scope | Directories |
+|---|---|
+| project | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
+| user | `~/.agents/skills/`, `~/.claude/skills/` |
+
+Skills may sit in nested folders (e.g. `~/.agents/skills/team/review/SKILL.md`):
+a folder with a `SKILL.md` is a skill and is not searched further; hidden
+folders and `node_modules` are skipped, and the search stops 5 levels down.
+
+Only each skill's name, description and path go in the system prompt; the
+model reads the full `SKILL.md` (and any `references/` or `scripts/`) with
+the `read` tool when a task matches. `read`, `ls` and `grep` may open listed
+skill directories (the deny floor still applies there); `write`, `edit` and
+`shell` stay confined to the project as before.
+
+- On a name clash the first skill found wins, in the table's order: project
+  before user, `.agents` before `.claude`. A warning names both. The same
+  folder reached twice (e.g. through a symlink) loads once, silently.
+- Project skills are project-authored instructions, like `AGENTS.md`, so they
+  share its trust prompt; adding or editing one asks again.
+- Validation is lenient: a bad name warns, a missing description or broken
+  frontmatter skips the skill. `disable-model-invocation: true` hides a skill
+  from the model.
+
 ## Approval ladder
 
 `--approve` (or `jas config set approve`) gates tool calls; each level gates a

@@ -9,11 +9,15 @@ Tool errors are results, not failures: read the message and adjust.
 A tool result of "cancelled" means the call did not run. A result of "interrupted" means the call may have partly run and have partial side effects: inspect the current state before retrying it.
 When the task is done, reply with a short final answer and no tool calls.`
 
-// BuildSystem joins the base prompt with optional project context. The result
-// must depend only on its inputs so the prompt prefix stays stable.
-func BuildSystem(base, contextFile string) string {
-	if contextFile == "" {
-		return base
+// BuildSystem joins the base prompt with optional sections (the skill
+// catalog, project context), skipping empty ones. The result must depend only
+// on its inputs so the prompt prefix stays stable.
+func BuildSystem(base string, sections ...string) string {
+	out := base
+	for _, s := range sections {
+		if s != "" {
+			out += "\n\n" + s
+		}
 	}
-	return base + "\n\n" + contextFile
+	return out
 }

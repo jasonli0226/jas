@@ -33,7 +33,7 @@ func (Grep) Kind() core.Kind { return core.ReadOnly }
 func (Grep) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` +
 		`"pattern":{"type":"string","description":"Regular expression (Go RE2 syntax)."},` +
-		`"path":{"type":"string","description":"File or directory to search, relative to the project root; defaults to the root."},` +
+		`"path":{"type":"string","description":"File or directory to search, relative to the project root (or absolute inside a listed skill's directory); defaults to the root."},` +
 		`"glob":{"type":"string","description":"Only search files whose name matches this glob, e.g. *.go."}},` +
 		`"required":["pattern"]}`)
 }
@@ -59,19 +59,25 @@ func (Grep) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 	if a.Path == "" {
 		a.Path = "."
 	}
-	start, err := p.Resolve(a.Path)
+	start, err := p.ResolveRead(a.Path)
 	if err != nil {
 		return errResult("%v", err)
 	}
 	if _, err := os.Stat(start); err != nil {
 		return errResult("grep %s: %v", a.Path, err)
 	}
-	root, err := filepath.EvalSymlinks(p.Root)
+	project, err := filepath.EvalSymlinks(p.Root)
 	if err != nil {
 		return errResult("project root: %v", err)
 	}
-
-	denied := p.DenyMatcher()
+	// Inside a read root (a skill dir) deny patterns and globs are relative
+	// to it, and matches print as absolute paths the model can read back.
+	scope := p.ReadScope(start)
+	root := project
+	if scope.Root != p.Root {
+		root = scope.Root
+	}
+	denied := scope.DenyMatcher()
 	var lines []string
 	total := 0
 	walkErr := filepath.WalkDir(start, func(path string, d fs.DirEntry, err error) error {
@@ -102,8 +108,8 @@ func (Grep) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 		grepFile(path, re, func(n int, text string) {
 			total++
 			if len(lines) < grepMaxMatches {
-				rel, rerr := filepath.Rel(root, path)
-				if rerr != nil {
+				rel, rerr := filepath.Rel(project, path)
+				if rerr != nil || root != project {
 					rel = path
 				}
 				lines = append(lines, fmt.Sprintf("%s:%d:%s", filepath.ToSlash(rel), n, text))
