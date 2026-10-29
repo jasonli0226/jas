@@ -19,14 +19,45 @@ func Catalog(skills []Skill) string {
 		if s.DisableModelInvocation {
 			continue
 		}
-		b.WriteString("  <skill>\n")
-		b.WriteString("    <name>" + html.EscapeString(s.Name) + "</name>\n")
-		b.WriteString("    <description>" + html.EscapeString(s.Description) + "</description>\n")
-		b.WriteString("    <location>" + html.EscapeString(s.Location) + "</location>\n")
-		b.WriteString("  </skill>\n")
+		b.WriteString(entry(s))
 	}
 	if b.Len() == 0 {
 		return ""
 	}
 	return catalogIntro + "\n\n<available_skills>\n" + b.String() + "</available_skills>"
+}
+
+// MaxCatalogBytes bounds the catalog so a large skills collection cannot
+// flood the system prompt; it matches the context file cap.
+const MaxCatalogBytes = 64 * 1024
+
+// Fit keeps skills, in order, while the catalog stays within budget bytes,
+// and returns the names of model-invocable skills that did not fit. Hidden
+// (DisableModelInvocation) skills cost nothing and are always kept.
+func Fit(skills []Skill, budget int) (kept []Skill, dropped []string) {
+	used := len(catalogIntro) + len("\n\n<available_skills>\n</available_skills>")
+	for _, s := range skills {
+		if s.DisableModelInvocation {
+			kept = append(kept, s)
+			continue
+		}
+		if n := entrySize(s); used+n <= budget {
+			used += n
+			kept = append(kept, s)
+		} else {
+			dropped = append(dropped, s.Name)
+		}
+	}
+	return kept, dropped
+}
+
+// entrySize is the bytes one skill adds to the catalog.
+func entrySize(s Skill) int { return len(entry(s)) }
+
+func entry(s Skill) string {
+	return "  <skill>\n" +
+		"    <name>" + html.EscapeString(s.Name) + "</name>\n" +
+		"    <description>" + html.EscapeString(s.Description) + "</description>\n" +
+		"    <location>" + html.EscapeString(s.Location) + "</location>\n" +
+		"  </skill>\n"
 }

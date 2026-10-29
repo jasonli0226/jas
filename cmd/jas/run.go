@@ -86,12 +86,14 @@ func runCmd(ctx context.Context, args []string) error {
 	ui = core.NewRedactingUI(ui, red.Redact)
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
+	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
 	userHome, _ := os.UserHomeDir() // no home: user skills are skipped
-	found, warns := skills.Discover(skills.DefaultSources(root, userHome), policy.Denied)
-	for _, w := range warns {
-		fmt.Fprintln(os.Stderr, red.Redact("jas: "+w))
+	projectSkills, pw := skills.Discover(skills.ProjectSources(root), policy.Denied)
+	userSkills, uw := skills.Discover(skills.UserSources(userHome), policy.Denied)
+	for _, w := range append(pw, uw...) {
+		warn(w)
 	}
-	pc, err := loadProjectContext(ctx, root, home, found, interactive, ra.trust, stdin, os.Stderr, red.Redact)
+	pc, err := loadProjectContext(ctx, root, home, projectSkills, userSkills, interactive, ra.trust, stdin, os.Stderr, red.Redact, warn)
 	if err != nil {
 		return err
 	}

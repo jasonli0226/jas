@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -28,4 +29,21 @@ When a skill file references a relative path, resolve it against the skill direc
 func TestCatalog_EmptyWhenNothingToList(t *testing.T) {
 	assert.Eq(t, Catalog(nil), "")
 	assert.Eq(t, Catalog([]Skill{{Name: "h", Description: "d", DisableModelInvocation: true}}), "")
+}
+
+func TestFit_DropsSkillsPastBudget(t *testing.T) {
+	ss := []Skill{
+		{Name: "a", Description: "d", Location: "/a"},
+		{Name: "hidden", Description: "d", Location: "/h", DisableModelInvocation: true},
+		{Name: "b", Description: "d", Location: "/b"},
+		{Name: "c", Description: "d", Location: "/c"},
+	}
+	one := len(Catalog(ss[:1]))
+	kept, dropped := Fit(ss, one+entrySize(ss[2])) // room for a and b only
+	assert.Eq(t, len(kept), 3)                     // a, hidden (costs nothing), b
+	assert.Eq(t, kept[2].Name, "b")
+	assert.Eq(t, strings.Join(dropped, ","), "c")
+	if len(Catalog(kept)) > one+entrySize(ss[2]) {
+		t.Fatalf("catalog %d bytes exceeds budget", len(Catalog(kept)))
+	}
 }

@@ -109,3 +109,28 @@ func TestRun_SessionStartedListsSkills(t *testing.T) {
 	}
 	t.Fatal("no session_started event")
 }
+
+func TestRun_UntrustedProjectSkillDoesNotHideUserSkill(t *testing.T) {
+	proj, userHome := t.TempDir(), t.TempDir()
+	writeSkill(t, filepath.Join(proj, ".agents", "skills"), "foo", "PROJECT-FOO", "body")
+	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "foo", "USER-FOO-6612", "body")
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	_, errOut, code := runJasIn(t, proj, []string{"HOME=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, errOut, "shadowed")
+	sys := systemPrompt(t, bodies()[0])
+	assert.Contains(t, sys, "USER-FOO-6612")
+	assert.NotContains(t, sys, "PROJECT-FOO")
+}
+
+func TestRun_SkillWarningsEscapeControlBytes(t *testing.T) {
+	proj := t.TempDir()
+	dir := filepath.Join(proj, ".agents", "skills", "x\x1b]0;pwned\x07")
+	assert.NoErr(t, os.MkdirAll(dir, 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: x\n---\n"), 0o644))
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	_, errOut, code := runJasIn(t, proj, []string{"JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, errOut, `\x1b]0;pwned\x07`)
+	assert.NotContains(t, errOut, "\x1b")
+}

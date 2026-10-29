@@ -71,3 +71,10 @@ func FuzzParseFrontmatter(f *testing.F) {
 		_, _ = parseFrontmatter(b) // must not panic
 	})
 }
+
+func TestParseFrontmatter_UnindentedListIgnored(t *testing.T) {
+	fm, err := parseFrontmatter([]byte("---\nname: x\nallowed-tools:\n- Read\n- Grep\ndescription: d\n---\n"))
+	assert.NoErr(t, err)
+	assert.Eq(t, fm["name"], "x")
+	assert.Eq(t, fm["description"], "d")
+}

@@ -50,6 +50,10 @@ var validName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 type Source struct {
 	Dir   string
 	Scope Scope
+	// Confine, when set, is a symlink-resolved directory every skill must
+	// resolve inside: a project skill symlinked out of the project would
+	// otherwise make outside directories readable once the project is trusted.
+	Confine string
 }
 
 // Skill is one discovered skill.
@@ -79,9 +83,12 @@ func Discover(sources []Source, denied func(path string) bool) ([]Skill, []strin
 		seen   = map[string]bool{}   // resolved dirs already loaded
 	)
 	for _, src := range sources {
-		dirs, err := candidates(src.Dir)
+		dirs, escaped, err := candidates(src.Dir, src.Confine)
 		if err != nil {
 			warns = append(warns, fmt.Sprintf("skills: %v", err))
+		}
+		for _, e := range escaped {
+			warns = append(warns, fmt.Sprintf("skill path %s skipped: it resolves outside the project", e))
 		}
 		for _, dir := range dirs {
 			s, ok, warn := load(dir, src.Scope, denied)
@@ -98,16 +105,51 @@ func Discover(sources []Source, denied func(path string) bool) ([]Skill, []strin
 			out = append(out, s)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sortByName(out)
 	return out, warns
+}
+
+// Merge combines two Discover results; on a name clash first wins and the
+// loser is reported, and a directory in both loads once. Discover project
+// and user skills separately and merge only once the project is trusted, so
+// an untrusted project cannot hide a user skill by reusing its name.
+func Merge(first, second []Skill) ([]Skill, []string) {
+	out := append([]Skill{}, first...)
+	var warns []string
+	byName, seen := map[string]string{}, map[string]bool{}
+	for _, s := range first {
+		byName[s.Name], seen[s.Dir] = s.Location, true
+	}
+	for _, s := range second {
+		if seen[s.Dir] {
+			continue
+		}
+		if winner, dup := byName[s.Name]; dup {
+			warns = append(warns, fmt.Sprintf("skill %q at %s shadowed by %s", s.Name, s.Location, winner))
+			continue
+		}
+		byName[s.Name], seen[s.Dir] = s.Location, true
+		out = append(out, s)
+	}
+	sortByName(out)
+	return out, warns
+}
+
+func sortByName(ss []Skill) { sort.Slice(ss, func(i, j int) bool { return ss[i].Name < ss[j].Name }) }
+
+// within reports whether path is dir or below it (both symlink-resolved).
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // candidates walks root and returns the directories holding a SKILL.md,
 // depth-first in name order. Symlinked directories are followed, each
-// resolved directory visited once, so a link loop ends.
-func candidates(root string) ([]string, error) {
+// resolved directory visited once, so a link loop ends. With confine set, an
+// entry resolving outside it is neither searched nor loaded, and is returned
+// in escaped.
+func candidates(root, confine string) (out, escaped []string, _ error) {
 	var (
-		out     []string
 		visited = map[string]bool{}
 		budget  = maxDirs
 	)
@@ -130,6 +172,10 @@ func candidates(root string) ([]string, error) {
 			if err != nil || visited[real] {
 				continue
 			}
+			if confine != "" && !within(confine, real) {
+				escaped = append(escaped, path)
+				continue
+			}
 			if info, err := os.Stat(real); err != nil || !info.IsDir() {
 				continue
 			}
@@ -149,8 +195,13 @@ func candidates(root string) ([]string, error) {
 		}
 		return nil
 	}
+	if confine != "" {
+		if real, err := filepath.EvalSymlinks(root); err == nil && !within(confine, real) {
+			return nil, []string{root}, nil
+		}
+	}
 	err := walk(root, 0)
-	return out, err
+	return out, escaped, err
 }
 
 // load reads one candidate skill directory. ok is false when it is not a
@@ -212,19 +263,28 @@ func readCapped(path string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, maxSkillFile))
 }
 
-// DefaultSources lists the skills directories jas scans, project before
-// user: .agents/skills (the cross-agent location pi and opencode share) and
-// .claude/skills (where existing Claude Code skills live). An empty home
-// skips the user scope.
-func DefaultSources(root, home string) []Source {
-	var out []Source
-	for _, d := range []string{".agents", ".claude"} {
-		out = append(out, Source{Dir: filepath.Join(root, d, "skills"), Scope: Project})
+// ProjectSources lists the project skills directories, confined to root:
+// .agents/skills (the cross-agent location pi and opencode share), then
+// .claude/skills (where existing Claude Code skills live).
+func ProjectSources(root string) []Source {
+	confine := root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		confine = r
 	}
-	if home != "" {
-		for _, d := range []string{".agents", ".claude"} {
-			out = append(out, Source{Dir: filepath.Join(home, d, "skills"), Scope: User})
-		}
+	return []Source{
+		{Dir: filepath.Join(root, ".agents", "skills"), Scope: Project, Confine: confine},
+		{Dir: filepath.Join(root, ".claude", "skills"), Scope: Project, Confine: confine},
 	}
-	return out
+}
+
+// UserSources lists the user skills directories under home, in the same
+// order; an empty home lists none.
+func UserSources(home string) []Source {
+	if home == "" {
+		return nil
+	}
+	return []Source{
+		{Dir: filepath.Join(home, ".agents", "skills"), Scope: User},
+		{Dir: filepath.Join(home, ".claude", "skills"), Scope: User},
+	}
 }

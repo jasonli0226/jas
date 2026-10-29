@@ -120,19 +120,16 @@ func TestDiscover_KeepsContentForTrust(t *testing.T) {
 	assert.Eq(t, string(got[0].Content), "---\nname: x\ndescription: d\n---\n# body\n")
 }
 
-func TestDefaultSources_ProjectBeforeUser(t *testing.T) {
-	got := DefaultSources("/p", "/h")
-	want := []Source{
-		{Dir: filepath.Join("/p", ".agents", "skills"), Scope: Project},
-		{Dir: filepath.Join("/p", ".claude", "skills"), Scope: Project},
-		{Dir: filepath.Join("/h", ".agents", "skills"), Scope: User},
-		{Dir: filepath.Join("/h", ".claude", "skills"), Scope: User},
-	}
-	assert.Eq(t, len(got), len(want))
-	for i := range want {
-		assert.Eq(t, got[i], want[i])
-	}
-	assert.Eq(t, len(DefaultSources("/p", "")), 2)
+func TestSources_ProjectConfinedThenUser(t *testing.T) {
+	root := realDir(t)
+	got := ProjectSources(root)
+	assert.Eq(t, len(got), 2)
+	assert.Eq(t, got[0], Source{Dir: filepath.Join(root, ".agents", "skills"), Scope: Project, Confine: root})
+	assert.Eq(t, got[1], Source{Dir: filepath.Join(root, ".claude", "skills"), Scope: Project, Confine: root})
+	user := UserSources("/h")
+	assert.Eq(t, user[0], Source{Dir: filepath.Join("/h", ".agents", "skills"), Scope: User})
+	assert.Eq(t, user[1], Source{Dir: filepath.Join("/h", ".claude", "skills"), Scope: User})
+	assert.Eq(t, len(UserSources("")), 0)
 }
 
 func TestDiscover_NestedFolders(t *testing.T) {
@@ -183,4 +180,33 @@ func TestDiscover_UnreadableSubdirSkipped(t *testing.T) {
 	got, warns := Discover([]Source{{Dir: dir, Scope: User}}, noDeny)
 	assert.Eq(t, strings.Join(names(got), ","), "ok")
 	assert.Eq(t, len(warns), 0)
+}
+
+func TestDiscover_ConfinedSourceRefusesEscapes(t *testing.T) {
+	root, outside := realDir(t), realDir(t)
+	src := filepath.Join(root, ".agents", "skills")
+	skillFile(t, src, "inside", "name: inside\ndescription: d\n")
+	escaped := skillFile(t, outside, "escaped", "name: escaped\ndescription: d\n")
+	skillFile(t, filepath.Join(outside, "tree"), "walked", "name: walked\ndescription: d\n")
+	if err := os.Symlink(escaped, filepath.Join(src, "escaped")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	assert.NoErr(t, os.Symlink(outside, filepath.Join(src, "tree")))
+	got, warns := Discover([]Source{{Dir: src, Scope: Project, Confine: root}}, noDeny)
+	assert.Eq(t, strings.Join(names(got), ","), "inside")
+	assert.Contains(t, strings.Join(warns, "\n"), "outside the project")
+}
+
+func TestMerge_ProjectWinsAndDedupes(t *testing.T) {
+	project := []Skill{{Name: "pdf", Dir: "/p/pdf", Location: "/p/pdf/SKILL.md", Scope: Project}}
+	user := []Skill{
+		{Name: "git", Dir: "/u/git", Location: "/u/git/SKILL.md", Scope: User},
+		{Name: "pdf", Dir: "/u/pdf", Location: "/u/pdf/SKILL.md", Scope: User},
+		{Name: "same", Dir: "/p/pdf", Location: "/p/pdf/SKILL.md", Scope: User},
+	}
+	got, warns := Merge(project, user)
+	assert.Eq(t, strings.Join(names(got), ","), "git,pdf")
+	assert.Eq(t, got[1].Scope, Project)
+	assert.Eq(t, len(warns), 1)
+	assert.Contains(t, warns[0], "/u/pdf/SKILL.md shadowed by /p/pdf/SKILL.md")
 }

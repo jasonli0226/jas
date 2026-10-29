@@ -35,23 +35,16 @@ type projectContext struct {
 	files  []contextFileMeta
 }
 
-// loadProjectContext finds the project context file and the skills, applies
-// the trust gate and builds the system prompt. One decision covers the
-// context file and every project skill, since both put project-authored
-// instructions in the prompt; user skills need no trust. Context file
-// content is redacted and capped, and the skill catalog redacted, before
-// either reaches the prompt.
-func loadProjectContext(ctx context.Context, root, home string, found []skills.Skill, interactive, flagTrust bool,
-	in *bufio.Reader, out io.Writer, redact func(string) string) (projectContext, error) {
+// loadProjectContext finds the project context file, applies the trust gate
+// and builds the system prompt. One decision covers the context file and
+// every project skill, since both put project-authored instructions in the
+// prompt; user skills need no trust. Project skills join (and on a name
+// clash override) user skills only once trusted. Context file content is
+// redacted and capped, and the skill catalog redacted and size-bounded,
+// before either reaches the prompt.
+func loadProjectContext(ctx context.Context, root, home string, project, user []skills.Skill, interactive, flagTrust bool,
+	in *bufio.Reader, out io.Writer, redact func(string) string, warn func(string)) (projectContext, error) {
 	path, content, hasFile := core.FindContextFile(root)
-	var project, user []skills.Skill
-	for _, s := range found {
-		if s.Scope == skills.Project {
-			project = append(project, s)
-		} else {
-			user = append(user, s)
-		}
-	}
 	pc := projectContext{skills: user, files: []contextFileMeta{}}
 	instructions := ""
 	if hasFile || len(project) > 0 {
@@ -71,9 +64,18 @@ func loadProjectContext(ctx context.Context, root, home string, found []skills.S
 			pc.files = append(pc.files, contextFileMeta{Path: s.Location, Loaded: load, SHA256: core.ContentHash(s.Content)})
 		}
 		if load {
-			pc.skills = found
+			var clashes []string
+			pc.skills, clashes = skills.Merge(project, user)
+			for _, w := range clashes {
+				warn(w)
+			}
 		}
 	}
+	kept, dropped := skills.Fit(pc.skills, skills.MaxCatalogBytes)
+	if len(dropped) > 0 {
+		warn(fmt.Sprintf("skill list over %d bytes; not listing %d skills: %s", skills.MaxCatalogBytes, len(dropped), strings.Join(dropped, ", ")))
+	}
+	pc.skills = kept
 	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills)), instructions)
 	return pc, nil
 }
@@ -95,12 +97,13 @@ func trustLabel(path string, projectSkills int) string {
 }
 
 // trustBundle is the content the trust store hashes: the context file, then
-// each project skill's location and SKILL.md. With no project skills it is
-// the context file alone, so trust recorded before skills existed still holds.
+// each project skill's location and SKILL.md, length-prefixed so no split of
+// the bytes reads as another. With no project skills it is the context file
+// alone, so trust recorded before skills existed still holds.
 func trustBundle(content []byte, project []skills.Skill) []byte {
 	b := append([]byte{}, content...)
 	for _, s := range project {
-		b = append(b, "\x00skill "+s.Location+"\n"...)
+		b = fmt.Appendf(b, "\x00skill %d:%s %d:", len(s.Location), s.Location, len(s.Content))
 		b = append(b, s.Content...)
 	}
 	return b

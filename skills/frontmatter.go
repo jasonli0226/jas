@@ -64,14 +64,20 @@ func isBlankOrComment(line string) bool {
 	return t == "" || strings.HasPrefix(t, "#")
 }
 
-// continuation returns the indented (or blank) lines that belong to the key
-// before index start, and the index of the next top-level line.
+// continuation returns the lines that belong to the key before index start
+// (indented, blank, or an unindented "- item" list, which YAML allows), and
+// the index of the next top-level line.
 func continuation(body []string, start int) ([]string, int) {
 	i := start
-	for i < len(body) && (strings.TrimSpace(body[i]) == "" || body[i][0] == ' ' || body[i][0] == '\t') {
+	for i < len(body) && belongsToKey(body[i]) {
 		i++
 	}
 	return body[start:i], i
+}
+
+func belongsToKey(line string) bool {
+	return strings.TrimSpace(line) == "" || line[0] == ' ' || line[0] == '\t' ||
+		line == "-" || strings.HasPrefix(line, "- ")
 }
 
 // scalar turns a value's first line plus its continuation lines into a string.

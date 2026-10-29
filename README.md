@@ -129,7 +129,12 @@ skill directories (the deny floor still applies there); `write`, `edit` and
   before user, `.agents` before `.claude`. A warning names both. The same
   folder reached twice (e.g. through a symlink) loads once, silently.
 - Project skills are project-authored instructions, like `AGENTS.md`, so they
-  share its trust prompt; adding or editing one asks again.
+  share its trust prompt; adding or editing one asks again. Until the project
+  is trusted its skills are ignored entirely, so they cannot hide a user
+  skill of the same name. A project skill must resolve inside the project; one
+  symlinked out of it is skipped with a warning.
+- The skill list in the prompt is capped at 64 KB; skills past the cap are
+  not listed, and a warning names them.
 - Validation is lenient: a bad name warns, a missing description or broken
   frontmatter skips the skill. `disable-model-invocation: true` hides a skill
   from the model.
