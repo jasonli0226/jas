@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -39,7 +40,9 @@ func LoadAuth(path string) (map[string]AuthEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if mode := info.Mode().Perm(); mode&^fileMode != 0 {
+	// Windows has no unix permission bits (Go always reports 0666); the
+	// file is protected by the user profile's ACL instead.
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode&^fileMode != 0 {
 		return nil, fmt.Errorf("auth.json permissions are %04o; run chmod 600 %s", uint32(mode), path)
 	}
 	b, err := os.ReadFile(path)

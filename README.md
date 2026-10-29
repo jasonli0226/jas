@@ -28,7 +28,13 @@ go install ./cmd/jas            # from the repo root; or: make build  ->  ./bin/
 
 The module path is `github.com/jasonli0226/jas`; once the repo is public,
 `go install github.com/jasonli0226/jas/cmd/jas@latest` works too. The binary
-is static (`CGO_ENABLED=0`), about 7 MB. Linux and macOS only.
+is static (`CGO_ENABLED=0`), about 7 MB.
+
+Release builds for Linux (amd64, arm64), macOS (amd64, arm64) and Windows
+(amd64) are attached to each `v*` tag's GitHub release, with
+`checksums.txt`. The `shell` tool runs `sh -c` on Linux and macOS and
+`cmd /d /s /c` on Windows; on every platform the child's whole process tree
+(process group, or a job object on Windows) is killed when the call ends.
 
 ## Quick start
 
@@ -118,15 +124,15 @@ With no TTY (CI, piped stdin) a gated call cannot be answered: jas records
 | code | meaning |
 |---|---|
 | 0 | model gave a final answer |
-| 1 | provider failure after retries, config error, or internal error |
-| 2 | usage error (bad flags, missing model/key) |
+| 1 | provider failure after retries, unreadable or corrupt `config.json`/`auth.json`/`trust.json`, or internal error |
+| 2 | usage error (bad flags, invalid setting value, missing model/key) |
 | 3 | context full |
 | 4 | turn cap (`max_turns`) hit |
 | 5 | approval required but no TTY to ask |
 | 130 | interrupted (Ctrl-C / SIGTERM) |
 
 Tool errors are results the model sees; they never set the exit code. Every
-run appends a versioned JSONL event log at
+run that gets past setup appends a versioned JSONL event log at
 `~/.jas/sessions/<id>/events.jsonl`; the same code appears in its
 `session_ended` event.
 

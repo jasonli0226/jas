@@ -143,15 +143,15 @@ func TestWrite_CreatesDirsAndModes(t *testing.T) {
 	assert.Eq(t, r.IsError, false)
 	info, err := os.Stat(filepath.Join(p.Root, "d/e/new.txt"))
 	assert.NoErr(t, err)
-	assert.Eq(t, info.Mode().Perm(), os.FileMode(0o644))
+	assert.Perm(t, info.Mode(), 0o644)
 	di, err := os.Stat(filepath.Join(p.Root, "d/e"))
 	assert.NoErr(t, err)
-	assert.Eq(t, di.Mode().Perm(), os.FileMode(0o755))
+	assert.Perm(t, di.Mode(), 0o755)
 
 	assert.NoErr(t, os.Chmod(filepath.Join(p.Root, "d/e/new.txt"), 0o755))
 	call(t, Write{}, p, `{"path":"d/e/new.txt","content":"changed"}`)
 	info, _ = os.Stat(filepath.Join(p.Root, "d/e/new.txt"))
-	assert.Eq(t, info.Mode().Perm(), os.FileMode(0o755))
+	assert.Perm(t, info.Mode(), 0o755)
 	b, _ := os.ReadFile(filepath.Join(p.Root, "d/e/new.txt"))
 	assert.Eq(t, string(b), "changed")
 }

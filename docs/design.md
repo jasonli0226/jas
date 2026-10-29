@@ -526,7 +526,8 @@ Concretely, four layers (defense in depth — any one failing must not leak):
 
 1. **File deny-list.** v1 ships a **hard floor** compiled into the binary:
    `.env*`, `**/.env`, `secrets/**`, `*.pem`, `id_rsa*`, `*.p12`,
-   `.git-credentials`, `~/.aws/**`, `~/.ssh/**`. From v2, scenarios can add
+   `.git-credentials`, `~/.aws/**`, `~/.ssh/**`, `~/.jas/**` (plus `$JAS_HOME`
+   when set). From v2, scenarios can add
    patterns via `sandbox.deny`; `deny` is additive and the floor cannot be
    lifted. Patterns are matched against the symlink-resolved path (§3).
 2. **Output redaction** (core middleware, runs on every tool result before it

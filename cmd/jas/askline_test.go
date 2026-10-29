@@ -40,3 +40,14 @@ func TestCLI_TrustProjectIgnoresCorruptStore(t *testing.T) {
 	assert.Eq(t, code, 0)
 	assert.Contains(t, string(bodies()[0]), "UNIQUE-RULE-9912")
 }
+
+func TestCLI_PreSessionFailureLeavesNoEmptyLog(t *testing.T) {
+	proj := t.TempDir()
+	writeAgents(t, proj, "rule")
+	home := t.TempDir()
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "trust.json"), []byte("{bad"), 0o600))
+	_, _, code := runJasIn(t, proj, []string{"JAS_HOME=" + home, "JAS_MODEL=m", "JAS_API_KEY=k", "JAS_BASE_URL=http://127.0.0.1:1"}, "run", "q")
+	assert.Eq(t, code, 1)
+	logs, _ := filepath.Glob(filepath.Join(home, "sessions", "*", "events.jsonl"))
+	assert.Eq(t, len(logs), 0)
+}

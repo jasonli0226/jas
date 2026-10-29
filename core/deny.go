@@ -11,13 +11,15 @@ import (
 
 // DenyFloor is the always-on deny list for file tools; ExecPolicy.Deny only
 // adds to it. Patterns match the resolved path relative to Root, lower-cased
-// so case-insensitive filesystems cannot dodge them. The "~/" patterns match
+// so case-insensitive filesystems cannot dodge them; absolute patterns match
+// the absolute path (jas run adds its own home this way when JAS_HOME moves
+// it out of ~/.jas). The "~/" patterns match
 // the absolute path under $HOME, so for file tools they only matter when the
 // root is or contains $HOME (confinement refuses everything else first);
 // otherwise they act through the shell tool's best-effort filter.
 var DenyFloor = []string{
 	".env*", "**/.env", "**/.env.*", "secrets/**", "**/secrets/**", "**/*.pem", "**/id_rsa*",
-	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**",
+	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**", "~/.jas/**",
 }
 
 // checkDeny returns the policy error when the resolved path is denied.
@@ -96,6 +98,12 @@ func matchDeny(pats []string, root, home, abs string) bool {
 				continue
 			}
 			pat = strings.ToLower(filepath.ToSlash(home)) + "/" + rest
+			if ok, _ := doublestar.Match(pat, lowAbs); ok {
+				return true
+			}
+			continue
+		}
+		if filepath.IsAbs(filepath.FromSlash(pat)) {
 			if ok, _ := doublestar.Match(pat, lowAbs); ok {
 				return true
 			}

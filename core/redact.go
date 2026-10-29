@@ -46,11 +46,10 @@ func looksLikeCode(v string) bool {
 
 // Redactor scrubs secrets from text headed for the model, the event log or
 // the terminal. Exact values are replaced wherever they occur; the rest is
-// pattern based. SkipPaths lists path globs exempt from the write/edit
-// redacted-marker refusal (see Skips); they never exempt output redaction.
+// pattern based. Path exemptions from the write/edit redacted-marker refusal
+// live on ExecPolicy.RedactSkip; nothing exempts output redaction.
 type Redactor struct {
-	Exact     []string
-	SkipPaths []string
+	Exact []string
 }
 
 type redactRule struct {
@@ -132,10 +131,6 @@ func (r *Redactor) Filter(res Result) Result {
 	res.Output = r.Redact(res.Output)
 	return res
 }
-
-// Skips reports whether the slash-separated root-relative path matches
-// SkipPaths.
-func (r *Redactor) Skips(rel string) bool { return matchAny(r.SkipPaths, rel) }
 
 // shannon is the Shannon entropy, in bits per byte, of v's byte histogram.
 func shannon(v string) float64 {

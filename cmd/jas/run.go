@@ -79,22 +79,25 @@ func runCmd(ctx context.Context, args []string) error {
 	if ra.json {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
-	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths}
-	red := newRedactor(key, policy.RedactSkip)
+	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home)}}
+	red := newRedactor(key)
 	reportRedactor = red
-	log, err := core.OpenEventLog(path, tee, red.Redact)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
-	log = core.NewUILog(log, core.NewRedactingUI(ui, red.Redact))
-
+	ui = core.NewRedactingUI(ui, red.Redact)
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
 	system, ctxFiles, err := loadProjectContext(ctx, root, home, interactive, ra.trust, stdin, os.Stderr, red.Redact)
 	if err != nil {
 		return err
 	}
+
+	// Open the log only once the session can start, so a setup failure
+	// leaves no log without session_started/session_ended.
+	log, err := core.OpenEventLog(path, tee, red.Redact)
+	if err != nil {
+		return err
+	}
+	defer log.Close()
+	log = core.NewUILog(log, ui)
 
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
@@ -124,10 +127,22 @@ func runCmd(ctx context.Context, args []string) error {
 	return err
 }
 
+// homeDenyPattern denies file tools access to jas's own state (keys, config,
+// trust) wherever JAS_HOME puts it; the deny floor covers only ~/.jas.
+func homeDenyPattern(home string) string {
+	if r, err := filepath.EvalSymlinks(home); err == nil {
+		home = r
+	}
+	if abs, err := filepath.Abs(home); err == nil {
+		home = abs
+	}
+	return filepath.ToSlash(home) + "/**"
+}
+
 // newRedactor builds the process-wide secret redactor: the resolved API key
 // (from any source) plus the built-in patterns.
-func newRedactor(key string, skip []string) *core.Redactor {
-	r := &core.Redactor{SkipPaths: skip}
+func newRedactor(key string) *core.Redactor {
+	r := &core.Redactor{}
 	if key != "" {
 		r.Exact = []string{key}
 	}

@@ -116,6 +116,7 @@ func TestDeny_SymlinkToEnv(t *testing.T) {
 func TestDeny_HomePatternsWhenRootIsHome(t *testing.T) {
 	home := realpath(t, t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
 	writeFile(t, filepath.Join(home, ".ssh", "id_ed25519"), "k")
 	writeFile(t, filepath.Join(home, ".aws", "credentials"), "k")
 	writeFile(t, filepath.Join(home, "notes.txt"), "k")
@@ -126,6 +127,34 @@ func TestDeny_HomePatternsWhenRootIsHome(t *testing.T) {
 		}
 	}
 	if _, err := p.Resolve("notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeny_JasHomeWhenRootIsHome(t *testing.T) {
+	home := realpath(t, t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
+	for _, f := range []string{"auth.json", "config.json", "trust.json"} {
+		writeFile(t, filepath.Join(home, ".jas", f), "{}")
+	}
+	p := ExecPolicy{Root: home}
+	for _, d := range []string{".jas/auth.json", ".jas/config.json", ".jas/trust.json", ".JAS/auth.json"} {
+		if _, err := p.Resolve(d); err == nil {
+			t.Errorf("%s: want denied", d)
+		}
+	}
+}
+
+func TestDeny_AbsolutePattern(t *testing.T) {
+	root := realpath(t, t.TempDir())
+	writeFile(t, filepath.Join(root, "state", "auth.json"), "{}")
+	writeFile(t, filepath.Join(root, "other.txt"), "x")
+	p := ExecPolicy{Root: root, Deny: []string{filepath.ToSlash(filepath.Join(root, "state")) + "/**"}}
+	if _, err := p.Resolve("state/auth.json"); err == nil {
+		t.Fatal("absolute deny pattern not applied")
+	}
+	if _, err := p.Resolve("other.txt"); err != nil {
 		t.Fatal(err)
 	}
 }

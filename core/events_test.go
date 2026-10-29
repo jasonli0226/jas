@@ -62,10 +62,10 @@ func TestEventLog_HeaderShape(t *testing.T) {
 	}
 	st, err := os.Stat(p)
 	assert.NoErr(t, err)
-	assert.Eq(t, st.Mode().Perm(), os.FileMode(0o600))
+	assert.Perm(t, st.Mode(), 0o600)
 	st, err = os.Stat(filepath.Dir(p))
 	assert.NoErr(t, err)
-	assert.Eq(t, st.Mode().Perm(), os.FileMode(0o700))
+	assert.Perm(t, st.Mode(), 0o700)
 }
 
 func TestEventLog_AppendSyncFsyncs(t *testing.T) {

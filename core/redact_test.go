@@ -70,13 +70,11 @@ func TestRedact_NoDoubleRedaction(t *testing.T) {
 	assert.Eq(t, got, "token=[REDACTED:openai_key]")
 }
 
-func TestRedactor_FilterAndSkip(t *testing.T) {
-	r := &Redactor{Exact: []string{"s3cr3tvalue"}, SkipPaths: []string{"testdata/**"}}
+func TestRedactor_Filter(t *testing.T) {
+	r := &Redactor{Exact: []string{"s3cr3tvalue"}}
 	res := r.Filter(Result{Output: "a s3cr3tvalue b", IsError: true})
 	assert.Eq(t, res.Output, "a [REDACTED:exact] b")
 	assert.Eq(t, res.IsError, true)
-	assert.Eq(t, r.Skips("testdata/x/y.txt"), true)
-	assert.Eq(t, r.Skips("src/y.txt"), false)
 }
 
 func TestRedact_RealRepoFPSample(t *testing.T) {
