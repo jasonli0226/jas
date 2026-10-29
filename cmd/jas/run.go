@@ -83,19 +83,21 @@ func runCmd(ctx context.Context, args []string) error {
 	red := newRedactor(key)
 	reportRedactor = red
 	ui = core.NewRedactingUI(ui, red.Redact)
-	log, err := core.OpenEventLog(path, tee, red.Redact)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
-	log = core.NewUILog(log, ui)
-
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
 	system, ctxFiles, err := loadProjectContext(ctx, root, home, interactive, ra.trust, stdin, os.Stderr, red.Redact)
 	if err != nil {
 		return err
 	}
+
+	// Open the log only once the session can start, so a setup failure
+	// leaves no log without session_started/session_ended.
+	log, err := core.OpenEventLog(path, tee, red.Redact)
+	if err != nil {
+		return err
+	}
+	defer log.Close()
+	log = core.NewUILog(log, ui)
 
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
