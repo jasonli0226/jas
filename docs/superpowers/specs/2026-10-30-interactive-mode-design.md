@@ -120,9 +120,17 @@ jas becomes the daily driver instead of pi when it is:
   `approve <tool>: <summary>? [y/N/always]`.
 - `always` lasts for the rest of the session only, never written to disk:
   - **shell**: allows later commands whose **first two words** match
-    (`go test ./...` → `go test …`), but only for **simple** commands: a
-    command containing `;`, `&&`, `||`, `|`, `$(`, a backtick or `>` always
-    asks. (If the command has one word, the grant is that word.)
+    (`go test ./...` → `go test …`), but only for **simple** commands. Exact
+    rules (author's call):
+    - Words come from a quote-aware shell split of the command; the first two
+      words must be **equal**, not prefixes (`go test` does not match
+      `go testx`). A one-word command grants that word.
+    - A command is not simple, so it always asks and can't create a grant, if
+      its text contains anywhere (substring check, quoted or not) any of `;`,
+      `&`, `|`, `$(`, a backtick, `>`, `<`, or a newline; or if it starts with
+      an environment assignment (`FOO=bar go test` — an assignment such as
+      `PATH=…` can change what runs).
+    - On Windows (`cmd /c`) the same list plus `^` and `%`.
   - **edit / write**: allows that tool for the rest of the session (both are
     already confined to the project).
 - **Grants live as long as the chat process** (owner's call): they survive
@@ -147,9 +155,17 @@ jas becomes the daily driver instead of pi when it is:
   delivered to the model as soon as the current tool calls finish (after the
   tool results are added, before the next model request), not after the
   whole run.
+- **If the model gives its final answer while messages are queued**, the
+  queue is sent at once as the next user message and the agent continues
+  (author's call); to the session this is a new user message, so it gets its
+  own turn and its own turn cap (`max_turns` counts model requests per user
+  message, as `jas run` does today).
+- **While an approval prompt is showing, Enter answers the prompt.** Text
+  queued before the prompt appeared stays queued.
 - **Esc stops the run** and puts any queued text back in the input box.
 - (Author's call, matching pi) **Ctrl-C clears the input box**; pressing it
-  twice on an empty box quits. Ctrl-C does not stop a run; Esc does.
+  twice on an empty box within about a second quits. Ctrl-C does not stop a
+  run; Esc does.
 - Forking into a parallel agent: later, with farm (`/fork`).
 
 ### Slash commands (v1)
@@ -169,7 +185,8 @@ jas becomes the daily driver instead of pi when it is:
 | `/help`, `/quit` | Commands and keys; exit. |
 
 - A mistyped or unknown `/command` shows "unknown command" and is **not** sent
-  to the model (deliberately unlike pi).
+  to the model (deliberately unlike pi), with the closest match suggested
+  ("did you mean /model?") and the typed text left in the input box.
 - `jas --continue` opens the most recent session for this project.
 - User prompt templates appear as commands too (see Customization).
 
@@ -209,8 +226,11 @@ queue lives in the session, not the UI.
    Next Steps / Critical Context, plus read and modified files), iterating
    on a previous summary; tool results clipped to 2000 chars in the summary
    input; a summary that tries to call a tool is rejected. Stored as a
-   `compaction` event `{summary, first_kept_id, tokens_before, usage}`; the
-   original messages stay in the file. Runs on the **session model** by
+   `compaction` event `{summary, first_kept_id, tokens_before, usage}`, where
+   `first_kept_id` is the **event id** of the first message event kept
+   verbatim; the original messages stay in the file. The two numbers are
+   settings, not magic values: `compact_reserve_tokens` (default 16384) and
+   `compact_keep_tokens` (default 20000). Runs on the **session model** by
    default; a `compact_model` setting may name a cheaper one. Existing
    tool-result elision stays as the cheap first stage. Auto-compaction runs
    between turns and before sending a new user message; a provider
@@ -231,6 +251,12 @@ queue lives in the session, not the UI.
      `session_started` is once per file and `session_ended` once per open.
    - The model recorded in the file is used on resume if it is on the current
      provider; otherwise the configured model, with a notice.
+   - Replay must tolerate a crash: no final `session_ended`, and a truncated
+     or unparseable last line (ignored with a notice, never fatal). It must not
+     assume `session_ended` exists or appears once.
+   - After compaction ships (build step 4), replay starts from the latest
+     `compaction` event: the summary stands in for every message before its
+     `first_kept_id`, then messages from that event onward are replayed.
 5. **Prompt template locations**: `~/.jas/prompts/*.md` (user) and
    `<root>/.jas/prompts/*.md` (project; covered by the project trust
    decision, like project skills). These are read by jas itself, not by the
@@ -253,6 +279,21 @@ queue lives in the session, not the UI.
    distinct stream event so the UI can time and optionally show them. Thinking
    is not sent back to the model in later turns and not logged in full by
    default (builder's call whether to log it).
+   **Risk:** some reasoning models on OpenRouter work worse in multi-turn tool
+   use when their reasoning is not sent back. Before step 3 ships, run the
+   live `z-ai/glm-*` tests on a multi-turn tool task with and without sending
+   reasoning back; if dropping it hurts, keep the reasoning in the message
+   history (and the session file) for providers that need it, while still
+   hiding it on screen.
+
+## Logging and redaction
+
+Every new event (`user_message`, full assistant content including tool
+calls, steering, compaction summaries, `session_resumed`, turn events) is
+written through the existing `EventLog`, which redacts each payload before it
+reaches disk or the `--json` stream (`core.OpenEventLog(path, tee, redact)`).
+No event may bypass it (design.md "session hygiene"). Replayed messages are
+therefore the redacted text; that is accepted.
 
 ## Known hazards in today's code (must be fixed)
 
@@ -263,8 +304,14 @@ From `docs/research/pi-interactive.md` §10:
    `:213`).
 2. Event ids restart at `e000000` when a file is reopened for append
    (`core/events.go:148`, `:166`), which would duplicate ids and break any
-   `parent_id` tree. Fill `parent_id` with the previous entry on the active
-   path (a linear chain is a valid tree) so `/fork` and `/tree` can come later.
+   `parent_id` tree. Reopening must **continue `seq` and ids from the last
+   valid line**. Fill `parent_id` with the previous entry on the active path
+   (a linear chain is a valid tree) so `/fork` and `/tree` can come later.
+   Two processes must never append to one file (design.md §3.2 single
+   writer): opening a session file for append takes an **exclusive lock**
+   (flock on unix, LockFileEx on Windows, held for as long as the session is
+   open); if another jas holds it, `/resume` and `--continue` refuse with a
+   clear message naming the session.
 3. `session_started` / `session_ended` are written per `Run`.
 4. The Approver reads stdin with its own reader and leaves it blocked after a
    cancel (`core/approve.go:90-104`); in a chat that reader would eat the next
