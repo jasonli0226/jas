@@ -29,7 +29,8 @@ func runJasIn(t *testing.T, dir string, env []string, args ...string) (stdout, s
 	t.Helper()
 	cmd := exec.Command(testutil.JasBinary(t), args...)
 	cmd.Dir = dir
-	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "JAS_HOME=" + testutil.TempHome(t)}, env...)
+	home := t.TempDir() // isolated from the real user skills on every OS
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "USERPROFILE=" + home, "JAS_HOME=" + testutil.TempHome(t)}, env...)
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
 	err := cmd.Run()

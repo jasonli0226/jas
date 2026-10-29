@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestRun_UserSkillListedAndReadable(t *testing.T) {
 		{Calls: []fake.Call{{Name: "read", Args: string(args)}}},
 		{Text: "done"},
 	})
-	_, errOut, code := runJas(t, []string{"HOME=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
+	_, errOut, code := runJas(t, []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
 	assert.Eq(t, code, 0)
 	assert.NotContains(t, errOut, "skill")
 	first := systemPrompt(t, bodies()[0])
@@ -91,7 +92,7 @@ func TestRun_SessionStartedListsSkills(t *testing.T) {
 	userHome := t.TempDir()
 	loc := writeSkill(t, filepath.Join(userHome, ".claude", "skills"), "meta", "d", "b")
 	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
-	out, _, code := runJas(t, []string{"HOME=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "--json", "q")
+	out, _, code := runJas(t, []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "--json", "q")
 	assert.Eq(t, code, 0)
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 		var m map[string]any
@@ -115,7 +116,7 @@ func TestRun_UntrustedProjectSkillDoesNotHideUserSkill(t *testing.T) {
 	writeSkill(t, filepath.Join(proj, ".agents", "skills"), "foo", "PROJECT-FOO", "body")
 	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "foo", "USER-FOO-6612", "body")
 	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
-	_, errOut, code := runJasIn(t, proj, []string{"HOME=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
+	_, errOut, code := runJasIn(t, proj, []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
 	assert.Eq(t, code, 0)
 	assert.NotContains(t, errOut, "shadowed")
 	sys := systemPrompt(t, bodies()[0])
@@ -124,6 +125,9 @@ func TestRun_UntrustedProjectSkillDoesNotHideUserSkill(t *testing.T) {
 }
 
 func TestRun_SkillWarningsEscapeControlBytes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows file names cannot hold control characters")
+	}
 	proj := t.TempDir()
 	dir := filepath.Join(proj, ".agents", "skills", "x\x1b]0;pwned\x07")
 	assert.NoErr(t, os.MkdirAll(dir, 0o755))
