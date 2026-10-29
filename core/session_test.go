@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -209,7 +210,7 @@ func TestSession_SetModelLoggedAndUsed(t *testing.T) {
 	s := newSession(t, r)
 	ctx := context.Background()
 	send(t, s, ctx, "a")
-	s.SetModel("m2")
+	assert.NoErr(t, s.SetModel("m2"))
 	send(t, s, ctx, "b")
 	assert.Eq(t, r.prov.Requests[0].Model, "m")
 	assert.Eq(t, r.prov.Requests[1].Model, "m2")
@@ -220,6 +221,19 @@ func TestSession_SetModelLoggedAndUsed(t *testing.T) {
 		}
 	}
 	assert.Eq(t, strings.Join(changed, ","), "m2")
+}
+
+func TestSession_SetModelReturnsLogError(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "A"}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"model_changed": true}}
+	s := newSession(t, r)
+	err := s.SetModel("m2")
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("model_changed failure not returned: %v", err)
+	}
+	assert.Contains(t, err.Error(), "event log")
+	send(t, s, context.Background(), "a")
+	assert.Eq(t, r.prov.Requests[0].Model, "m2")
 }
 
 func TestSession_MessagesIsCopy(t *testing.T) {

@@ -165,10 +165,14 @@ func (s *Session) Messages() []providers.Message {
 	return slices.Clone(s.messages)
 }
 
-// SetModel switches the model for later requests and logs model_changed.
-func (s *Session) SetModel(model string) {
+// SetModel switches the model for later requests and logs model_changed. The
+// switch happens even if logging fails; the log error is returned.
+func (s *Session) SetModel(model string) error {
 	s.model = model
-	s.note(s.c.Log.Append(EvModelChanged, map[string]any{"model": model}))
+	if err := s.c.Log.Append(EvModelChanged, map[string]any{"model": model}); err != nil {
+		return fmt.Errorf("event log: %w", err)
+	}
+	return nil
 }
 
 // Close writes session_ended with session totals. Later calls do nothing.
