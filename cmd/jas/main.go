@@ -60,7 +60,7 @@ func report(err error) int {
 	}
 	redactor := reportRedactor
 	if redactor == nil {
-		redactor = newRedactor(os.Getenv("JAS_API_KEY"), nil)
+		redactor = newRedactor(os.Getenv("JAS_API_KEY"))
 	}
 	redact := redactor.Redact
 	var ee *core.ExitError

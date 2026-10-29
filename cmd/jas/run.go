@@ -80,7 +80,7 @@ func runCmd(ctx context.Context, args []string) error {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
 	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home)}}
-	red := newRedactor(key, policy.RedactSkip)
+	red := newRedactor(key)
 	reportRedactor = red
 	ui = core.NewRedactingUI(ui, red.Redact)
 	log, err := core.OpenEventLog(path, tee, red.Redact)
@@ -139,8 +139,8 @@ func homeDenyPattern(home string) string {
 
 // newRedactor builds the process-wide secret redactor: the resolved API key
 // (from any source) plus the built-in patterns.
-func newRedactor(key string, skip []string) *core.Redactor {
-	r := &core.Redactor{SkipPaths: skip}
+func newRedactor(key string) *core.Redactor {
+	r := &core.Redactor{}
 	if key != "" {
 		r.Exact = []string{key}
 	}
