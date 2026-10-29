@@ -82,6 +82,8 @@ func Run(ctx context.Context, c RunConfig) (Summary, error) {
 	if err := c.Log.AppendSync(EvSessionStarted, started); err != nil {
 		return s.sum, fmt.Errorf("event log: %w", err)
 	}
+	s.note(c.Log.Append(EvUserMessage, map[string]any{"content": toWire(s.messages[0].Content)}))
+	s.note(c.Log.Append(EvTurnStarted, map[string]any{}))
 	status, code, reason := s.loop(ctx)
 	return s.finish(status, code, reason)
 }
@@ -211,7 +213,9 @@ func (s *runState) recordUsage(u providers.Usage) {
 }
 
 func (s *runState) logAssistant(msg providers.Message, final bool) {
-	s.note(s.c.Log.Append(EvAssistantMessage, map[string]any{"text": textOf(msg), "final": final}))
+	s.note(s.c.Log.Append(EvAssistantMessage, map[string]any{
+		"text": textOf(msg), "final": final, "content": toWire(msg.Content),
+	}))
 }
 
 func textOf(m providers.Message) string {
@@ -248,6 +252,10 @@ func (s *runState) finish(status string, code int, reason string) (Summary, erro
 		status, code, reason = endFailed, ExitFailure, "event log failure"
 	}
 	s.sum.Messages = s.messages
+	s.note(s.c.Log.AppendSync(EvTurnEnded, map[string]any{
+		"status": status, "exit_code": code, "reason": reason, "turns": s.sum.Turns,
+		"prompt_tokens": s.sum.Usage.PromptTokens, "completion_tokens": s.sum.Usage.CompletionTokens,
+	}))
 	s.note(s.c.Log.AppendSync(EvSessionEnded, map[string]any{
 		"status": status, "exit_code": code, "turns": s.sum.Turns,
 		"prompt_tokens": s.sum.Usage.PromptTokens, "completion_tokens": s.sum.Usage.CompletionTokens,

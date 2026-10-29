@@ -90,10 +90,10 @@ func TestRun_TextOnlyFinal(t *testing.T) {
 	assert.Eq(t, sum.Final, "hello")
 	assert.Eq(t, sum.Turns, 1)
 	evs := r.events(t)
-	assert.Eq(t, strings.Join(types(evs), ","), "session_started,usage,assistant_message,session_ended")
+	assert.Eq(t, strings.Join(types(evs), ","), "session_started,user_message,turn_started,usage,assistant_message,turn_ended,session_ended")
 	assert.Eq(t, evs[0]["model"].(string), "m")
-	assert.Eq(t, evs[2]["final"].(bool), true)
-	assert.Eq(t, evs[2]["text"].(string), "hello")
+	assert.Eq(t, evs[4]["final"].(bool), true)
+	assert.Eq(t, evs[4]["text"].(string), "hello")
 	end := lastEnded(t, evs)
 	assert.Eq(t, end["exit_code"].(float64), 0.0)
 	assert.Eq(t, end["status"].(string), "ok")
@@ -305,4 +305,47 @@ func TestRun_SessionEndedFailureOnSuccessIsExit1(t *testing.T) {
 	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"session_ended": true}}
 	_, err := core.Run(context.Background(), r.cfg)
 	assert.Eq(t, exitCode(t, err), core.ExitFailure)
+}
+
+func TestRun_LogsReplayableEvents(t *testing.T) {
+	r := newRig(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "ls", Args: `{"path":"."}`}}},
+		{Text: "done"},
+	})
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.NoErr(t, err)
+	evs := r.events(t)
+	var got []string
+	for _, ty := range types(evs) {
+		if ty != "usage" {
+			got = append(got, ty)
+		}
+	}
+	assert.Eq(t, strings.Join(got, ","), "session_started,user_message,turn_started,assistant_message,tool_started,tool_result,assistant_message,turn_ended,session_ended")
+
+	um := evs[1]["content"].([]any)[0].(map[string]any)
+	assert.Eq(t, um["text"].(string), "do it")
+
+	var asst []map[string]any
+	for _, e := range evs {
+		if e["type"] == "assistant_message" {
+			asst = append(asst, e)
+		}
+	}
+	use := asst[0]["content"].([]any)[0].(map[string]any)
+	assert.Eq(t, use["type"].(string), "tool_use")
+	assert.Eq(t, use["name"].(string), "ls")
+	assert.Eq(t, use["tool_use_id"].(string) != "", true)
+	in := use["input"].(map[string]any)
+	assert.Eq(t, in["path"].(string), ".")
+	assert.Eq(t, asst[1]["text"].(string), "done")
+
+	var te map[string]any
+	for _, e := range evs {
+		if e["type"] == "turn_ended" {
+			te = e
+		}
+	}
+	assert.Eq(t, te["status"].(string), "ok")
+	assert.Eq(t, te["turns"].(float64), 2.0)
 }

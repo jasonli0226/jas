@@ -24,6 +24,11 @@ const (
 	EvToolResult       = "tool_result"
 	EvElided           = "elided"
 	EvSessionEnded     = "session_ended"
+	EvUserMessage      = "user_message"
+	EvTurnStarted      = "turn_started"
+	EvTurnEnded        = "turn_ended"
+	EvSessionResumed   = "session_resumed"
+	EvModelChanged     = "model_changed"
 )
 
 const (
