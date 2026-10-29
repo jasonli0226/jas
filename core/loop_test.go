@@ -349,3 +349,50 @@ func TestRun_LogsReplayableEvents(t *testing.T) {
 	assert.Eq(t, te["status"].(string), "ok")
 	assert.Eq(t, te["turns"].(float64), 2.0)
 }
+
+func TestRun_TurnEndedWriteFailureExits1(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "hi"}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"turn_ended": true}}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitFailure)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("log error not surfaced: %v", err)
+	}
+}
+
+func TestRun_RedactsAssistantContentAndToolInput(t *testing.T) {
+	const secret = "sk-test-12345"
+	const marker = "<redacted>"
+	r := newRig(t, []fake.Turn{
+		{Text: "key is " + secret, Calls: []fake.Call{{Name: "ls", Args: `{"path":"` + secret + `"}`}}},
+		{Text: "done"},
+	})
+	assert.NoErr(t, r.cfg.Log.Close()) // release the file lock for the redacting log
+	log, err := core.OpenEventLog(r.logPath, nil, func(s string) string { return strings.ReplaceAll(s, secret, marker) })
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+	r.cfg.Log, r.cfg.Exec.Log = log, log
+	_, err = core.Run(context.Background(), r.cfg)
+	assert.NoErr(t, err)
+	assert.NoErr(t, log.Close())
+
+	raw, err := os.ReadFile(r.logPath)
+	assert.NoErr(t, err)
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("secret leaked into the event log:\n%s", raw)
+	}
+	found := false
+	for _, e := range r.events(t) {
+		if e["type"] != "assistant_message" {
+			continue
+		}
+		for _, b := range e["content"].([]any) {
+			if txt, _ := b.(map[string]any)["text"].(string); strings.Contains(txt, marker) {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("redaction marker missing from assistant_message.content")
+	}
+}
