@@ -65,6 +65,17 @@ func TestCLI_PlainRunStreamsText(t *testing.T) {
 	assert.Contains(t, out, "plain answer")
 }
 
+func TestCLI_PlainRunRedactsStreamedText(t *testing.T) {
+	const key = "zq9plainrunkeyvalue42"
+	const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "key " + key + " token " + token}})
+	out, _, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=" + key}, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, out, key)
+	assert.NotContains(t, out, token)
+	assert.Contains(t, out, "[REDACTED")
+}
+
 func TestCLI_MissingModelIsUsageError(t *testing.T) {
 	_, errOut, code := runJas(t, []string{"JAS_BASE_URL=http://127.0.0.1:1", "JAS_API_KEY=k"}, "run", "task")
 	assert.Eq(t, code, 2)

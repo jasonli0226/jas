@@ -82,12 +82,13 @@ func runCmd(ctx context.Context, args []string) error {
 	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths}
 	red := newRedactor(key, policy.RedactSkip)
 	reportRedactor = red
+	ui = core.NewRedactingUI(ui, red.Redact)
 	log, err := core.OpenEventLog(path, tee, red.Redact)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
-	log = core.NewUILog(log, core.NewRedactingUI(ui, red.Redact))
+	log = core.NewUILog(log, ui)
 
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
