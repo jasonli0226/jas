@@ -65,13 +65,34 @@ type msgState struct {
 // NewSession starts a session and writes session_started.
 func NewSession(c SessionConfig) (*Session, error) {
 	s := newSession(c)
-	started := map[string]any{}
-	maps.Copy(started, c.Meta)
-	started["model"] = s.model
-	if err := c.Log.AppendSync(EvSessionStarted, started); err != nil {
-		return nil, fmt.Errorf("event log: %w", err)
+	if err := s.open(EvSessionStarted); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+// ResumeSession continues a replayed conversation and writes session_resumed
+// to c.Log, which should be the reopened log of the same file. System and
+// Model come from c, never from the file: the caller rebuilds the system
+// prompt from current trust.
+func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
+	s := newSession(c)
+	s.messages = slices.Clone(st.Messages)
+	if err := s.open(EvSessionResumed); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// open writes the session's opening event with Meta merged and the model.
+func (s *Session) open(typ string) error {
+	data := map[string]any{}
+	maps.Copy(data, s.c.Meta)
+	data["model"] = s.model
+	if err := s.c.Log.AppendSync(typ, data); err != nil {
+		return fmt.Errorf("event log: %w", err)
+	}
+	return nil
 }
 
 // newSession applies defaults without logging, so a resume path can seed
