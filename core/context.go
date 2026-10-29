@@ -88,7 +88,7 @@ func DecideContextFile(name, root string, content []byte, store TrustStore, inte
 		fmt.Fprintf(os.Stderr, "jas: skipping untrusted %s (pass --trust-project to load)\n", name)
 		return false, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(ask(fmt.Sprintf("trust %s and load %s? [y/N/always] ", sanitize(root), name)))) {
+	switch strings.ToLower(strings.TrimSpace(ask(fmt.Sprintf("trust %s and load %s? [y/N/always] ", Sanitize(root), name)))) {
 	case "y", "yes":
 		return true, nil
 	case "always":

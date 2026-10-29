@@ -32,6 +32,9 @@ type ExecPolicy struct {
 	Deny         []string
 	RedactSkip   []string // config redact_skip_paths (Task 11)
 	ShellTimeout time.Duration
+	// ReadRoots are extra symlink-resolved directories (the discovered skill
+	// directories) that read-only tools may open; see ResolveRead.
+	ReadRoots []string
 }
 
 // Tool is one capability offered to the model.

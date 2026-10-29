@@ -55,12 +55,59 @@ func (p ExecPolicy) Resolve(path string) (string, error) {
 		return "", err
 	}
 	if !within(root, resolved) {
-		return "", fmt.Errorf("path outside project root: %s", path)
+		return "", fmt.Errorf("%w: %s", errOutsideRoot, path)
 	}
 	if err := p.checkDeny(path, resolved); err != nil {
 		return "", err
 	}
 	return resolved, nil
+}
+
+var errOutsideRoot = errors.New("path outside project root")
+
+// ResolveRead is Resolve for read-only tools: an absolute path inside one of
+// ReadRoots is allowed too. There the deny floor applies with the read root
+// standing in for the project root, so a skill's .env stays denied.
+func (p ExecPolicy) ResolveRead(path string) (string, error) {
+	resolved, err := p.Resolve(path)
+	if !errors.Is(err, errOutsideRoot) || !filepath.IsAbs(path) {
+		return resolved, err
+	}
+	abs, rerr := evalExisting(filepath.Clean(path))
+	if rerr != nil {
+		return "", rerr
+	}
+	scope, ok := p.readRoot(abs)
+	if !ok {
+		return "", err
+	}
+	if err := scope.checkDeny(path, abs); err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// ReadScope returns the policy for walking or listing under resolved: p
+// inside the project, or p rooted at the read root that holds resolved.
+func (p ExecPolicy) ReadScope(resolved string) ExecPolicy {
+	if root, err := filepath.EvalSymlinks(p.Root); err == nil && within(root, resolved) {
+		return p
+	}
+	if scope, ok := p.readRoot(resolved); ok {
+		return scope
+	}
+	return p
+}
+
+func (p ExecPolicy) readRoot(abs string) (ExecPolicy, bool) {
+	for _, r := range p.ReadRoots {
+		if within(r, abs) {
+			scope := p
+			scope.Root, scope.ReadRoots = r, nil
+			return scope, true
+		}
+	}
+	return ExecPolicy{}, false
 }
 
 // evalExisting resolves symlinks of the longest existing prefix of path and

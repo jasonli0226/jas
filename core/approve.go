@@ -136,9 +136,9 @@ func summarize(name string, args json.RawMessage) string {
 		key = "command"
 	}
 	raw, _ := m[key].(string)
-	s := sanitize(raw)
+	s := Sanitize(raw)
 	if s == "" {
-		s = sanitize(string(args))
+		s = Sanitize(string(args))
 	}
 	if r := []rune(s); len(r) > summaryMax {
 		s = fmt.Sprintf("%s …[+%d more chars]", string(r[:summaryMax]), len(r)-summaryMax)
@@ -146,9 +146,10 @@ func summarize(name string, args json.RawMessage) string {
 	return s
 }
 
-// sanitize escapes control and format runes (ESC, backspace, NUL, bidi
-// overrides, ...) and collapses whitespace to single spaces.
-func sanitize(s string) string {
+// Sanitize escapes control and format runes (ESC, backspace, NUL, bidi
+// overrides, ...) and collapses whitespace to single spaces, so untrusted
+// text is safe to print on a terminal.
+func Sanitize(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		switch {

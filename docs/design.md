@@ -198,7 +198,7 @@ removing one bumps `v`.
 
 | type | payload | when |
 |---|---|---|
-| `session_started` | model, base_url, approve level, project root, context files loaded | once, first |
+| `session_started` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once, first |
 | `assistant_message` | text, `final: bool` | after each stream; `final` on the answer turn |
 | `usage` | prompt/completion/cached tokens | after each provider response |
 | `tool_started` | tool, `call_id`, args, `mutating` | before exec (fsynced first if mutating) |
@@ -320,9 +320,13 @@ type Tool interface {
   path plus content hash, so an edit asks again. Without a TTY, untrusted
   context files are **skipped with a warning** unless `--trust-project` is
   passed. v2 extends the same gate to scenarios (§11).
-- **Skills (v3):** a skill = `SKILL.md` + optional tool manifests per the
-  agentskills.io spec; loaded into system prompt or a toolset. Interop with
-  Claude Code/Hermes. Not in v1.
+- **Skills (shipped after v1):** a skill = `SKILL.md` per the agentskills.io
+  spec, discovered in `.agents/skills` and `.claude/skills` (project, then
+  user), listed in the system prompt (pi's `<available_skills>` block) and
+  loaded on demand with the `read` tool, which may open listed skill
+  directories (`ExecPolicy.ReadRoots`). Project skills share the context
+  file's trust prompt. Optional tool manifests stay v3. Research:
+  `docs/research/agent-skills.md`.
 
 ## 4. v1 scope (weekend one)
 
@@ -784,15 +788,16 @@ jas learn --auto "topic"                         # non-interactive → pending q
 
 Flow: agent researches (§12.1 tools) → drafts `SKILL.md` + `references/` per the
 agentskills.io spec (same as pi, so skills interop across Claude Code/Hermes)
-→ shows the draft for approval → saves to `~/.jas/skills/<name>/` or project
-`.jas/skills/<name>/`. The skill is then advertised to future sessions
+→ shows the draft for approval → saves to `~/.agents/skills/<name>/` or project
+`.agents/skills/<name>/` (the directories jas already scans; `~/.jas/**` is in
+the deny floor, so tools could not read skills kept there). The skill is then advertised to future sessions
 (name + description only; full instructions load on demand — pi's model).
 
 Guardrails:
 
 - A skill is instructions injected into **every future session**. A skill
   drafted from web content is therefore a persistent prompt-injection channel.
-  `--auto` never installs. It writes drafts to `~/.jas/skills/.pending/<name>/`,
+  `--auto` never installs. It writes drafts to `~/.jas/skills-pending/<name>/`,
   which are never advertised. `jas skills review` shows the draft and its
   source URLs; `jas skills approve <name>` installs it.
 - `learn` never overwrites an existing skill without `--force`.

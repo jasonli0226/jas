@@ -33,7 +33,7 @@ func (Read) Description() string {
 func (Read) Kind() core.Kind { return core.ReadOnly }
 func (Read) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` +
-		`"path":{"type":"string","description":"File path, relative to the project root."},` +
+		`"path":{"type":"string","description":"File path, relative to the project root, or an absolute path inside a listed skill's directory."},` +
 		`"offset":{"type":"integer","description":"1-based line to start at."},` +
 		`"limit":{"type":"integer","description":"Maximum number of lines to return."}},` +
 		`"required":["path"]}`)
@@ -48,7 +48,7 @@ func (Read) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errResult("invalid arguments: %v", err)
 	}
-	full, err := p.Resolve(a.Path)
+	full, err := p.ResolveRead(a.Path)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -100,7 +100,7 @@ func (Ls) Description() string {
 func (Ls) Kind() core.Kind { return core.ReadOnly }
 func (Ls) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` +
-		`"path":{"type":"string","description":"Directory path, relative to the project root; defaults to the root."}},` +
+		`"path":{"type":"string","description":"Directory path, relative to the project root (or absolute inside a listed skill's directory); defaults to the root."}},` +
 		`"required":[]}`)
 }
 
@@ -116,10 +116,11 @@ func (Ls) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (co
 	if a.Path == "" {
 		a.Path = "."
 	}
-	full, err := p.Resolve(a.Path)
+	full, err := p.ResolveRead(a.Path)
 	if err != nil {
 		return errResult("%v", err)
 	}
+	scope := p.ReadScope(full)
 	if ok, cerr := cancelled(ctx, "ls"); ok {
 		return core.Result{}, cerr
 	}
@@ -133,7 +134,7 @@ func (Ls) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (co
 			return core.Result{}, cerr
 		}
 		n := e.Name()
-		if p.Denied(filepath.Join(full, n)) { // also follows a symlink entry to its target
+		if scope.Denied(filepath.Join(full, n)) { // also follows a symlink entry to its target
 			continue
 		}
 		if e.IsDir() {

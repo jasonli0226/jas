@@ -17,6 +17,7 @@ import (
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/settings"
+	"github.com/jasonli0226/jas/skills"
 	"github.com/jasonli0226/jas/tools"
 )
 
@@ -85,10 +86,19 @@ func runCmd(ctx context.Context, args []string) error {
 	ui = core.NewRedactingUI(ui, red.Redact)
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
-	system, ctxFiles, err := loadProjectContext(ctx, root, home, interactive, ra.trust, stdin, os.Stderr, red.Redact)
+	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
+	userHome, _ := os.UserHomeDir() // no home: user skills are skipped
+	projectSkills, pw := skills.Discover(skills.ProjectSources(root), policy.Denied)
+	userSkills, uw := skills.Discover(skills.UserSources(userHome), policy.Denied)
+	for _, w := range append(pw, uw...) {
+		warn(w)
+	}
+	pc, err := loadProjectContext(ctx, root, home, projectSkills, userSkills, interactive, ra.trust, stdin, os.Stderr, red.Redact, warn)
 	if err != nil {
 		return err
 	}
+	skillList, skillDirs := listedSkills(pc.skills)
+	policy.ReadRoots = skillDirs
 
 	// Open the log only once the session can start, so a setup failure
 	// leaves no log without session_started/session_ended.
@@ -113,11 +123,11 @@ func runCmd(ctx context.Context, args []string) error {
 	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
-		Model:    cfg.Model, Prompt: ra.prompt, System: system,
+		Model:    cfg.Model, Prompt: ra.prompt, System: pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: cfg.MaxTurns,
 		Budget: &core.Budget{Window: window, ElideAt: cfg.ElideAt, Keep: cfg.KeepToolResults},
 		SessionMeta: map[string]any{
-			"base_url": cfg.BaseURL, "approve": level.String(), "root": root, "context_files": ctxFiles,
+			"base_url": cfg.BaseURL, "approve": level.String(), "root": root, "context_files": pc.files, "skills": skillList,
 			"context_window": window, "window_known": known,
 		},
 	})
