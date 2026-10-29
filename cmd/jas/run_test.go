@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -90,6 +91,9 @@ func TestCLI_MaxTurnsFromEnv(t *testing.T) {
 }
 
 func TestCLI_SigintExits130(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Process.Signal cannot send SIGINT on windows")
+	}
 	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "partial", Block: true}})
 	cmd := exec.Command(testutil.JasBinary(t), "run", "--json", "task")
 	cmd.Dir = t.TempDir()

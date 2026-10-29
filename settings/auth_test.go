@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,6 +18,9 @@ func TestAuth_FileMode0600(t *testing.T) {
 	info, err := os.Stat(p)
 	assert.NoErr(t, err)
 	assert.Perm(t, info.Mode(), 0o600)
+	if runtime.GOOS == "windows" {
+		return // no unix permission bits to check
+	}
 	assert.NoErr(t, os.Chmod(p, 0o644))
 	_, err = LoadAuth(p)
 	if err == nil {
