@@ -189,8 +189,9 @@ from day one (see #6):
 {"v":1,"id":"…","parent_id":"…","seq":42,"ts":"…","type":"tool_started", …}
 ```
 
-`parent_id` is null for the trunk in v1; v2 session-tree/fork fills it in for
-free.
+`parent_id` is the previous event's id, forming a linear chain. `seq` and `id`
+continue across reopen (resuming from the last event). The session file is
+locked while open (write-ahead & replay safety).
 
 **Event types (v1 contract).** `--json` consumers and the v2 RPC protocol
 depend on this list. Adding a type or field is backward compatible. Renaming or
@@ -198,19 +199,24 @@ removing one bumps `v`.
 
 | type | payload | when |
 |---|---|---|
-| `session_started` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once, first |
-| `assistant_message` | text, `final: bool` | after each stream; `final` on the answer turn |
-| `usage` | prompt/completion/cached tokens | after each provider response |
-| `tool_started` | tool, `call_id`, args, `mutating` | before exec (fsynced first if mutating) |
-| `approval` | `call_id`, `decision: granted\|denied\|unavailable` | when the Approver is consulted |
-| `tool_result` | `call_id`, `status: ok\|error\|denied\|cancelled\|interrupted`, output | after exec |
-| `elided` | count of results stubbed, tokens before/after | each elision pass |
-| `session_ended` | status, exit code, turns, total tokens | once, last | **Single writer:** all appends go through one `EventLog` goroutine;
+| `session_started` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per file, first |
+| `session_resumed` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per reopen, after replay |
+| `user_message` | content (wire blocks), steer (optional bool) | when user sends a message or steering text |
+| `turn_started` | (empty) | at start of each turn |
+| `assistant_message` | text, content (wire blocks), final (bool) | after each stream; final on the answer turn |
+| `usage` | prompt_tokens, completion_tokens, cached_tokens | after each provider response |
+| `tool_started` | tool, call_id, args, mutating | before exec (fsynced first if mutating) |
+| `approval` | call_id, tool, decision (granted\|denied\|unavailable) | when the Approver is consulted |
+| `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted), output | after exec |
+| `elided` | count, tokens_before, tokens_after | each elision pass |
+| `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each turn |
+| `model_changed` | model | when SetModel is called |
+| `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; absent after a crash | **Single writer:** all appends go through one `EventLog` goroutine;
 concurrent callers send events. The writer fsyncs after each turn's tool
 results — and, for mutating calls, fsyncs `tool_started` **before** the call
 executes (write-ahead; see #4).
 
-**Side effects and resume (v1 design, resume shipped in v2):**
+**Side effects and resume (v1 contract):**
 
 1. Mutating call → fsync `tool_started` → execute → `tool_result`.
 2. On resume, a `tool_started` with no matching `tool_result` is **never**
