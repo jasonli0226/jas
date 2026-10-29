@@ -45,7 +45,7 @@ func TestOnboard_WritesConfigAndAuth(t *testing.T) {
 	authPath := filepath.Join(home, "auth.json")
 	info, err := os.Stat(authPath)
 	assert.NoErr(t, err)
-	assert.Eq(t, info.Mode().Perm(), os.FileMode(0o600))
+	assert.Perm(t, info.Mode(), 0o600)
 	var auth map[string]map[string]string
 	b, _ = os.ReadFile(authPath)
 	assert.NoErr(t, json.Unmarshal(b, &auth))

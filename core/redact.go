@@ -132,7 +132,6 @@ func (r *Redactor) Filter(res Result) Result {
 	return res
 }
 
-
 // shannon is the Shannon entropy, in bits per byte, of v's byte histogram.
 func shannon(v string) float64 {
 	if v == "" {

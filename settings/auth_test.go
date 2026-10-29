@@ -16,7 +16,7 @@ func TestAuth_FileMode0600(t *testing.T) {
 	assert.NoErr(t, AuthAdd(p, "openrouter", AuthEntry{Key: "k1"}, envOf(nil)))
 	info, err := os.Stat(p)
 	assert.NoErr(t, err)
-	assert.Eq(t, info.Mode().Perm(), os.FileMode(0o600))
+	assert.Perm(t, info.Mode(), 0o600)
 	assert.NoErr(t, os.Chmod(p, 0o644))
 	_, err = LoadAuth(p)
 	if err == nil {
@@ -87,7 +87,7 @@ func TestAuth_RotateReplacesKey(t *testing.T) {
 	b, _ := os.ReadFile(p)
 	assert.NotContains(t, string(b), "old-key")
 	info, _ := os.Stat(p)
-	assert.Eq(t, info.Mode().Perm(), os.FileMode(0o600))
+	assert.Perm(t, info.Mode(), 0o600)
 	if err := AuthRotate(p, "nobody", "x", envOf(nil)); err == nil {
 		t.Fatal("rotate unknown provider should fail")
 	}

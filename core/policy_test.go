@@ -116,6 +116,7 @@ func TestDeny_SymlinkToEnv(t *testing.T) {
 func TestDeny_HomePatternsWhenRootIsHome(t *testing.T) {
 	home := realpath(t, t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
 	writeFile(t, filepath.Join(home, ".ssh", "id_ed25519"), "k")
 	writeFile(t, filepath.Join(home, ".aws", "credentials"), "k")
 	writeFile(t, filepath.Join(home, "notes.txt"), "k")
@@ -133,6 +134,7 @@ func TestDeny_HomePatternsWhenRootIsHome(t *testing.T) {
 func TestDeny_JasHomeWhenRootIsHome(t *testing.T) {
 	home := realpath(t, t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
 	for _, f := range []string{"auth.json", "config.json", "trust.json"} {
 		writeFile(t, filepath.Join(home, ".jas", f), "{}")
 	}

@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -40,7 +41,11 @@ func TestResolve_PrefixSiblingAndAbsolute(t *testing.T) {
 	assert.NoErr(t, os.MkdirAll(root, 0o755))
 	assert.NoErr(t, os.MkdirAll(evil, 0o755))
 	p := ExecPolicy{Root: root}
-	for _, path := range []string{evil, filepath.Join(evil, "f"), "../root-evil/f", "/etc/passwd"} {
+	outside := "/etc/passwd"
+	if runtime.GOOS == "windows" {
+		outside = `C:\Windows\win.ini`
+	}
+	for _, path := range []string{evil, filepath.Join(evil, "f"), "../root-evil/f", outside} {
 		_, err := p.Resolve(path)
 		if err == nil {
 			t.Fatalf("%s: expected error", path)

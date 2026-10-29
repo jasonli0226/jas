@@ -3,7 +3,9 @@ package assert
 
 import (
 	"encoding/json"
+	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -52,5 +54,17 @@ func NotContains(t testing.TB, s, sub string) {
 	t.Helper()
 	if strings.Contains(s, sub) {
 		t.Fatalf("%q unexpectedly contains %q", s, sub)
+	}
+}
+
+// Perm fails the test if the permission bits differ. Windows has no unix
+// permission bits (Go reports 0666 or 0444), so the check is skipped there.
+func Perm(t testing.TB, got, want os.FileMode) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if got.Perm() != want {
+		t.Fatalf("got %v, want %v", got.Perm(), want)
 	}
 }

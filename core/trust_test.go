@@ -3,6 +3,7 @@ package core_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestTrust_ContentChangeAsksAgain(t *testing.T) {
 	assert.Eq(t, ok, false)
 	info, err := os.Stat(st.Path)
 	assert.NoErr(t, err)
-	assert.Eq(t, info.Mode().Perm(), os.FileMode(0o600))
+	assert.Perm(t, info.Mode(), 0o600)
 }
 
 func TestTrust_KeyIsSymlinkResolvedRoot(t *testing.T) {
@@ -98,6 +99,9 @@ func TestDecide_NoTTYSkipsWithWarning(t *testing.T) {
 }
 
 func TestDecide_PromptSanitizesRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows file names cannot contain control characters")
+	}
 	root := filepath.Join(t.TempDir(), "evil\x1b[2K‮name")
 	assert.NoErr(t, os.MkdirAll(root, 0o755))
 	var prompt string

@@ -28,6 +28,9 @@ func JasBinary(t testing.TB) string {
 			return
 		}
 		binPath = filepath.Join(dir, "jas")
+		if runtime.GOOS == "windows" {
+			binPath += ".exe"
+		}
 		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/jas")
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
