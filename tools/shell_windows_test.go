@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -45,6 +46,41 @@ func TestShellWindows_BackgroundChildDiesWithCall(t *testing.T) {
 	time.Sleep(6 * time.Second)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("background child outlived the shell call")
+	}
+}
+
+func TestShellWindows_CancelKillsGrandchildren(t *testing.T) {
+	p := policy(t)
+	started := filepath.Join(p.Root, "started.txt")
+	marker := filepath.Join(p.Root, "marker.txt")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Shell{}.Call(ctx, p, json.RawMessage(winShellArgs(t,
+			`start /b cmd /c "echo up> started.txt & ping -n 6 127.0.0.1 >nul & echo late> marker.txt" & ping -n 30 127.0.0.1 >nul`, 0)))
+		done <- err
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("grandchild never started")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		assert.Eq(t, err != nil, true)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Call did not return after cancel")
+	}
+	time.Sleep(8 * time.Second)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("grandchild outlived a cancelled shell call")
 	}
 }
 
