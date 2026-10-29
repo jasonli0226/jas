@@ -25,6 +25,9 @@ func toWire(bs []providers.ContentBlock) []wireBlock {
 	return out
 }
 
+// fromWire rebuilds blocks from the log. Tool input comes back as the
+// redactor's JSON round-trip left it (compacted, keys reordered), so a resumed
+// session's first request may miss the provider's prompt cache once; accepted.
 func fromWire(ws []wireBlock) []providers.ContentBlock {
 	out := make([]providers.ContentBlock, len(ws))
 	for i, w := range ws {

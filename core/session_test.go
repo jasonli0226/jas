@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -243,4 +244,59 @@ func TestSession_MessagesIsCopy(t *testing.T) {
 	m := s.Messages()
 	m[0].Content = nil
 	assert.Eq(t, msgSummary(s.Messages()), "user:a | assistant:A")
+}
+
+// cancelTool cancels the run's context and still returns a result.
+type cancelTool struct{ cancel func() }
+
+func (cancelTool) Name() string            { return "cancel" }
+func (cancelTool) Description() string     { return "cancels" }
+func (cancelTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (cancelTool) Kind() core.Kind         { return core.ReadOnly }
+func (c cancelTool) Call(context.Context, core.ExecPolicy, json.RawMessage) (core.Result, error) {
+	c.cancel()
+	return core.Result{Output: "done"}, nil
+}
+
+func queuedSteer(msgs []providers.Message, text string) bool {
+	return strings.Contains(msgSummary(msgs), text)
+}
+
+func TestSession_SteerNotCommittedAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := newRig(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "cancel", Args: `{}`}}},
+		{Text: "unused"},
+	}, cancelTool{cancel})
+	s := newSession(t, r)
+	r.prov.Turns[0].OnEmit = func() { s.Steer("late") }
+	res := send(t, s, ctx, "go")
+	assert.Eq(t, res.Status, "interrupted")
+	if queuedSteer(s.Messages(), "late") {
+		t.Fatalf("steer committed after cancel: %s", msgSummary(s.Messages()))
+	}
+}
+
+func TestSession_SteerNotCommittedAfterCancelAtFinal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := newRig(t, []fake.Turn{{Text: "first"}, {Text: "unused"}})
+	s := newSession(t, r)
+	r.prov.Turns[0].OnEmit = func() { s.Steer("late"); cancel() }
+	res := send(t, s, ctx, "go")
+	t.Logf("status %s", res.Status)
+	if queuedSteer(s.Messages(), "late") || len(r.prov.Requests) != 1 {
+		t.Fatalf("steer committed after cancel: %s", msgSummary(s.Messages()))
+	}
+}
+
+func TestSession_SteerKeptWhenTurnCapHit(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Calls: []fake.Call{{Name: "ls", Args: `{}`}}}})
+	r.cfg.MaxTurns = 1
+	s := newSession(t, r)
+	r.prov.Turns[0].OnEmit = func() { s.Steer("late") }
+	res := send(t, s, context.Background(), "go")
+	assert.Eq(t, res.Status, "turn_cap")
+	if queuedSteer(s.Messages(), "late") {
+		t.Fatalf("steer committed on last turn: %s", msgSummary(s.Messages()))
+	}
 }

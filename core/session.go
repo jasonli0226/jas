@@ -134,7 +134,7 @@ func (s *Session) Send(ctx context.Context, text string) (TurnResult, error) {
 	m := s.begin(text, false)
 	for {
 		status, code, reason := s.loop(ctx, m)
-		if status == endOK && s.logErr == nil {
+		if status == endOK && s.logErr == nil && ctx.Err() == nil { // a cancelled run leaves steering queued
 			if steer := s.drain(); steer != "" {
 				s.endTurn(m, status, code, reason)
 				m = s.begin(steer, true)
@@ -299,8 +299,12 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		st, code := classify(err)
 		return true, st, code, err.Error()
 	}
-	if steer := s.drain(); steer != "" {
-		s.addUser(steer, true)
+	// Steering stays queued after a cancel or on the last allowed turn, where
+	// no further request would answer it.
+	if ctx.Err() == nil && m.turns < c.MaxTurns {
+		if steer := s.drain(); steer != "" {
+			s.addUser(steer, true)
+		}
 	}
 	s.elide()
 	return false, "", 0, ""
