@@ -219,3 +219,14 @@
 - **Plan 2 — Inline TUI chat** (spec step 3): reasoning stream in the provider (+ the GLM live test on sending reasoning back), Bubble Tea inline UI, input/steer queue display, Esc/Ctrl-C, approvals through the chat input with `always` grants (shell split rules), slash commands except `/compact`, `jas` with no args, `jas --continue` / `/resume` using `ListSessions` + `Replay` + `ResumeSession`, light Markdown.
 - **Plan 3 — Compaction** (spec step 4), including replay from the latest `compaction` event.
 - **Plan 4 — Customization** (spec step 5).
+
+## Carried into plan 2 (from plan 1 reviews)
+
+- `Session.TakeQueued() []string` (Esc puts queued text back) and `Queued()` (count for the status line); must cover every end state (interrupted, turn_cap, failed) and the post-drain window.
+- Regression test for steering after Esc at the final answer: cancel ctx and `Steer` from an `assistant_message` log hook (after the stream completes, before `Send` drains); assert history has no steer and the result is `ok` with the final text. The current `TestSession_SteerNotCommittedAfterCancelAtFinal` doesn't reach that window and only logs its status — fix or replace it.
+- Decide thread safety for `SetModel` / `Messages` during a running `Send` (`/model`, `/session`, `/copy` mid-run): wait for the run, or add a mutex.
+- `--continue` / `/resume`: take the lock (`OpenEventLog`) before `Replay` on the same path; wrap `ErrSessionLocked` with the session id; leave the current session out of the picker.
+- `ListSessions` root comparison should be case-insensitive on Windows and macOS.
+- Validate empty `Steer` / `Send` text in the TUI (optionally in core).
+- Limit `ReplayState.Interrupted` to trailing orphans so resuming old (pre-fix) files doesn't re-log mid-file orphans.
+- Live GLM/DeepSeek check: consecutive user messages are accepted, and whether reasoning must be sent back; if so add a reasoning block type to `wireBlock` / `ContentBlock`.
