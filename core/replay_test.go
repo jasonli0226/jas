@@ -222,3 +222,49 @@ func TestListSessions_MissingDirIsEmpty(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, len(got), 0)
 }
+
+func TestResumeSession_ReElidesLongHistory(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	big := strings.Repeat("x", 1000)
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "go"}}}))
+	var uses []map[string]any
+	for _, id := range []string{"c1", "c2", "c3"} {
+		uses = append(uses, map[string]any{"type": "tool_use", "tool_use_id": id, "name": "read", "input": map[string]any{"path": id}})
+	}
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, map[string]any{"text": "", "final": false, "content": uses}))
+	for _, id := range []string{"c1", "c2", "c3"} {
+		assert.NoErr(t, log.Append(core.EvToolResult, map[string]any{"call_id": id, "tool": "read", "status": "ok", "output": big}))
+	}
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, map[string]any{"text": "ok", "final": true,
+		"content": []map[string]any{{"type": "text", "text": "ok"}}}))
+	assert.NoErr(t, log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	newBudget := func() *core.Budget { return &core.Budget{Window: 600, ElideAt: 0.6, Keep: 1} }
+	assert.Eq(t, newBudget().WouldExceed(st.Messages), true) // unelided history does not fit
+
+	log, err = core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	prov := &fake.Provider{Turns: []fake.Turn{{Text: "C"}}}
+	c := r.sessionConfig()
+	c.Provider, c.Log, c.Budget = prov, log, newBudget()
+	s, err := core.ResumeSession(c, st)
+	assert.NoErr(t, err)
+	res := send(t, s, context.Background(), "next")
+	assert.Eq(t, res.Status, "ok")
+	assert.Eq(t, len(prov.Requests), 1)
+	assert.NoErr(t, log.Close())
+
+	evs := r.events(t)
+	var order []string
+	for _, e := range evs {
+		if e["type"] == "session_resumed" || e["type"] == "elided" {
+			order = append(order, e["type"].(string))
+		}
+	}
+	assert.Eq(t, strings.Join(order, ","), "session_resumed,elided")
+}

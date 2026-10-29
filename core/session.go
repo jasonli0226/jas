@@ -81,6 +81,12 @@ func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	if err := s.open(EvSessionResumed); err != nil {
 		return nil, err
 	}
+	// Replay restores full tool outputs; re-stub them before the first
+	// budget check, or a long session could never be resumed.
+	s.elide()
+	if s.logErr != nil {
+		return nil, s.logErr
+	}
 	return s, nil
 }
 
