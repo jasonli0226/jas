@@ -24,6 +24,11 @@ const (
 	EvToolResult       = "tool_result"
 	EvElided           = "elided"
 	EvSessionEnded     = "session_ended"
+	EvUserMessage      = "user_message"
+	EvTurnStarted      = "turn_started"
+	EvTurnEnded        = "turn_ended"
+	EvSessionResumed   = "session_resumed"
+	EvModelChanged     = "model_changed"
 )
 
 const (
@@ -34,6 +39,9 @@ const (
 
 // ErrLogClosed is returned by appends after Close.
 var ErrLogClosed = errors.New("event log closed")
+
+// ErrSessionLocked is returned when another process already holds the log.
+var ErrSessionLocked = errors.New("session is open in another jas process")
 
 // Event is one line of the JSONL log. Data's fields are flattened next to the
 // header fields when marshaled.
@@ -128,6 +136,7 @@ type fileLog struct {
 	ch     chan logReq
 	wg     sync.WaitGroup
 	seq    int64
+	lastID string // id of the last event written; the next event's parent
 }
 
 // OpenEventLog opens (creating if needed) the JSONL log at path. tee, if
@@ -141,17 +150,59 @@ func openEventLog(path string, tee io.Writer, redact func(string) string, syncFn
 	if err := os.MkdirAll(filepath.Dir(path), logDirMode); err != nil {
 		return nil, fmt.Errorf("create event log dir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, logFileMode)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, logFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("open event log: %w", err)
 	}
-	l := &fileLog{f: f, tee: tee, syncFn: syncFn, ch: make(chan logReq)}
+	if err := lockFile(f); err != nil {
+		f.Close()
+		if errors.Is(err, ErrSessionLocked) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("lock event log: %w", err)
+	}
+	seq, lastID, err := resumeState(path, f)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	l := &fileLog{seq: seq, lastID: lastID, f: f, tee: tee, syncFn: syncFn, ch: make(chan logReq)}
 	l.wg.Add(1)
 	go l.run()
 	if redact == nil {
 		return l, nil
 	}
 	return &redactingLog{fileLog: l, redact: redact}, nil
+}
+
+// resumeState scans an existing log for the last complete event line and
+// returns its seq and id. A trailing partial line (crash mid-write) is ignored
+// and a newline is appended so the next event starts on its own line.
+func resumeState(path string, f *os.File) (int64, string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, "", fmt.Errorf("read event log: %w", err)
+	}
+	if len(data) == 0 {
+		return 0, "", nil
+	}
+	var seq int64
+	var id string
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		var h struct {
+			ID  string `json:"id"`
+			Seq int64  `json:"seq"`
+		}
+		if json.Unmarshal(line, &h) == nil && h.ID != "" && h.Seq > 0 {
+			seq, id = h.Seq, h.ID
+		}
+	}
+	if data[len(data)-1] != '\n' {
+		if _, err := f.Write([]byte{'\n'}); err != nil {
+			return 0, "", fmt.Errorf("repair event log: %w", err)
+		}
+	}
+	return seq, id, nil
 }
 
 func (l *fileLog) run() {
@@ -166,6 +217,10 @@ func (l *fileLog) handle(r logReq) error {
 		l.seq++
 		ev := Event{V: eventVersion, ID: fmt.Sprintf("e%06d", l.seq), Seq: l.seq,
 			TS: time.Now().UTC(), Type: r.typ, Data: r.data}
+		if l.lastID != "" {
+			parent := l.lastID
+			ev.ParentID = &parent
+		}
 		line, err := json.Marshal(ev)
 		if err != nil {
 			l.seq--
@@ -175,6 +230,7 @@ func (l *fileLog) handle(r logReq) error {
 		if _, err := l.f.Write(line); err != nil {
 			return fmt.Errorf("write event log: %w", err)
 		}
+		l.lastID = ev.ID
 		if l.tee != nil {
 			if _, err := l.tee.Write(line); err != nil {
 				return fmt.Errorf("write event tee: %w", err)

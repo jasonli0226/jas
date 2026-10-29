@@ -90,10 +90,10 @@ func TestRun_TextOnlyFinal(t *testing.T) {
 	assert.Eq(t, sum.Final, "hello")
 	assert.Eq(t, sum.Turns, 1)
 	evs := r.events(t)
-	assert.Eq(t, strings.Join(types(evs), ","), "session_started,usage,assistant_message,session_ended")
+	assert.Eq(t, strings.Join(types(evs), ","), "session_started,user_message,turn_started,usage,assistant_message,turn_ended,session_ended")
 	assert.Eq(t, evs[0]["model"].(string), "m")
-	assert.Eq(t, evs[2]["final"].(bool), true)
-	assert.Eq(t, evs[2]["text"].(string), "hello")
+	assert.Eq(t, evs[4]["final"].(bool), true)
+	assert.Eq(t, evs[4]["text"].(string), "hello")
 	end := lastEnded(t, evs)
 	assert.Eq(t, end["exit_code"].(float64), 0.0)
 	assert.Eq(t, end["status"].(string), "ok")
@@ -305,4 +305,94 @@ func TestRun_SessionEndedFailureOnSuccessIsExit1(t *testing.T) {
 	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"session_ended": true}}
 	_, err := core.Run(context.Background(), r.cfg)
 	assert.Eq(t, exitCode(t, err), core.ExitFailure)
+}
+
+func TestRun_LogsReplayableEvents(t *testing.T) {
+	r := newRig(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "ls", Args: `{"path":"."}`}}},
+		{Text: "done"},
+	})
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.NoErr(t, err)
+	evs := r.events(t)
+	var got []string
+	for _, ty := range types(evs) {
+		if ty != "usage" {
+			got = append(got, ty)
+		}
+	}
+	assert.Eq(t, strings.Join(got, ","), "session_started,user_message,turn_started,assistant_message,tool_started,tool_result,assistant_message,turn_ended,session_ended")
+
+	um := evs[1]["content"].([]any)[0].(map[string]any)
+	assert.Eq(t, um["text"].(string), "do it")
+
+	var asst []map[string]any
+	for _, e := range evs {
+		if e["type"] == "assistant_message" {
+			asst = append(asst, e)
+		}
+	}
+	use := asst[0]["content"].([]any)[0].(map[string]any)
+	assert.Eq(t, use["type"].(string), "tool_use")
+	assert.Eq(t, use["name"].(string), "ls")
+	assert.Eq(t, use["tool_use_id"].(string) != "", true)
+	in := use["input"].(map[string]any)
+	assert.Eq(t, in["path"].(string), ".")
+	assert.Eq(t, asst[1]["text"].(string), "done")
+
+	var te map[string]any
+	for _, e := range evs {
+		if e["type"] == "turn_ended" {
+			te = e
+		}
+	}
+	assert.Eq(t, te["status"].(string), "ok")
+	assert.Eq(t, te["turns"].(float64), 2.0)
+}
+
+func TestRun_TurnEndedWriteFailureExits1(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "hi"}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"turn_ended": true}}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitFailure)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("log error not surfaced: %v", err)
+	}
+}
+
+func TestRun_RedactsAssistantContentAndToolInput(t *testing.T) {
+	const secret = "sk-test-12345"
+	const marker = "<redacted>"
+	r := newRig(t, []fake.Turn{
+		{Text: "key is " + secret, Calls: []fake.Call{{Name: "ls", Args: `{"path":"` + secret + `"}`}}},
+		{Text: "done"},
+	})
+	assert.NoErr(t, r.cfg.Log.Close()) // release the file lock for the redacting log
+	log, err := core.OpenEventLog(r.logPath, nil, func(s string) string { return strings.ReplaceAll(s, secret, marker) })
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+	r.cfg.Log, r.cfg.Exec.Log = log, log
+	_, err = core.Run(context.Background(), r.cfg)
+	assert.NoErr(t, err)
+	assert.NoErr(t, log.Close())
+
+	raw, err := os.ReadFile(r.logPath)
+	assert.NoErr(t, err)
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("secret leaked into the event log:\n%s", raw)
+	}
+	found := false
+	for _, e := range r.events(t) {
+		if e["type"] != "assistant_message" {
+			continue
+		}
+		for _, b := range e["content"].([]any) {
+			if txt, _ := b.(map[string]any)["text"].(string); strings.Contains(txt, marker) {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("redaction marker missing from assistant_message.content")
+	}
 }
