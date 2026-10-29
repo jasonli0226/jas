@@ -220,10 +220,13 @@ executes (write-ahead; see #4).
 
 1. Mutating call → fsync `tool_started` → execute → `tool_result`.
 2. On resume, a `tool_started` with no matching `tool_result` is **never**
-   re-executed: it is recorded as an `interrupted` result and the model
-   decides next. This is an **at-most-once** guarantee, not atomicity. A crash
-   during a shell command can leave its side effects half done. The result
-   says so, and the model is told to inspect before retrying.
+   re-executed. Replay answers it with an error result reading "interrupted:
+   jas stopped while this call was running; it may have partly run. Inspect the
+   current state before retrying.", and `ResumeSession` appends a `tool_result`
+   with status `interrupted` and that text right after `session_resumed`, so
+   later replays find a real result. This is an **at-most-once** guarantee, not
+   atomicity. A crash during a shell command can leave its side effects half
+   done. The result says so, and the model decides what to do next.
 3. `write`/`edit` are atomic on their own: write a temp file in the same
    directory, fsync, then `rename`. A crash leaves the old file or the new
    one, never a torn mix.

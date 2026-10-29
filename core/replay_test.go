@@ -106,10 +106,60 @@ func TestReplay_OrphanToolUseGetsInterruptedResult(t *testing.T) {
 	assert.Eq(t, last.Content[0].ToolUseID, "c1")
 	assert.Eq(t, last.Content[0].Type, providers.BlockToolResult)
 	assert.Eq(t, last.Content[0].IsError, true)
-	assert.Eq(t, last.Content[0].Text, "interrupted")
+	assert.Eq(t, last.Content[0].Text, "interrupted: jas stopped while this call was running; it may have partly run. Inspect the current state before retrying.")
 	assert.Eq(t, last.Content[1].ToolUseID, "c2")
 	assert.Eq(t, last.Content[1].IsError, false)
 	assert.Eq(t, last.Content[1].Text, "yy")
+	assert.Eq(t, len(st.Interrupted), 1)
+	assert.Eq(t, st.Interrupted[0], core.InterruptedCall{ID: "c1", Tool: "read"})
+}
+
+func TestResumeSession_LogsInterruptedResults(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "go"}}}))
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, map[string]any{
+		"text": "", "final": false,
+		"content": []map[string]any{
+			{"type": "tool_use", "tool_use_id": "c1", "name": "bash", "input": map[string]any{"command": "x"}},
+		}}))
+	assert.NoErr(t, log.Append(core.EvToolStarted, map[string]any{"call_id": "c1", "tool": "bash"}))
+	assert.NoErr(t, log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	log2, err := core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	c := r.sessionConfig()
+	c.Log = log2
+	c.Exec.Log = log2
+	s, err := core.ResumeSession(c, st)
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.Close("ok", 0))
+	assert.NoErr(t, log2.Close())
+
+	evs := r.events(t)
+	var got []string
+	for _, e := range evs {
+		ty := e["type"].(string)
+		if ty == "tool_result" {
+			assert.Eq(t, e["call_id"].(string), "c1")
+			assert.Eq(t, e["tool"].(string), "bash")
+			assert.Eq(t, e["status"].(string), "interrupted")
+			assert.Eq(t, e["output"].(string), st.Messages[2].Content[0].Text)
+		}
+		got = append(got, ty)
+	}
+	assert.Eq(t, strings.Join(got, ","), "session_started,user_message,assistant_message,tool_started,session_resumed,tool_result,session_ended")
+
+	st2, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(st2.Interrupted), 0)
+	if !reflect.DeepEqual(st2.Messages, st.Messages) {
+		t.Fatalf("messages changed: %s vs %s", msgSummary(st2.Messages), msgSummary(st.Messages))
+	}
 }
 
 func TestReplay_NoSessionStartedIsError(t *testing.T) {

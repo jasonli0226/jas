@@ -81,6 +81,14 @@ func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	if err := s.open(EvSessionResumed); err != nil {
 		return nil, err
 	}
+	// Give each orphaned call a real result so the file stays consistent and
+	// a later Replay doesn't synthesize it again.
+	for _, c := range st.Interrupted {
+		s.note(s.c.Log.Append(EvToolResult, map[string]any{
+			"call_id": c.ID, "tool": c.Tool, "status": statusInterrupted, "output": interruptedOutput,
+		}))
+	}
+	s.note(s.c.Log.Sync())
 	// Replay restores full tool outputs; re-stub them before the first
 	// budget check, or a long session could never be resumed.
 	s.elide()

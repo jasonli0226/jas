@@ -21,7 +21,7 @@ const (
 	// over the limit must not be mistaken for a broken one.
 	maxLogLine = 16 << 20
 	// interruptedOutput stands in for a tool call that never logged a result.
-	interruptedOutput = "interrupted"
+	interruptedOutput = "interrupted: jas stopped while this call was running; it may have partly run. Inspect the current state before retrying."
 	firstMsgRunes     = 80
 )
 
@@ -31,7 +31,13 @@ type ReplayState struct {
 	Model    string   // last session_started/session_resumed/model_changed model
 	Root     string   // session_started.root
 	Notices  []string // e.g. "ignored unreadable line 41"
+	// Interrupted lists tool calls with no logged result, which replay
+	// answered with interruptedOutput. ResumeSession logs them as results.
+	Interrupted []InterruptedCall
 }
+
+// InterruptedCall is a tool call that started but never logged a result.
+type InterruptedCall struct{ ID, Tool string }
 
 // replayLine is one event line: the header plus every payload field replay uses.
 type replayLine struct {
@@ -94,6 +100,7 @@ type replayer struct {
 	st      ReplayState
 	started bool
 	order   []string                          // tool_use ids awaiting results, in call order
+	names   map[string]string                 // tool_use id → tool name
 	results map[string]providers.ContentBlock // results seen so far
 }
 
@@ -138,9 +145,11 @@ func (r *replayer) add(role providers.Role, content []wireBlock) {
 }
 
 func (r *replayer) expectResults(content []wireBlock) {
+	r.names = map[string]string{}
 	for _, b := range content {
 		if b.Type == providers.BlockToolUse {
 			r.order = append(r.order, b.ToolUseID)
+			r.names[b.ToolUseID] = b.Name
 		}
 	}
 	r.results = map[string]providers.ContentBlock{}
@@ -166,11 +175,12 @@ func (r *replayer) flushResults() {
 		b, ok := r.results[id]
 		if !ok {
 			b = providers.ContentBlock{Type: providers.BlockToolResult, ToolUseID: id, Text: interruptedOutput, IsError: true}
+			r.st.Interrupted = append(r.st.Interrupted, InterruptedCall{ID: id, Tool: r.names[id]})
 		}
 		blocks[i] = b
 	}
 	r.st.Messages = append(r.st.Messages, providers.Message{Role: providers.RoleUser, Content: blocks})
-	r.order, r.results = nil, nil
+	r.order, r.results, r.names = nil, nil, nil
 }
 
 // SessionInfo describes one saved session for a picker.

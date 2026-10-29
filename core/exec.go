@@ -16,7 +16,7 @@ const (
 	statusError       = "error"
 	statusDenied      = "denied"
 	statusCancelled   = "cancelled"
-	statusInterrupted = "interrupted" // written on resume, never by Run
+	statusInterrupted = "interrupted" // written by ResumeSession, never by Run
 )
 
 const cancelledOutput = "cancelled"
