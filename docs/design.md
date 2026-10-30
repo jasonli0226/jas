@@ -6,6 +6,7 @@
 **Repo:** https://github.com/jasonli0226/jas
 **Language:** Go (rationale below)
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
+**Market research (2026-10):** [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md) — jas vs 15 harnesses; recommendations map to open issues.
 
 ---
 
@@ -840,7 +841,7 @@ Guardrails:
 
 pi (`badlogic/pi-mono`) is the closest peer and the main reference for this
 design. The full feature audit is in
-[research/pi-mono-audit.md](research/pi-mono-audit.md). This table compares
+[research/pi-mono-audit.md](research/pi-mono-audit.md). A broader Oct 2026 market comparison (15 products, design review, recommendations) is in [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md). This table compares
 the parts a user sees, as planned for jas v1 and v2, against a local pi install
 (`~/.pi/agent/`, pi 1.4).
 
