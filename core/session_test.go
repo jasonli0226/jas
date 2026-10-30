@@ -277,16 +277,35 @@ func TestSession_SteerNotCommittedAfterCancel(t *testing.T) {
 	}
 }
 
-func TestSession_SteerNotCommittedAfterCancelAtFinal(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	r := newRig(t, []fake.Turn{{Text: "first"}, {Text: "unused"}})
-	s := newSession(t, r)
-	r.prov.Turns[0].OnEmit = func() { s.Steer("late"); cancel() }
-	res := send(t, s, ctx, "go")
-	t.Logf("status %s", res.Status)
-	if queuedSteer(s.Messages(), "late") || len(r.prov.Requests) != 1 {
-		t.Fatalf("steer committed after cancel: %s", msgSummary(s.Messages()))
+// hookLog runs onAppend after each Append of the given event type.
+type hookLog struct {
+	core.EventLog
+	typ      string
+	onAppend func()
+}
+
+func (h *hookLog) Append(typ string, data any) error {
+	err := h.EventLog.Append(typ, data)
+	if typ == h.typ {
+		h.onAppend()
 	}
+	return err
+}
+
+func TestSession_SteerAfterEscAtFinalIsNotCommitted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := newRig(t, []fake.Turn{{Text: "done"}})
+	var s *core.Session
+	hl := &hookLog{EventLog: r.cfg.Log, typ: core.EvAssistantMessage, onAppend: func() { cancel(); s.Steer("late") }}
+	r.cfg.Log, r.cfg.Exec.Log = hl, hl
+	s = newSession(t, r)
+	res := send(t, s, ctx, "go")
+	assert.Eq(t, res.Status, "ok")
+	assert.Eq(t, res.Final, "done")
+	if queuedSteer(s.Messages(), "late") {
+		t.Fatalf("steer committed after Esc at final: %s", msgSummary(s.Messages()))
+	}
+	assert.Eq(t, strings.Join(s.TakeSteering(), ","), "late")
 }
 
 func TestSession_SteerKeptWhenTurnCapHit(t *testing.T) {

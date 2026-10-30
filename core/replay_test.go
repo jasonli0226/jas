@@ -428,3 +428,33 @@ func TestReplay_RecordsBaseURL(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, st.BaseURL, "http://x")
 }
+
+func TestReplay_OnlyTrailingOrphansAreInterrupted(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	use := func(id string) map[string]any {
+		return map[string]any{"text": "", "final": false, "content": []map[string]any{
+			{"type": "tool_use", "tool_use_id": id, "name": "read", "input": map[string]any{"path": "x"}}}}
+	}
+	user := map[string]any{"content": []map[string]any{{"type": "text", "text": "go"}}}
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, user))
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, use("c1")))
+	assert.NoErr(t, log.Append(core.EvUserMessage, user))
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, use("c2")))
+	assert.NoErr(t, log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(st.Interrupted), 1)
+	assert.Eq(t, st.Interrupted[0].ID, "c2")
+	var got []string
+	for _, m := range st.Messages {
+		for _, b := range m.Content {
+			if b.Type == providers.BlockToolResult {
+				got = append(got, b.ToolUseID)
+			}
+		}
+	}
+	assert.Eq(t, strings.Join(got, ","), "c1,c2")
+}
