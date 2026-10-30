@@ -69,6 +69,7 @@ type ToolCallDelta struct {
 // StreamEvent is one provider-neutral streaming event.
 type StreamEvent struct {
 	Text          string
+	Reasoning     string // thinking delta; display only, never part of history
 	ToolCallDelta *ToolCallDelta
 	Usage         *Usage
 	FinishReason  string

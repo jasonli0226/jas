@@ -270,6 +270,9 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		usage *providers.Usage
 	)
 	for ev := range stream {
+		if ev.Reasoning != "" {
+			c.UI.Reasoning(ev.Reasoning)
+		}
 		if ev.Text != "" {
 			c.UI.Text(ev.Text)
 		}

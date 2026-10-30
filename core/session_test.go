@@ -328,3 +328,27 @@ func TestSession_TakeSteeringEmptiesQueue(t *testing.T) {
 	assert.Eq(t, strings.Join(s.TakeSteering(), ","), "one,two")
 	assert.Eq(t, len(s.TakeSteering()), 0)
 }
+
+type recordingUI struct {
+	core.UI
+	reasoning, text strings.Builder
+}
+
+func (u *recordingUI) Reasoning(d string) { u.reasoning.WriteString(d) }
+func (u *recordingUI) Text(d string)      { u.text.WriteString(d) }
+
+func TestSession_ForwardsReasoningToUI(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Reasoning: "hmm", Text: "A"}})
+	ui := &recordingUI{UI: core.NewQuietUI()}
+	r.cfg.UI = ui
+	s := newSession(t, r)
+	send(t, s, context.Background(), "q")
+	assert.Eq(t, ui.reasoning.String(), "hmm")
+	assert.Eq(t, ui.text.String(), "A")
+	msgs := s.Messages()
+	last := msgs[len(msgs)-1]
+	assert.Eq(t, last.Role, providers.Role("assistant"))
+	assert.Eq(t, len(last.Content), 1)
+	assert.Eq(t, last.Content[0].Type, providers.BlockText)
+	assert.Eq(t, last.Content[0].Text, "A")
+}

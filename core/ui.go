@@ -14,6 +14,7 @@ const argSummaryMax = 80
 // UI receives streamed assistant text and every logged event.
 type UI interface {
 	Text(delta string)
+	Reasoning(delta string)
 	Event(typ string, data any)
 }
 
@@ -23,6 +24,7 @@ func NewQuietUI() UI { return quietUI{} }
 type quietUI struct{}
 
 func (quietUI) Text(string)       {}
+func (quietUI) Reasoning(string)  {}
 func (quietUI) Event(string, any) {}
 
 // NewPrinter streams text to w, one "→ tool(args)" line per tool_started and
@@ -34,6 +36,9 @@ type printer struct {
 	w           io.Writer
 	atLineStart bool
 }
+
+// Reasoning is not shown in one-shot output.
+func (*printer) Reasoning(string) {}
 
 func (p *printer) Text(delta string) {
 	if delta == "" {

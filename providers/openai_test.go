@@ -481,3 +481,16 @@ func TestOpenAI_ParseErrorReleasesReadSSE(t *testing.T) {
 		t.Fatalf("goroutines leaked: before=%d after=%d", before, g)
 	}
 }
+
+func TestParseChunk_Reasoning(t *testing.T) {
+	for _, tc := range []struct{ payload, want string }{
+		{`{"choices":[{"delta":{"reasoning":"a"}}]}`, "a"},
+		{`{"choices":[{"delta":{"reasoning_content":"b"}}]}`, "b"},
+		{`{"choices":[{"delta":{"reasoning":"a","reasoning_content":"b"}}]}`, "a"},
+	} {
+		evs, err := parseChunk([]byte(tc.payload))
+		assert.NoErr(t, err)
+		assert.Eq(t, len(evs), 1)
+		assert.Eq(t, evs[0], StreamEvent{Reasoning: tc.want})
+	}
+}
