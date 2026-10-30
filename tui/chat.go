@@ -37,21 +37,22 @@ type Model struct {
 	b    Backend
 	o    Options
 	send func(tea.Msg) // posts messages from other goroutines into Update
-	gate core.Gate
+	gate *Gate         // one per chat, so grants outlive /new
 
 	tr    Transcript
 	input textarea.Model
 	width int
 
-	live    *Live
-	closer  *sessionCloser // closes live
-	opening *pendingOpen   // the session being opened, until sessionMsg
-	gen     int            // bumped for every new or resumed session
-	window  int
-	usage   struct{ prompt, total int }
-	run     *activeRun
-	queued  []string // steering sent during the current run
-	err     error    // fatal error returned by Run
+	live     *Live
+	closer   *sessionCloser // closes live
+	opening  *pendingOpen   // the session being opened, until sessionMsg
+	gen      int            // bumped for every new or resumed session
+	window   int
+	usage    struct{ prompt, total int }
+	run      *activeRun
+	queued   []string     // steering sent during the current run
+	approval *approvalMsg // the open approval prompt
+	err      error        // fatal error returned by Run
 
 	lastCtrlC time.Time
 	hint      string // replaces the status line until the next key
@@ -104,13 +105,13 @@ func New(b Backend, o Options) *Model {
 	in.SetStyles(st)
 	in.SetWidth(defaultWidth)
 	in.Focus()
-	return &Model{
+	m := &Model{
 		b: b, o: o, input: in, width: defaultWidth,
 		tr: Transcript{Width: defaultWidth},
-		// Placeholder until the approval prompt exists: gated calls end the
-		// run with approval_needed instead of running unasked.
-		gate: &core.Approver{Level: o.Level},
 	}
+	// send is set after New (Run needs the program first), so read it late.
+	m.gate = NewGate(o.Level, o.Windows, func(msg tea.Msg) { m.send(msg) })
+	return m
 }
 
 // Run runs the chat on in/out until the user quits or ctx ends.
@@ -194,6 +195,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == m.gen {
 			return m, m.onRunDone(msg)
 		}
+	case approvalMsg:
+		m.onApproval(msg)
+	case noticeMsg:
+		return m, m.print(dimStyle.Render(msg.s))
 	case printedMsg:
 		m.printing = false
 		return m, m.flush()
@@ -251,8 +256,13 @@ func (m *Model) View() tea.View {
 }
 
 // prompt is the slot between the queued list and the input where the
-// approval prompt and pickers render; empty until they exist.
-func (m *Model) prompt() string { return "" }
+// approval prompt renders.
+func (m *Model) prompt() string {
+	if m.approval == nil {
+		return ""
+	}
+	return boldStyle.Render(ansi.Wrap(m.approval.prompt, m.width, ""))
+}
 
 func (m *Model) statusLine() string {
 	if m.hint != "" {
@@ -263,7 +273,7 @@ func (m *Model) statusLine() string {
 		model = m.live.Model
 	}
 	return statusInfo{
-		Model: model, Level: m.o.Level, Prompt: m.usage.prompt, Window: m.window,
+		Model: model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
 		Tokens: m.usage.total, Root: m.o.Root, Running: m.running(), Queued: len(m.queued),
 	}.Render(m.width)
 }

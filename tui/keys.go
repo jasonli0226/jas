@@ -27,6 +27,7 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.onEnter()
 	case "esc":
+		m.approval = nil // the cancelled ctx unblocks the gate
 		if m.run != nil {
 			m.run.cancel()
 		}
@@ -39,9 +40,13 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// onEnter routes submitted input: steering while a run is active, a slash
-// command, or a new run.
+// onEnter routes submitted input: the answer to an open approval prompt,
+// steering while a run is active, a slash command, or a new run.
 func (m *Model) onEnter() tea.Cmd {
+	if m.approval != nil {
+		m.answerApproval()
+		return nil
+	}
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" || m.live == nil {
 		return nil

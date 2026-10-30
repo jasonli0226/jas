@@ -373,3 +373,96 @@ func TestChat_ShutdownWaitsForQuitClose(t *testing.T) {
 	c.run(closeCmd) // the late command does not close again
 	assert.Eq(t, b.closes.Load(), 1)
 }
+
+// pumpUntilApproval feeds posted messages until the approval prompt opens.
+func (c *testChat) pumpUntilApproval() {
+	c.t.Helper()
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(approvalMsg); return ok })
+}
+
+func shellTurn(cmd string) fake.Turn {
+	return fake.Turn{Calls: []fake.Call{{Name: "shell", Args: string(shellArgs(cmd))}}}
+}
+
+func TestChat_ApprovalAnswerWithTextSteers(t *testing.T) {
+	b := newTestBackend(t, shellTurn("go test ./..."), fake.Turn{Text: "ok"})
+	c := newTestChatOpts(t, b, Options{Level: core.ShellOnly})
+	c.submit("test it")
+	c.pumpUntilApproval()
+	assert.Contains(t, c.view(), "approve shell: go test ./...? [y/N/always]")
+
+	c.submit("no, use make test")
+	assert.Eq(t, c.m.input.Value(), "")
+	assert.NotContains(t, c.view(), "approve shell")
+	assert.Contains(t, c.view(), "↳ no, use make test")
+
+	var status string
+	c.pumpUntil(func(msg tea.Msg) bool {
+		ev, ok := msg.(eventMsg)
+		if ok && ev.typ == core.EvToolResult {
+			status, _ = ev.data["status"].(string)
+		}
+		return ok && ev.typ == core.EvToolResult
+	})
+	assert.Eq(t, status, "denied")
+	c.pump()
+	assert.Eq(t, len(b.prov.Requests), 2)
+	req := requestText(b.prov.Requests[1])
+	assert.Contains(t, req, "no, use make test")
+}
+
+func TestChat_ApprovalYesRunsAndAlwaysNotice(t *testing.T) {
+	b := newTestBackend(t, shellTurn("echo hi"), shellTurn("echo hi there"), fake.Turn{Text: "ok"})
+	c := newTestChatOpts(t, b, Options{Level: core.ShellOnly})
+	c.submit("go")
+	c.pumpUntilApproval()
+	c.submit("always")
+	assert.Eq(t, len(c.m.queued), 0)
+	c.pump()
+	out := strings.Join(plain(c.m.Printed()), "\n")
+	assert.Contains(t, out, "always: shell: echo hi (covers any arguments)")
+	assert.NotContains(t, out, "denied")
+	assert.Eq(t, len(b.prov.Requests), 3)
+}
+
+func TestChat_EscClosesApprovalPrompt(t *testing.T) {
+	b := newTestBackend(t, shellTurn("go test ./..."), fake.Turn{Text: "again"})
+	c := newTestChatOpts(t, b, Options{Level: core.ShellOnly})
+	c.submit("test it")
+	c.pumpUntilApproval()
+	c.key("esc")
+	assert.NotContains(t, c.view(), "approve shell")
+
+	var done runDoneMsg
+	c.pumpUntil(func(msg tea.Msg) bool {
+		d, ok := msg.(runDoneMsg)
+		done = d
+		return ok
+	})
+	assert.Eq(t, done.res.Status, "interrupted")
+	assert.NotContains(t, c.view(), "approve shell")
+
+	c.submit("y")
+	assert.Eq(t, c.m.running(), true)
+	c.pump()
+	assert.Eq(t, len(b.prov.Requests), 2)
+	assert.Contains(t, requestText(b.prov.Requests[1]), "y")
+	assert.Contains(t, strings.Join(plain(c.m.Printed()), "\n"), "› y")
+}
+
+func TestChat_QueuedTextSurvivesApproval(t *testing.T) {
+	release := make(chan struct{})
+	b := newTestBackend(t,
+		fake.Turn{Calls: []fake.Call{{Name: "shell", Args: string(shellArgs("make"))}}, OnEmit: func() { <-release }},
+		fake.Turn{Text: "ok"})
+	c := newTestChatOpts(t, b, Options{Level: core.ShellOnly})
+	c.submit("go")
+	c.submit("earlier")
+	close(release)
+	c.pumpUntilApproval()
+	assert.Contains(t, c.view(), "↳ earlier")
+	c.submit("y")
+	assert.Contains(t, c.view(), "↳ earlier")
+	c.pump()
+	assert.Contains(t, requestText(b.prov.Requests[1]), "earlier")
+}
