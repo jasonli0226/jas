@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
@@ -169,4 +172,38 @@ func captureStderr(t *testing.T, fn func()) string {
 	b, err := os.ReadFile(f.Name())
 	assert.NoErr(t, err)
 	return string(b)
+}
+
+func TestChatCmd_CancelledBeforeChatIsInterrupted(t *testing.T) {
+	home := testutil.TempHome(t)
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, configFile), []byte("{}\n"), 0o600))
+	t.Setenv("JAS_MODEL", "m")
+	t.Setenv("JAS_API_KEY", "k")
+	t.Setenv("JAS_BASE_URL", "http://127.0.0.1:1/v1")
+	t.Chdir(t.TempDir())
+	old := isTerminal
+	isTerminal = func(int) bool { return true }
+	defer func() { isTerminal = old }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // as if Ctrl-C came during the trust prompt
+	errOut := captureStderr(t, func() {
+		assert.Eq(t, dispatch(ctx, nil), core.ExitInterrupted)
+	})
+	assert.Eq(t, errOut, "")
+	_, err := os.Stat(filepath.Join(home, sessionsDir))
+	assert.Eq(t, errors.Is(err, os.ErrNotExist), true)
+}
+
+func TestChatExit_KilledByCancelIsInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	killed := fmt.Errorf("run: %w", tea.ErrProgramKilled)
+	assert.Eq(t, chatExit(ctx, killed), killed) // not cancelled: a real failure
+	cancel()
+	var ee *core.ExitError
+	if !errors.As(chatExit(ctx, killed), &ee) || ee.Code != core.ExitInterrupted {
+		t.Fatalf("want interrupted, got %v", chatExit(ctx, killed))
+	}
+	other := errors.New("boom")
+	assert.Eq(t, chatExit(ctx, other), other)
+	assert.Eq(t, chatExit(ctx, nil), nil)
 }

@@ -296,7 +296,7 @@ func (m *Model) cmdCopy(string) tea.Cmd {
 	}
 	s := m.o.Redact(m.reply)
 	return tea.Batch(tea.SetClipboard(s),
-		m.notice(fmt.Sprintf("copied %d chars (OSC 52)", utf8.RuneCountInString(s))))
+		m.notice(fmt.Sprintf("copied %d chars (via OSC 52, if your terminal supports it)", utf8.RuneCountInString(s))))
 }
 
 func (m *Model) cmdResume(string) tea.Cmd {

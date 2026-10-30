@@ -13,7 +13,7 @@ type sessionMsg struct {
 	gen      int
 	live     *Live
 	notices  []string
-	resumed  bool  // from /resume: grants and level reset, summary printed
+	resumed  bool  // from /resume or --continue: grants and level reset, summary printed
 	closeErr error // closing the session this one replaced
 	err      error
 }
@@ -40,7 +40,7 @@ func (m *Model) openFirst() tea.Cmd {
 			}
 			if len(infos) > 0 {
 				live, notices, err := b.Resume(infos[0].Path, ui, gate)
-				return sessionMsg{live: live, notices: notices, err: err}
+				return sessionMsg{live: live, notices: notices, resumed: true, err: err}
 			}
 			notices = append(notices, "no saved session for this project; starting a new one")
 		}

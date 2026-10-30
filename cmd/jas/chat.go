@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
 	"github.com/jasonli0226/jas/core"
@@ -55,11 +56,27 @@ func chatCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if ctx.Err() != nil { // Ctrl-C at the trust prompt: never start the chat
+		return interrupted()
+	}
 	e.warnUnknownWindow(e.cfg.Model)
-	return tui.Run(ctx, &chatBackend{e: e}, tui.Options{
+	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e}, tui.Options{
 		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows",
 		Continue: ca.cont, Now: time.Now, Redact: e.red.Redact,
-	}, os.Stdin, os.Stdout)
+	}, os.Stdin, os.Stdout))
+}
+
+// chatExit maps the program being killed by a cancelled ctx (a signal) to the
+// interrupted exit code, which report prints nothing for.
+func chatExit(ctx context.Context, err error) error {
+	if ctx.Err() != nil && errors.Is(err, tea.ErrProgramKilled) {
+		return interrupted()
+	}
+	return err
+}
+
+func interrupted() error {
+	return &core.ExitError{Code: core.ExitInterrupted, Reason: "interrupted"}
 }
 
 // parseChat reads the chat flags: the setting flags plus --continue and

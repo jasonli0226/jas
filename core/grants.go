@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // envAssign matches a leading VAR=value word, which makes a command non-simple.
@@ -61,13 +62,15 @@ func (g *Grants) shellKey(args json.RawMessage) (key, display string, ok bool) {
 }
 
 // simple reports whether the raw command text is free of operators that could
-// chain, redirect or substitute another command.
+// chain, redirect or substitute another command, and of control characters:
+// a NUL inside a word would forge the key of two words.
 func (g *Grants) simple(cmd string) bool {
 	bad := ";&|`><\n\r"
 	if g.windows {
 		bad += "^%"
 	}
-	return !strings.ContainsAny(cmd, bad) && !strings.Contains(cmd, "$(")
+	return !strings.ContainsAny(cmd, bad) && !strings.Contains(cmd, "$(") &&
+		!strings.ContainsFunc(cmd, unicode.IsControl)
 }
 
 // Covers reports whether a granted approval already allows this call.

@@ -27,8 +27,10 @@ func (s statusInfo) Render(width int) string {
 	if s.Window > 0 {
 		pct = s.Prompt * 100 / s.Window
 	}
+	// The model name and folder come from config and disk: escape any
+	// control runes before they reach the terminal.
 	line := fmt.Sprintf("%s · %s · %d%% · %s tok · %s",
-		s.Model, s.Level, pct, formatTokens(s.Tokens), filepath.Base(s.Root))
+		core.Sanitize(s.Model), s.Level, pct, formatTokens(s.Tokens), core.Sanitize(filepath.Base(s.Root)))
 	if s.Running {
 		line += " · working…"
 	}

@@ -328,6 +328,7 @@ func TestChat_ContinueResumesNewest(t *testing.T) {
 	c := newTestChatOpts(t, b, Options{Continue: true})
 	assert.Eq(t, c.m.live.Path, first.m.live.Path)
 	assert.Eq(t, c.m.gen > 0, true)
+	assert.Contains(t, c.printedText(), "resumed "+first.m.live.ID+" · 2 messages")
 }
 
 func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {

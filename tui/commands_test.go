@@ -168,7 +168,7 @@ func TestChat_ThinkingApproveSessionCopy(t *testing.T) {
 	c.submit("/session")
 	out := c.printedText()
 	for _, s := range []string{"thinking shown", "thinking hidden", "never | shell | mutating",
-		"invalid approve level", "copied 9 chars (OSC 52)", c.m.live.Path, "% of 100000"} {
+		"invalid approve level", "copied 9 chars (via OSC 52, if your terminal supports it)", c.m.live.Path, "% of 100000"} {
 		assert.Contains(t, out, s)
 	}
 }

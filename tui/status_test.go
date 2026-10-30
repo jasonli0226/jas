@@ -29,3 +29,11 @@ func TestStatus_TruncatesToWidth(t *testing.T) {
 	assert.Eq(t, len([]rune(got)) <= 20, true)
 	assert.Eq(t, strings.HasSuffix(got, "…"), true)
 }
+
+func TestStatus_SanitizesModelAndRoot(t *testing.T) {
+	s := statusInfo{Model: "glm\x1b[2J\x07", Level: core.ShellOnly, Root: "/x/j\x1bas"}
+	got := s.Render(0)
+	assert.NotContains(t, got, "\x1b")
+	assert.NotContains(t, got, "\x07")
+	assert.Eq(t, got, `glm\x1b[2J\x07 · shell · 0% · 0 tok · j\x1bas`)
+}

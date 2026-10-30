@@ -151,3 +151,29 @@ func TestGrants_DuplicateKeysRejected(t *testing.T) {
 	_, ok = NewGrants(false).Add("edit", dupEdit)
 	assert.Eq(t, ok, false)
 }
+
+func TestGrants_NULInWordCannotForgeKey(t *testing.T) {
+	g := NewGrants(false)
+	_, ok := g.Add("shell", shellArgs("rm\u0000-rf"))
+	assert.Eq(t, ok, false)
+	assert.Eq(t, g.Covers("shell", shellArgs("rm -rf /")), false)
+	g.Add("shell", shellArgs("go test"))
+	assert.Eq(t, g.Covers("shell", shellArgs("rm -rf /")), false)
+}
+
+func TestGrants_ControlCharsNotGrantable(t *testing.T) {
+	ctrl := []rune{0x7f}
+	for r := rune(0); r < 0x20; r++ {
+		ctrl = append(ctrl, r)
+	}
+	for _, win := range []bool{false, true} {
+		for _, r := range ctrl {
+			c := "go" + string(r) + "test"
+			_, ok := NewGrants(win).Add("shell", shellArgs(c))
+			assert.Eq(t, ok, false)
+			base := NewGrants(win)
+			base.Add("shell", shellArgs("go test"))
+			assert.Eq(t, base.Covers("shell", shellArgs("go test "+string(r))), false)
+		}
+	}
+}
