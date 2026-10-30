@@ -196,7 +196,8 @@ locked while open (write-ahead & replay safety).
 
 **Event types (v1 contract).** `--json` consumers and the v2 RPC protocol
 depend on this list. Adding a type or field is backward compatible. Renaming or
-removing one bumps `v`.
+removing one bumps `v`. Replay refuses a file with an event whose `v` is
+newer than it reads, rather than misread it.
 
 | type | payload | when |
 |---|---|---|
@@ -204,15 +205,17 @@ removing one bumps `v`.
 | `session_resumed` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per reopen, after replay |
 | `user_message` | content (wire blocks), steer (optional bool) | when user sends a message or steering text |
 | `turn_started` | (empty) | at start of each user message, including a steer delivered after the final answer |
-| `assistant_message` | text, content (wire blocks), final (bool) | after each stream; final on the answer turn |
+| `assistant_message` | text, content (wire blocks), final (bool) | after each stream; final on the answer turn; a `tool_use` block whose arguments aren't valid JSON stores them as the string `input_raw` instead of `input` |
 | `usage` | prompt_tokens, completion_tokens, cached_tokens | after each provider response |
 | `tool_started` | tool, call_id, args, mutating | before exec (fsynced first if mutating) |
 | `approval` | call_id, tool, decision (granted\|denied\|unavailable) | when the Approver is consulted |
-| `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted), output | after exec |
+| `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted\|not_run), output | after exec |
 | `elided` | count, tokens_before, tokens_after | each elision pass |
 | `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each user message; `turns` counts the model requests within it |
 | `model_changed` | model | when SetModel is called |
-| `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash | **Single writer:** all appends go through one `EventLog` goroutine;
+| `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash |
+
+**Single writer:** all appends go through one `EventLog` goroutine;
 concurrent callers send events. The writer fsyncs after each turn's tool
 results — and, for mutating calls, fsyncs `tool_started` **before** the call
 executes (write-ahead; see #4).
@@ -225,7 +228,10 @@ executes (write-ahead; see #4).
    jas stopped while this call was running; it may have partly run. Inspect the
    current state before retrying.", and `ResumeSession` appends a `tool_result`
    with status `interrupted` and that text right after `session_resumed`, so
-   later replays find a real result. This is an **at-most-once** guarantee, not
+   later replays find a real result. A `tool_use` with no `tool_started` never
+   ran: replay answers it with "not run: jas stopped before this call started;
+   it had no effect." and `ResumeSession` logs status `not_run`. This is an
+   **at-most-once** guarantee, not
    atomicity. A crash during a shell command can leave its side effects half
    done. The result says so, and the model decides what to do next.
 3. `write`/`edit` are atomic on their own: write a temp file in the same

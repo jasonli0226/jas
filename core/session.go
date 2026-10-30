@@ -85,7 +85,7 @@ func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	// a later Replay doesn't synthesize it again.
 	for _, c := range st.Interrupted {
 		s.note(s.c.Log.Append(EvToolResult, map[string]any{
-			"call_id": c.ID, "tool": c.Tool, "status": statusInterrupted, "output": interruptedOutput,
+			"call_id": c.ID, "tool": c.Tool, "status": c.Status, "output": c.Output,
 		}))
 	}
 	s.note(s.c.Log.Sync())

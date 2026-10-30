@@ -111,7 +111,7 @@ func TestReplay_OrphanToolUseGetsInterruptedResult(t *testing.T) {
 	assert.Eq(t, last.Content[1].IsError, false)
 	assert.Eq(t, last.Content[1].Text, "yy")
 	assert.Eq(t, len(st.Interrupted), 1)
-	assert.Eq(t, st.Interrupted[0], core.InterruptedCall{ID: "c1", Tool: "read"})
+	assert.Eq(t, st.Interrupted[0], core.InterruptedCall{ID: "c1", Tool: "read", Status: "interrupted", Output: last.Content[0].Text})
 }
 
 func TestResumeSession_LogsInterruptedResults(t *testing.T) {
@@ -317,4 +317,61 @@ func TestResumeSession_ReElidesLongHistory(t *testing.T) {
 		}
 	}
 	assert.Eq(t, strings.Join(order, ","), "session_resumed,elided")
+}
+
+func TestSession_MalformedToolArgsRecoverAndReplay(t *testing.T) {
+	r := newRig(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "read", Args: `{"path": "x"`}}},
+		{Text: "fixed"},
+	})
+	s := newSession(t, r)
+	res := send(t, s, context.Background(), "go")
+	assert.Eq(t, res.Status, "ok")
+	assert.Eq(t, res.Final, "fixed")
+	want := s.Messages()
+	assert.Contains(t, want[2].Content[0].Text, "invalid JSON arguments")
+	assert.NoErr(t, s.Close("ok", 0))
+	assert.NoErr(t, r.cfg.Log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	if !reflect.DeepEqual(st.Messages, want) {
+		t.Fatalf("replayed messages differ:\n got %s\nwant %s", msgSummary(st.Messages), msgSummary(want))
+	}
+	assert.Eq(t, string(st.Messages[1].Content[0].Input), `{"path": "x"`)
+}
+
+func TestReplay_ToolUseNeverStartedIsNotRun(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "go"}}}))
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, map[string]any{
+		"text": "", "final": false,
+		"content": []map[string]any{
+			{"type": "tool_use", "tool_use_id": "c1", "name": "bash", "input": map[string]any{"command": "x"}},
+			{"type": "tool_use", "tool_use_id": "c2", "name": "read", "input": map[string]any{"path": "y"}},
+		}}))
+	assert.NoErr(t, log.Append(core.EvToolStarted, map[string]any{"call_id": "c1", "tool": "bash"}))
+	assert.NoErr(t, log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	res := st.Messages[2].Content
+	assert.Contains(t, res[0].Text, "interrupted:")
+	assert.Eq(t, res[1].IsError, true)
+	assert.Eq(t, res[1].Text, "not run: jas stopped before this call started; it had no effect.")
+	assert.Eq(t, len(st.Interrupted), 2)
+	assert.Eq(t, st.Interrupted[0].Status, "interrupted")
+	assert.Eq(t, st.Interrupted[1], core.InterruptedCall{ID: "c2", Tool: "read", Status: "not_run", Output: res[1].Text})
+}
+
+func TestReplay_NewerSchemaVersionIsRefused(t *testing.T) {
+	r, _ := twoSendRig(t)
+	appendRaw(t, r.logPath, `{"v":9,"id":"e000999","seq":999,"type":"user_message","content":[{"type":"text","text":"future"}]}`+"\n")
+	_, err := core.Replay(r.logPath)
+	if err == nil || !strings.Contains(err.Error(), "newer jas") {
+		t.Fatalf("want newer-version error, got %v", err)
+	}
 }
