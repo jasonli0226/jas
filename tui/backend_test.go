@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ type testBackend struct {
 	root        string
 	sessionsDir string
 	prov        *fake.Provider
-	closes      int // calls to Live.Close, across all sessions
+	closes      atomic.Int32 // calls to Live.Close, across all sessions; Close runs from tea commands
 }
 
 const testWindow = 100000
@@ -65,7 +66,7 @@ func (b *testBackend) live(path, model string, log core.EventLog, s *core.Sessio
 	return &Live{
 		Session: s, ID: filepath.Base(filepath.Dir(path)), Path: path, Model: model, Budget: bud,
 		Close: func(status string, code int) error {
-			b.closes++
+			b.closes.Add(1)
 			err := s.Close(status, code)
 			return errors.Join(err, log.Close())
 		},
@@ -116,7 +117,7 @@ func (b *testBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 		return nil, err
 	}
 	return slices.DeleteFunc(all, func(i core.SessionInfo) bool {
-		return i.Path == exclude || i.ID == exclude
+		return i.Path == exclude
 	}), nil
 }
 
@@ -141,7 +142,7 @@ func TestTestBackend_SessionRoundTrip(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, res.Final, "A")
 	assert.NoErr(t, live.Close(res.Status, res.Code))
-	assert.Eq(t, b.closes, 1)
+	assert.Eq(t, b.closes.Load(), 1)
 
 	infos, err := b.Sessions("")
 	assert.NoErr(t, err)
@@ -158,5 +159,5 @@ func TestTestBackend_SessionRoundTrip(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, res.Final, "B")
 	assert.NoErr(t, live2.Close(res.Status, res.Code))
-	assert.Eq(t, b.closes, 2)
+	assert.Eq(t, b.closes.Load(), 2)
 }
