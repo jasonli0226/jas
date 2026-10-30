@@ -289,6 +289,7 @@ queue lives in the session, not the UI.
    reasoning back; if dropping it hurts, keep the reasoning in the message
    history (and the session file) for providers that need it, while still
    hiding it on screen.
+   Live check 2026-10-31 (z-ai/glm-5.3, 3 runs): dropping reasoning showed no degradation in a two-step tool loop.
 
 ## Logging and redaction
 
