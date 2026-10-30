@@ -128,6 +128,7 @@ type logReq struct {
 
 type fileLog struct {
 	f      *os.File
+	w      io.Writer // where event lines go; f outside tests
 	tee    io.Writer
 	syncFn func(*os.File) error
 
@@ -137,6 +138,7 @@ type fileLog struct {
 	wg     sync.WaitGroup
 	seq    int64
 	lastID string // id of the last event written; the next event's parent
+	torn   bool   // a write failed, maybe partway; start the next event on a new line
 }
 
 // OpenEventLog opens (creating if needed) the JSONL log at path. tee, if
@@ -166,7 +168,7 @@ func openEventLog(path string, tee io.Writer, redact func(string) string, syncFn
 		f.Close()
 		return nil, err
 	}
-	l := &fileLog{seq: seq, lastID: lastID, f: f, tee: tee, syncFn: syncFn, ch: make(chan logReq)}
+	l := &fileLog{seq: seq, lastID: lastID, f: f, w: f, tee: tee, syncFn: syncFn, ch: make(chan logReq)}
 	l.wg.Add(1)
 	go l.run()
 	if redact == nil {
@@ -227,9 +229,15 @@ func (l *fileLog) handle(r logReq) error {
 			return fmt.Errorf("encode event: %w", err)
 		}
 		line = append(line, '\n')
-		if _, err := l.f.Write(line); err != nil {
+		out := line
+		if l.torn {
+			out = append([]byte{'\n'}, line...)
+		}
+		if _, err := l.w.Write(out); err != nil {
+			l.torn = true
 			return fmt.Errorf("write event log: %w", err)
 		}
+		l.torn = false
 		l.lastID = ev.ID
 		if l.tee != nil {
 			if _, err := l.tee.Write(line); err != nil {

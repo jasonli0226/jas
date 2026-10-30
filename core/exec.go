@@ -17,6 +17,7 @@ const (
 	statusDenied      = "denied"
 	statusCancelled   = "cancelled"
 	statusInterrupted = "interrupted" // written by ResumeSession, never by Run
+	statusNotRun      = "not_run"     // written by ResumeSession, never by Run
 )
 
 const cancelledOutput = "cancelled"

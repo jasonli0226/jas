@@ -22,7 +22,9 @@ const (
 	maxLogLine = 16 << 20
 	// interruptedOutput stands in for a tool call that never logged a result.
 	interruptedOutput = "interrupted: jas stopped while this call was running; it may have partly run. Inspect the current state before retrying."
-	firstMsgRunes     = 80
+	// notRunOutput stands in for a tool call that never logged tool_started.
+	notRunOutput  = "not run: jas stopped before this call started; it had no effect."
+	firstMsgRunes = 80
 )
 
 // ReplayState is a session file turned back into a conversation.
@@ -36,11 +38,14 @@ type ReplayState struct {
 	Interrupted []InterruptedCall
 }
 
-// InterruptedCall is a tool call that started but never logged a result.
-type InterruptedCall struct{ ID, Tool string }
+// InterruptedCall is a tool call that never logged a result. Status is
+// "interrupted" when it started and "not_run" when it never did; Output is the
+// result text replay gave it.
+type InterruptedCall struct{ ID, Tool, Status, Output string }
 
 // replayLine is one event line: the header plus every payload field replay uses.
 type replayLine struct {
+	V       int         `json:"v"`
 	Type    string      `json:"type"`
 	TS      time.Time   `json:"ts"`
 	Model   string      `json:"model"`
@@ -57,9 +62,10 @@ func newLogScanner(r io.Reader) *bufio.Scanner {
 	return sc
 }
 
-// Replay rebuilds the conversation from a session file. It fails only when the
-// file can't be opened or holds no session_started; damaged lines are skipped
-// with a notice, and a missing session_ended is normal (a crash).
+// Replay rebuilds the conversation from a session file. It fails when the
+// file can't be opened, holds no session_started, or has an event from a newer
+// schema version; damaged lines are skipped with a notice, and a missing
+// session_ended is normal (a crash).
 func Replay(path string) (ReplayState, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -80,6 +86,9 @@ func Replay(path string) (ReplayState, error) {
 		if json.Unmarshal(line, &ev) != nil || ev.Type == "" {
 			rp.notef("ignored unreadable line %d", n)
 			continue
+		}
+		if ev.V > eventVersion {
+			return ReplayState{}, fmt.Errorf("session %s line %d has event version %d; it was written by a newer jas (this one reads version %d)", path, n, ev.V, eventVersion)
 		}
 		rp.apply(n, ev)
 	}
@@ -102,6 +111,7 @@ type replayer struct {
 	order   []string                          // tool_use ids awaiting results, in call order
 	names   map[string]string                 // tool_use id → tool name
 	results map[string]providers.ContentBlock // results seen so far
+	ran     map[string]bool                   // tool_use ids with a tool_started event
 }
 
 func (r *replayer) notef(format string, a ...any) {
@@ -129,6 +139,10 @@ func (r *replayer) apply(line int, ev replayLine) {
 		}
 		r.add(providers.RoleAssistant, ev.Content)
 		r.expectResults(ev.Content)
+	case EvToolStarted:
+		if slices.Contains(r.order, ev.CallID) {
+			r.ran[ev.CallID] = true
+		}
 	case EvToolResult:
 		r.recordResult(ev)
 	}
@@ -153,6 +167,7 @@ func (r *replayer) expectResults(content []wireBlock) {
 		}
 	}
 	r.results = map[string]providers.ContentBlock{}
+	r.ran = map[string]bool{}
 }
 
 func (r *replayer) recordResult(ev replayLine) {
@@ -165,7 +180,8 @@ func (r *replayer) recordResult(ev replayLine) {
 }
 
 // flushResults emits the tool results for the last assistant message, filling
-// in "interrupted" for calls that never logged one.
+// in "interrupted" (started) or "not_run" (never started) for calls that never
+// logged one.
 func (r *replayer) flushResults() {
 	if len(r.order) == 0 {
 		return
@@ -174,13 +190,17 @@ func (r *replayer) flushResults() {
 	for i, id := range r.order {
 		b, ok := r.results[id]
 		if !ok {
-			b = providers.ContentBlock{Type: providers.BlockToolResult, ToolUseID: id, Text: interruptedOutput, IsError: true}
-			r.st.Interrupted = append(r.st.Interrupted, InterruptedCall{ID: id, Tool: r.names[id]})
+			status, out := statusInterrupted, interruptedOutput
+			if !r.ran[id] {
+				status, out = statusNotRun, notRunOutput
+			}
+			b = providers.ContentBlock{Type: providers.BlockToolResult, ToolUseID: id, Text: out, IsError: true}
+			r.st.Interrupted = append(r.st.Interrupted, InterruptedCall{ID: id, Tool: r.names[id], Status: status, Output: out})
 		}
 		blocks[i] = b
 	}
 	r.st.Messages = append(r.st.Messages, providers.Message{Role: providers.RoleUser, Content: blocks})
-	r.order, r.results, r.names = nil, nil, nil
+	r.order, r.results, r.names, r.ran = nil, nil, nil, nil
 }
 
 // SessionInfo describes one saved session for a picker.

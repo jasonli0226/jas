@@ -3,8 +3,11 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -165,4 +168,41 @@ func TestEventLog_ArgsRedacted(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.NotContains(t, string(b), secret)
 	assert.Contains(t, string(b), "[REDACTED:exact]")
+}
+
+// tornWriter writes half of the first line it gets, then fails; later writes
+// go through.
+type tornWriter struct {
+	w    io.Writer
+	torn bool
+}
+
+func (t *tornWriter) Write(p []byte) (int, error) {
+	if t.torn {
+		return t.w.Write(p)
+	}
+	t.torn = true
+	n, _ := t.w.Write(p[:len(p)/2])
+	return n, errors.New("disk full")
+}
+
+func TestEventLog_WriteAfterTornLineStartsNewLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "e.jsonl")
+	l, err := OpenEventLog(path, nil, nil)
+	assert.NoErr(t, err)
+	fl := l.(*fileLog)
+	fl.w = &tornWriter{w: fl.f}
+	if l.Append(EvUsage, map[string]any{"n": 1}) == nil {
+		t.Fatal("want write error")
+	}
+	assert.NoErr(t, l.Append(EvUsage, map[string]any{"n": 2}))
+	assert.NoErr(t, l.Close())
+
+	data, err := os.ReadFile(path)
+	assert.NoErr(t, err)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	assert.Eq(t, len(lines), 2)
+	var ev map[string]any
+	assert.NoErr(t, json.Unmarshal([]byte(lines[1]), &ev))
+	assert.Eq(t, ev["n"].(float64), 2.0)
 }
