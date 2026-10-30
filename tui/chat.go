@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -42,13 +43,15 @@ type Model struct {
 	input textarea.Model
 	width int
 
-	live   *Live
-	gen    int // bumped for every new or resumed session
-	window int
-	usage  struct{ prompt, total int }
-	run    *activeRun
-	queued []string // steering sent during the current run
-	err    error    // fatal error returned by Run
+	live    *Live
+	closer  *sessionCloser // closes live
+	opening *pendingOpen   // the session being opened, until sessionMsg
+	gen     int            // bumped for every new or resumed session
+	window  int
+	usage   struct{ prompt, total int }
+	run     *activeRun
+	queued  []string // steering sent during the current run
+	err     error    // fatal error returned by Run
 
 	lastCtrlC time.Time
 	hint      string // replaces the status line until the next key
@@ -72,6 +75,14 @@ type (
 	printedMsg struct{}
 	closedMsg  struct{ err error }
 )
+
+// pendingOpen is a session being opened by a command. Whoever claims it
+// first owns it: the command, or shutdown when the command never ran.
+type pendingOpen struct {
+	claimed atomic.Bool
+	done    chan struct{} // closed once the command has finished
+	live    *Live         // the opened session; set before done closes
+}
 
 // New returns the chat model for b.
 func New(b Backend, o Options) *Model {
@@ -119,7 +130,9 @@ func (m *Model) openSession() tea.Cmd {
 	m.gen++
 	gen, b, gate, o := m.gen, m.b, m.gate, m.o
 	ui := &bridge{gen: gen, send: m.send}
-	return func() tea.Msg {
+	p := &pendingOpen{done: make(chan struct{})}
+	m.opening = p
+	open := func() sessionMsg {
 		var notices []string
 		if o.Continue {
 			infos, err := b.Sessions("")
@@ -134,6 +147,17 @@ func (m *Model) openSession() tea.Cmd {
 		}
 		live, err := b.NewSession(o.Model, ui, gate)
 		return sessionMsg{gen, live, notices, err}
+	}
+	return func() tea.Msg {
+		if !p.claimed.CompareAndSwap(false, true) {
+			return nil // shutdown got here first
+		}
+		defer close(p.done)
+		msg := open()
+		if msg.err == nil {
+			p.live = msg.live
+		}
+		return msg
 	}
 }
 
@@ -183,22 +207,27 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 	if msg.gen != m.gen {
 		return nil
 	}
+	m.opening = nil
 	if msg.err != nil {
 		m.err = msg.err
 		m.quitting = true
 		return m.print(errStyle.Render("open session: " + msg.err.Error()))
 	}
-	m.live = msg.live
+	m.live, m.closer = msg.live, &sessionCloser{live: msg.live}
 	m.window = m.b.Window(msg.live.Model)
 	if msg.live.Budget != nil && msg.live.Budget.Window > 0 {
 		m.window = msg.live.Budget.Window
 	}
 	m.usage.prompt, m.usage.total = 0, 0
+	var closeCmd tea.Cmd
+	if m.quitting { // quit began while the session was opening
+		closeCmd = m.closeSession() // before print, so flush waits for the close
+	}
 	blocks := make([]string, len(msg.notices))
 	for i, n := range msg.notices {
 		blocks[i] = dimStyle.Render(n)
 	}
-	return m.print(blocks...)
+	return tea.Batch(closeCmd, m.print(blocks...))
 }
 
 // View implements tea.Model.

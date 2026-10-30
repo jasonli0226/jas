@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jasonli0226/jas/core"
@@ -121,20 +122,36 @@ func (m *Model) quit() tea.Cmd {
 		m.run.cancel()
 		return nil
 	}
+	if m.live == nil && m.opening != nil {
+		return nil // onSession closes the session once it arrives
+	}
 	if cmd := m.closeSession(); cmd != nil {
 		return cmd
 	}
 	return m.flush()
 }
 
+// sessionCloser closes one session exactly once; a concurrent caller waits
+// for the first close to finish and gets its error.
+type sessionCloser struct {
+	live *Live
+	once sync.Once
+	err  error
+}
+
+func (c *sessionCloser) close(status string, code int) error {
+	c.once.Do(func() { c.err = c.live.Close(status, code) })
+	return c.err
+}
+
 // closeSession closes the live session from a command, off the event loop.
 func (m *Model) closeSession() tea.Cmd {
-	if m.live == nil || m.closing {
+	if m.closer == nil || m.closing || m.closed {
 		return nil
 	}
 	m.closing = true
-	live := m.live
-	return func() tea.Msg { return closedMsg{err: live.Close("ok", core.ExitOK)} }
+	c := m.closer
+	return func() tea.Msg { return closedMsg{err: c.close("ok", core.ExitOK)} }
 }
 
 func (m *Model) onClosed(msg closedMsg) tea.Cmd {
@@ -145,15 +162,22 @@ func (m *Model) onClosed(msg closedMsg) tea.Cmd {
 	return m.print("session " + m.live.ID + " saved · jas --continue to resume")
 }
 
-// shutdown runs after the program has exited. If it ended without a clean
-// quit (ctx cancelled), it stops the run and closes the session.
+// shutdown runs after the program has exited. It stops a run, waits for a
+// session still opening or closing, and closes any session left open (the
+// program ended without a clean quit, e.g. ctx cancelled).
 func (m *Model) shutdown() error {
 	if m.run != nil {
 		m.run.cancel()
 		<-m.run.done
 	}
-	if m.live == nil || m.closing || m.closed {
+	if p := m.opening; m.live == nil && p != nil && !p.claimed.CompareAndSwap(false, true) {
+		<-p.done // the open command is running or ran; its sessionMsg was lost
+		if p.live != nil {
+			m.closer = &sessionCloser{live: p.live}
+		}
+	}
+	if m.closer == nil || m.closed {
 		return nil
 	}
-	return m.live.Close("interrupted", core.ExitInterrupted)
+	return m.closer.close("interrupted", core.ExitInterrupted)
 }

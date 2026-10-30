@@ -33,12 +33,8 @@ func newTestChat(t *testing.T, b *testBackend) *testChat {
 
 func newTestChatOpts(t *testing.T, b *testBackend, o Options) *testChat {
 	t.Helper()
-	c := &testChat{t: t, b: b, msgs: make(chan tea.Msg, 1024), now: t0}
-	o.Model, o.Root = "m", b.root
-	o.Now = func() time.Time { return c.now }
-	c.m = New(b, o)
-	c.m.send = func(msg tea.Msg) { c.msgs <- msg }
-	c.run(c.m.Init())
+	c, init := newUnopenedChat(t, b, o)
+	c.run(init)
 	if c.m.live == nil {
 		t.Fatal("no session opened")
 	}
@@ -50,6 +46,19 @@ func newTestChatOpts(t *testing.T, b *testBackend, o Options) *testChat {
 	})
 	return c
 }
+
+// newUnopenedChat returns a chat whose Init command (opening the session)
+// has not run yet.
+func newUnopenedChat(t *testing.T, b *testBackend, o Options) (*testChat, tea.Cmd) {
+	c := &testChat{t: t, b: b, msgs: make(chan tea.Msg, 1024), now: t0}
+	o.Model, o.Root = "m", b.root
+	o.Now = func() time.Time { return c.now }
+	c.m = New(b, o)
+	c.m.send = func(msg tea.Msg) { c.msgs <- msg }
+	return c, c.m.Init()
+}
+
+func ctrlC() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl} }
 
 func (c *testChat) update(msg tea.Msg) {
 	_, cmd := c.m.Update(msg)
@@ -234,6 +243,13 @@ func TestChat_CtrlCClearsThenQuits(t *testing.T) {
 	assert.Eq(t, c.m.input.Value(), "")
 	assert.Eq(t, c.quit, false)
 
+	// Clearing did not arm the quit: the next press only warns.
+	assert.Eq(t, c.m.lastCtrlC.IsZero(), true)
+	c.now = c.now.Add(500 * time.Millisecond)
+	c.key("ctrl+c")
+	assert.Eq(t, c.quit, false)
+	assert.Contains(t, c.view(), "press Ctrl-C again to quit")
+
 	c.now = c.now.Add(500 * time.Millisecond)
 	c.key("ctrl+c")
 	assert.Eq(t, c.quit, true)
@@ -311,4 +327,49 @@ func TestChat_ContinueResumesNewest(t *testing.T) {
 	c := newTestChatOpts(t, b, Options{Continue: true})
 	assert.Eq(t, c.m.live.Path, first.m.live.Path)
 	assert.Eq(t, c.m.gen > 0, true)
+}
+
+func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {
+	b := newTestBackend(t)
+	c, init := newUnopenedChat(t, b, Options{})
+	c.key("ctrl+c")
+	c.key("ctrl+c")
+	assert.Eq(t, c.quit, false) // waits for the session being opened
+	c.run(init)
+	assert.Eq(t, c.quit, true)
+	assert.Eq(t, b.closes.Load(), 1)
+	assert.NoErr(t, c.m.shutdown())
+	assert.Eq(t, b.closes.Load(), 1)
+}
+
+func TestChat_ShutdownClosesSessionWhoseMessageWasLost(t *testing.T) {
+	b := newTestBackend(t)
+	c, init := newUnopenedChat(t, b, Options{})
+	init() // the session opens but the program is gone before sessionMsg
+	assert.NoErr(t, c.m.shutdown())
+	assert.Eq(t, b.closes.Load(), 1)
+}
+
+func TestChat_ShutdownClaimsOpenThatNeverRan(t *testing.T) {
+	b := newTestBackend(t)
+	c, init := newUnopenedChat(t, b, Options{})
+	assert.NoErr(t, c.m.shutdown())
+	assert.Eq(t, init(), tea.Msg(nil)) // the late command opens nothing
+	assert.Eq(t, b.closes.Load(), 0)
+	infos, err := b.Sessions("")
+	assert.NoErr(t, err)
+	assert.Eq(t, len(infos), 0)
+}
+
+func TestChat_ShutdownWaitsForQuitClose(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.m.Update(ctrlC())
+	_, closeCmd := c.m.Update(ctrlC()) // the close command, not yet run
+	assert.Eq(t, closeCmd != nil, true)
+	assert.Eq(t, b.closes.Load(), 0)
+	assert.NoErr(t, c.m.shutdown()) // closes it rather than returning early
+	assert.Eq(t, b.closes.Load(), 1)
+	c.run(closeCmd) // the late command does not close again
+	assert.Eq(t, b.closes.Load(), 1)
 }

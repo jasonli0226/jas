@@ -64,16 +64,16 @@ func (m *Model) command(text string) tea.Cmd {
 	return m.print(errStyle.Render("unknown command /" + core.Sanitize(name)))
 }
 
-// onCtrlC clears non-empty input; on an empty box a second press within
-// quitWindow quits and a slower one shows a hint.
+// onCtrlC clears non-empty input without arming the quit; on an empty box a
+// second press within quitWindow quits and a slower one shows a hint.
 func (m *Model) onCtrlC() tea.Cmd {
-	now := m.o.Now()
-	prev := m.lastCtrlC
-	m.lastCtrlC = now
 	if m.input.Value() != "" {
 		m.input.Reset()
+		m.lastCtrlC = time.Time{} // clearing is not the first quit press
 		return nil
 	}
+	now, prev := m.o.Now(), m.lastCtrlC
+	m.lastCtrlC = now
 	if !prev.IsZero() && now.Sub(prev) < quitWindow {
 		m.hint = ""
 		return m.quit()
