@@ -284,3 +284,32 @@ func TestChat_StaleSessionIsClosed(t *testing.T) {
 	assert.Eq(t, c.m.live, cur)
 	assert.Eq(t, b.closes.Load(), 1)
 }
+
+func TestChat_ApprovalClosesPicker(t *testing.T) {
+	release := make(chan struct{})
+	b := newTestBackend(t, shellTurn("echo hi"), fake.Turn{Text: "ok"},
+		fake.Turn{Calls: []fake.Call{{Name: "shell", Args: string(shellArgs("make"))}}, OnEmit: func() { <-release }},
+		fake.Turn{Text: "done"})
+	c := newTestChatOpts(t, b, Options{Level: core.ShellOnly})
+	c.grantShell()
+	c.submit("build")
+	c.submit("/allowed")
+	assert.Eq(t, c.m.picker != nil, true)
+	close(release)
+	c.pumpUntilApproval()
+	assert.Eq(t, c.m.picker == nil, true)
+	assert.Contains(t, c.view(), "approve shell: make?")
+	c.submit("y")
+	var status string
+	c.pumpUntil(func(msg tea.Msg) bool {
+		ev, ok := msg.(eventMsg)
+		if ok && ev.typ == core.EvToolResult {
+			status, _ = ev.data["status"].(string)
+		}
+		return ok && ev.typ == core.EvToolResult
+	})
+	assert.Eq(t, status, "ok")
+	c.pump()
+	eqStrings(t, c.m.gate.Grants().List(), []string{"shell: echo hi"})
+	assert.Eq(t, c.m.picker == nil, true)
+}

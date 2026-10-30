@@ -18,7 +18,7 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.quitting {
 		return nil
 	}
-	if m.picker != nil {
+	if m.picker != nil && m.approval == nil { // an approval prompt comes first
 		return m.onPickerKey(msg)
 	}
 	k := msg.String()

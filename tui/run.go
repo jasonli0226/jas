@@ -100,14 +100,16 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	return tea.Batch(closeCmd, m.print(blocks...))
 }
 
-// onApproval opens the approval prompt. One that arrives with no run to
-// answer for is refused at once.
+// onApproval opens the approval prompt, closing any open picker so Enter
+// answers the prompt. One that arrives with no run to answer for is refused
+// at once.
 func (m *Model) onApproval(msg approvalMsg) {
 	if m.run == nil {
 		msg.reply <- ""
 		return
 	}
 	m.approval = &msg
+	m.picker, m.onPick = nil, nil
 }
 
 // answerApproval sends the input to the open prompt and closes it. Free text
