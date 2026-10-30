@@ -1,0 +1,188 @@
+package tui
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/jasonli0226/jas/core"
+)
+
+// Transcript turns streamed text and agent events into finished, styled
+// blocks to print into scrollback. It is pure: no I/O, no Bubble Tea types.
+type Transcript struct {
+	ShowThinking bool
+	Width        int
+
+	text      mdStream
+	reasoning mdStream
+	thinking  bool
+	thinkFrom time.Time
+	calls     map[string]map[string]any // call_id -> args from tool_started
+}
+
+// User renders the user's prompt; later lines are indented under the marker.
+func (t *Transcript) User(text string) []string {
+	lines := strings.Split(strings.TrimRight(cleanText(text), "\n"), "\n")
+	return []string{userStyle.Render("› " + strings.Join(lines, "\n  "))}
+}
+
+// Text feeds assistant text. The first text after reasoning closes the
+// thinking line, which is why it takes the current time.
+func (t *Transcript) Text(delta string, now time.Time) []string {
+	out := t.endThinking(now)
+	for _, raw := range t.text.Feed(cleanText(delta)) {
+		out = append(out, renderBlock(raw))
+	}
+	return out
+}
+
+// Reasoning feeds a reasoning delta; it is shown dim only with ShowThinking.
+func (t *Transcript) Reasoning(delta string, now time.Time) []string {
+	if !t.thinking {
+		t.thinking, t.thinkFrom = true, now
+	}
+	if !t.ShowThinking {
+		return nil
+	}
+	var out []string
+	for _, raw := range t.reasoning.Feed(cleanText(delta)) {
+		out = append(out, dimStyle.Render(raw))
+	}
+	return out
+}
+
+// Event handles agent events; only tool_started and tool_result print.
+func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []string {
+	switch typ {
+	case "tool_started":
+		out := t.settle(now)
+		id, _ := data["call_id"].(string)
+		args, _ := data["args"].(map[string]any)
+		if t.calls == nil {
+			t.calls = map[string]map[string]any{}
+		}
+		t.calls[id] = args
+		return out
+	case "tool_result":
+		out := t.settle(now)
+		id, _ := data["call_id"].(string)
+		tool, _ := data["tool"].(string)
+		status, _ := data["status"].(string)
+		output, _ := data["output"].(string)
+		args := t.calls[id]
+		delete(t.calls, id)
+		return append(out, toolRow(tool, args, status, output, t.Width))
+	}
+	return nil
+}
+
+// Flush ends a run: it prints the partial block and any pending thinking line.
+func (t *Transcript) Flush(now time.Time) []string { return t.settle(now) }
+
+// Live is the rendered partial block for the live region.
+func (t *Transcript) Live() string {
+	var parts []string
+	if t.thinking && t.ShowThinking {
+		if p := t.reasoning.Pending(); strings.TrimSpace(p) != "" {
+			parts = append(parts, dimStyle.Render(p))
+		}
+	}
+	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
+		parts = append(parts, renderBlock(p))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// settle closes thinking and prints the partial text block, preserving order
+// before a tool row or at the end of a run.
+func (t *Transcript) settle(now time.Time) []string {
+	out := t.endThinking(now)
+	if raw, ok := t.text.Flush(); ok {
+		out = append(out, renderBlock(raw))
+	}
+	return out
+}
+
+func (t *Transcript) endThinking(now time.Time) []string {
+	if !t.thinking {
+		return nil
+	}
+	t.thinking = false
+	var out []string
+	if raw, ok := t.reasoning.Flush(); ok && t.ShowThinking {
+		out = append(out, dimStyle.Render(raw))
+	}
+	secs := max(int(now.Sub(t.thinkFrom)/time.Second), 1)
+	return append(out, dimStyle.Render(fmt.Sprintf("· thought for %ds", secs)))
+}
+
+// toolRow renders "▸ <tool> <subject> <outcome>", cut to width with an ellipsis.
+func toolRow(tool string, args map[string]any, status, output string, width int) string {
+	row := fmt.Sprintf("▸ %s %s %s", core.Sanitize(tool), subject(tool, args), outcome(tool, status, output))
+	row = strings.Join(strings.Fields(row), " ")
+	if width > 0 {
+		row = ansi.Truncate(row, width, "…")
+	}
+	switch status {
+	case "error", "denied", "cancelled":
+		return errStyle.Render(row)
+	}
+	return dimStyle.Render(row)
+}
+
+func argString(args map[string]any, key string) string {
+	s, _ := args[key].(string)
+	return core.Sanitize(s)
+}
+
+func subject(tool string, args map[string]any) string {
+	switch tool {
+	case "read", "write", "edit":
+		return argString(args, "path")
+	case "ls":
+		if p := argString(args, "path"); p != "" {
+			return p
+		}
+		return "."
+	case "grep":
+		return argString(args, "pattern")
+	case "shell":
+		return argString(args, "command")
+	}
+	raw, _ := json.Marshal(args)
+	return core.SummarizeCall(tool, raw)
+}
+
+func outcome(tool, status, output string) string {
+	switch status {
+	case "ok":
+		n := outputLines(output)
+		switch tool {
+		case "read":
+			return fmt.Sprintf("(%d lines)", n)
+		case "ls":
+			return fmt.Sprintf("(%d entries)", n)
+		case "grep":
+			return fmt.Sprintf("(%d matches)", n)
+		}
+		return "ok"
+	case "error":
+		first, _, _ := strings.Cut(strings.TrimSpace(output), "\n")
+		if first = core.Sanitize(first); first != "" {
+			return "failed: " + first
+		}
+		return "failed"
+	}
+	return core.Sanitize(status)
+}
+
+func outputLines(output string) int {
+	output = strings.TrimRight(output, "\n")
+	if output == "" {
+		return 0
+	}
+	return strings.Count(output, "\n") + 1
+}
