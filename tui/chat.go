@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -29,6 +28,7 @@ type Options struct {
 	Windows  bool
 	Continue bool // resume the newest session for this project at start
 	Now      func() time.Time
+	Redact   func(string) string // masks secrets in text the chat prints; nil is identity
 }
 
 // Model is the inline chat: a transcript printed into scrollback above a live
@@ -46,13 +46,18 @@ type Model struct {
 	live     *Live
 	closer   *sessionCloser // closes live
 	opening  *pendingOpen   // the session being opened, until sessionMsg
-	gen      int            // bumped for every new or resumed session
+	gen      int            // generation of live; output tagged otherwise is dropped
+	lastGen  int            // the newest generation handed out
+	model    string         // used by /new; follows /model and /resume
 	window   int
-	usage    struct{ prompt, total int }
+	usage    usage
 	run      *activeRun
 	queued   []string     // steering sent during the current run
 	approval *approvalMsg // the open approval prompt
-	err      error        // fatal error returned by Run
+	picker   *picker      // the open picker, shown in place of the input
+	onPick   func(value string) tea.Cmd
+	reply    string // the last final reply, for /copy
+	err      error  // fatal error returned by Run
 
 	lastCtrlC time.Time
 	hint      string // replaces the status line until the next key
@@ -65,30 +70,25 @@ type Model struct {
 	printing bool
 }
 
+// usage is the token use seen in this chat's runs on the current session.
+type usage struct {
+	prompt  int // prompt tokens of the last request
+	in, out int // totals
+}
+
 // Messages the model posts to itself.
 type (
-	sessionMsg struct {
-		gen     int
-		live    *Live
-		notices []string
-		err     error
-	}
 	printedMsg struct{}
 	closedMsg  struct{ err error }
 )
-
-// pendingOpen is a session being opened by a command. Whoever claims it
-// first owns it: the command, or shutdown when the command never ran.
-type pendingOpen struct {
-	claimed atomic.Bool
-	done    chan struct{} // closed once the command has finished
-	live    *Live         // the opened session; set before done closes
-}
 
 // New returns the chat model for b.
 func New(b Backend, o Options) *Model {
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Redact == nil {
+		o.Redact = func(s string) string { return s }
 	}
 	in := textarea.New()
 	in.Prompt = "› "
@@ -106,11 +106,11 @@ func New(b Backend, o Options) *Model {
 	in.SetWidth(defaultWidth)
 	in.Focus()
 	m := &Model{
-		b: b, o: o, input: in, width: defaultWidth,
+		b: b, o: o, input: in, width: defaultWidth, model: o.Model,
 		tr: Transcript{Width: defaultWidth},
 	}
 	// send is set after New (Run needs the program first), so read it late.
-	m.gate = NewGate(o.Level, o.Windows, func(msg tea.Msg) { m.send(msg) })
+	m.gate = NewGate(o.Level, o.Windows, o.Redact, func(msg tea.Msg) { m.send(msg) })
 	return m
 }
 
@@ -124,43 +124,7 @@ func Run(ctx context.Context, b Backend, o Options, in io.Reader, out io.Writer)
 }
 
 // Init opens the first session.
-func (m *Model) Init() tea.Cmd { return m.openSession() }
-
-// openSession opens a new session, or with Continue resumes the newest one.
-func (m *Model) openSession() tea.Cmd {
-	m.gen++
-	gen, b, gate, o := m.gen, m.b, m.gate, m.o
-	ui := &bridge{gen: gen, send: m.send}
-	p := &pendingOpen{done: make(chan struct{})}
-	m.opening = p
-	open := func() sessionMsg {
-		var notices []string
-		if o.Continue {
-			infos, err := b.Sessions("")
-			if err != nil {
-				return sessionMsg{gen: gen, err: err}
-			}
-			if len(infos) > 0 {
-				live, notices, err := b.Resume(infos[0].Path, ui, gate)
-				return sessionMsg{gen, live, notices, err}
-			}
-			notices = append(notices, "no saved session for this project; starting a new one")
-		}
-		live, err := b.NewSession(o.Model, ui, gate)
-		return sessionMsg{gen, live, notices, err}
-	}
-	return func() tea.Msg {
-		if !p.claimed.CompareAndSwap(false, true) {
-			return nil // shutdown got here first
-		}
-		defer close(p.done)
-		msg := open()
-		if msg.err == nil {
-			p.live = msg.live
-		}
-		return msg
-	}
-}
+func (m *Model) Init() tea.Cmd { return m.openFirst() }
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -172,7 +136,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m, m.onKey(msg)
 	case tea.PasteMsg:
-		if !m.quitting {
+		if !m.quitting && m.picker == nil {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
@@ -208,33 +172,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) onSession(msg sessionMsg) tea.Cmd {
-	if msg.gen != m.gen {
-		return nil
-	}
-	m.opening = nil
-	if msg.err != nil {
-		m.err = msg.err
-		m.quitting = true
-		return m.print(errStyle.Render("open session: " + msg.err.Error()))
-	}
-	m.live, m.closer = msg.live, &sessionCloser{live: msg.live}
-	m.window = m.b.Window(msg.live.Model)
-	if msg.live.Budget != nil && msg.live.Budget.Window > 0 {
-		m.window = msg.live.Budget.Window
-	}
-	m.usage.prompt, m.usage.total = 0, 0
-	var closeCmd tea.Cmd
-	if m.quitting { // quit began while the session was opening
-		closeCmd = m.closeSession() // before print, so flush waits for the close
-	}
-	blocks := make([]string, len(msg.notices))
-	for i, n := range msg.notices {
-		blocks[i] = dimStyle.Render(n)
-	}
-	return tea.Batch(closeCmd, m.print(blocks...))
-}
-
 // View implements tea.Model.
 func (m *Model) View() tea.View {
 	var parts []string
@@ -248,7 +185,15 @@ func (m *Model) View() tea.View {
 	if p := m.prompt(); p != "" {
 		parts = append(parts, p)
 	}
-	parts = append(parts, m.input.View(), dimStyle.Render(m.statusLine()))
+	if m.picker != nil {
+		parts = append(parts, m.picker.view(m.width))
+	} else {
+		parts = append(parts, m.input.View())
+		for _, name := range m.completions() {
+			parts = append(parts, dimStyle.Render(ansi.Truncate("  /"+name, m.width, "…")))
+		}
+	}
+	parts = append(parts, dimStyle.Render(m.statusLine()))
 	// The zero KeyboardEnhancements still requests basic key disambiguation
 	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
 	// apart from Enter on terminals that support it.
@@ -268,13 +213,9 @@ func (m *Model) statusLine() string {
 	if m.hint != "" {
 		return ansi.Truncate(m.hint, m.width, "…")
 	}
-	model := m.o.Model
-	if m.live != nil {
-		model = m.live.Model
-	}
 	return statusInfo{
-		Model: model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
-		Tokens: m.usage.total, Root: m.o.Root, Running: m.running(), Queued: len(m.queued),
+		Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
+		Tokens: m.usage.in + m.usage.out, Root: m.o.Root, Running: m.running(), Queued: len(m.queued),
 	}.Render(m.width)
 }
 

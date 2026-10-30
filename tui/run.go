@@ -24,9 +24,9 @@ type activeRun struct {
 
 func (m *Model) running() bool { return m.run != nil }
 
-// startRun prints the user block and sends text on a goroutine, which posts
-// runDoneMsg when Send returns.
-func (m *Model) startRun(text string) tea.Cmd {
+// startRun prints shown as the user block and sends text on a goroutine,
+// which posts runDoneMsg when Send returns.
+func (m *Model) startRun(text, shown string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &activeRun{cancel: cancel, done: make(chan struct{})}
 	m.run = r
@@ -36,16 +36,16 @@ func (m *Model) startRun(text string) tea.Cmd {
 		close(r.done)
 		send(runDoneMsg{gen: gen, res: res, err: err})
 	}()
-	return m.print(m.tr.User(text)...)
+	return m.print(m.tr.User(shown)...)
 }
 
 // onEvent tracks usage and steering delivery, and prints tool rows.
 func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	switch msg.typ {
 	case core.EvUsage:
-		prompt := intField(msg.data, "prompt_tokens")
-		m.usage.prompt = prompt
-		m.usage.total += prompt + intField(msg.data, "completion_tokens")
+		m.usage.prompt = intField(msg.data, "prompt_tokens")
+		m.usage.in += m.usage.prompt
+		m.usage.out += intField(msg.data, "completion_tokens")
 	case core.EvUserMessage:
 		if steer, _ := msg.data["steer"].(bool); steer {
 			m.queued = nil // the loop delivered every queued text at once
@@ -76,6 +76,9 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	m.run = nil
 	m.queued = nil
 	m.approval = nil
+	if msg.res.Final != "" {
+		m.reply = msg.res.Final
+	}
 	if left := m.live.Session.TakeSteering(); len(left) > 0 {
 		text := strings.Join(left, "\n")
 		if cur := m.input.Value(); cur != "" {
@@ -85,10 +88,10 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	}
 	blocks := m.tr.Flush(m.o.Now())
 	if n := runNotice(msg.res); n != "" {
-		blocks = append(blocks, dimStyle.Render(n))
+		blocks = append(blocks, dimStyle.Render(m.o.Redact(n)))
 	}
 	if msg.err != nil {
-		blocks = append(blocks, errStyle.Render("event log error: "+core.Sanitize(msg.err.Error())))
+		blocks = append(blocks, errStyle.Render("event log error: "+m.clean(msg.err.Error())))
 	}
 	var closeCmd tea.Cmd
 	if m.quitting {
@@ -147,7 +150,7 @@ func (m *Model) quit() tea.Cmd {
 		m.run.cancel()
 		return nil
 	}
-	if m.live == nil && m.opening != nil {
+	if m.opening != nil {
 		return nil // onSession closes the session once it arrives
 	}
 	if cmd := m.closeSession(); cmd != nil {
@@ -182,9 +185,9 @@ func (m *Model) closeSession() tea.Cmd {
 func (m *Model) onClosed(msg closedMsg) tea.Cmd {
 	m.closing, m.closed = false, true
 	if msg.err != nil {
-		return m.print(errStyle.Render("event log error: " + core.Sanitize(msg.err.Error())))
+		return m.print(errStyle.Render("event log error: " + m.clean(msg.err.Error())))
 	}
-	return m.print("session " + m.live.ID + " saved · jas --continue to resume")
+	return m.print("session " + m.clean(m.live.ID) + " saved · jas --continue to resume")
 }
 
 // shutdown runs after the program has exited. It stops a run, waits for a
@@ -195,10 +198,13 @@ func (m *Model) shutdown() error {
 		m.run.cancel()
 		<-m.run.done
 	}
-	if p := m.opening; m.live == nil && p != nil && !p.claimed.CompareAndSwap(false, true) {
-		<-p.done // the open command is running or ran; its sessionMsg was lost
+	// A pending open that never ran leaves the current session to close
+	// below. One that ran lost its sessionMsg; its command closed the session
+	// it replaced, so the new one is left to close.
+	if p := m.opening; p != nil && !p.claimed.CompareAndSwap(false, true) {
+		<-p.done
 		if p.live != nil {
-			m.closer = &sessionCloser{live: p.live}
+			m.closer, m.closed = &sessionCloser{live: p.live}, false
 		}
 	}
 	if m.closer == nil || m.closed {

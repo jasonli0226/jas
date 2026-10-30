@@ -41,7 +41,9 @@ type TurnResult struct {
 }
 
 // Session holds a conversation across user messages. Send, SetModel, Messages
-// and Close must be called from one goroutine; Steer is safe from any.
+// and Close must not overlap; Steer is safe from any goroutine. The chat (tui)
+// runs Send on its own goroutine and refuses /new, /model and /resume until it
+// returns, so the other calls never run during a Send and need no mutex.
 type Session struct {
 	c        SessionConfig
 	model    string

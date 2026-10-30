@@ -32,7 +32,7 @@ func shellArgs(cmd string) json.RawMessage {
 // newRecordingGate returns a gate whose posted messages land in the channel.
 func newRecordingGate(level core.Level) (*Gate, chan tea.Msg) {
 	msgs := make(chan tea.Msg, 16)
-	return NewGate(level, false, func(m tea.Msg) { msgs <- m }), msgs
+	return NewGate(level, false, nil, func(m tea.Msg) { msgs <- m }), msgs
 }
 
 type allowResult struct {

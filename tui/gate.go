@@ -30,6 +30,7 @@ const noGrantNotice = "this command can't get an always grant; allowed once"
 // chat, so it is shared by every session the chat opens.
 type Gate struct {
 	windows bool
+	redact  func(string) string // applied to every prompt and notice
 	send    func(tea.Msg)
 	ask     chan struct{} // holds a token while a prompt is open
 
@@ -40,10 +41,14 @@ type Gate struct {
 
 var _ core.Gate = (*Gate)(nil)
 
-// NewGate returns a gate at level that posts prompts and notices with send.
-func NewGate(level core.Level, windows bool, send func(tea.Msg)) *Gate {
+// NewGate returns a gate at level that posts prompts and notices with send,
+// masked by redact (nil is identity).
+func NewGate(level core.Level, windows bool, redact func(string) string, send func(tea.Msg)) *Gate {
+	if redact == nil {
+		redact = func(s string) string { return s }
+	}
 	return &Gate{
-		windows: windows, send: send, ask: make(chan struct{}, 1),
+		windows: windows, redact: redact, send: send, ask: make(chan struct{}, 1),
 		level: level, grants: core.NewGrants(windows),
 	}
 }
@@ -94,7 +99,7 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage) (co
 	}
 	reply := make(chan string, 1)
 	g.send(approvalMsg{
-		prompt: fmt.Sprintf("approve %s: %s? [y/N/always]", t.Name(), core.SummarizeCall(t.Name(), args)),
+		prompt: g.redact(fmt.Sprintf("approve %s: %s? [y/N/always]", t.Name(), core.SummarizeCall(t.Name(), args))),
 		reply:  reply,
 	})
 	select {
@@ -112,9 +117,9 @@ func (g *Gate) decide(t core.Tool, args json.RawMessage, text string) core.Decis
 		return core.Granted
 	case "always":
 		if grant, ok := g.Grants().Add(t.Name(), args); ok {
-			g.send(noticeMsg{"always: " + core.Sanitize(grant) + " (covers any arguments)"})
+			g.send(noticeMsg{g.redact("always: " + core.Sanitize(grant) + " (covers any arguments)")})
 		} else {
-			g.send(noticeMsg{noGrantNotice})
+			g.send(noticeMsg{g.redact(noGrantNotice)})
 		}
 		return core.Granted
 	}
