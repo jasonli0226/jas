@@ -10,16 +10,15 @@ import (
 	"github.com/jasonli0226/jas/settings"
 )
 
-// onboardOrUsage handles a bare `jas`: first run (no config.json) goes
-// through the same flow as `jas config init`; otherwise it prints usage.
-func onboardOrUsage() error {
+// onboardIfNeeded runs first-run setup before a bare `jas` opens the chat:
+// with no config.json it goes through the same flow as `jas config init`.
+func onboardIfNeeded() error {
 	home, err := settingsHome()
 	if err != nil {
 		return err
 	}
 	path := filepath.Join(home, configFile)
 	if _, err := os.Stat(path); err == nil {
-		fmt.Fprintln(os.Stderr, usage)
 		return nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err

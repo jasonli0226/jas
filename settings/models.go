@@ -7,6 +7,8 @@ package settings
 import (
 	_ "embed"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -43,4 +45,9 @@ func ContextWindow(model string, overrides map[string]int) (window int, known bo
 		}
 	}
 	return DefaultContextWindow, false
+}
+
+// CatalogModels returns every model id in the catalog, sorted.
+func CatalogModels() []string {
+	return slices.Sorted(maps.Keys(catalog))
 }

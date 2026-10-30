@@ -39,7 +39,8 @@ Release builds for Linux (amd64, arm64), macOS (amd64, arm64) and Windows
 ## Quick start
 
 Run `jas` with no arguments the first time for interactive onboarding
-(provider, API key read without echo, default model). Or configure by hand;
+(provider, API key read without echo, default model); it then opens the chat.
+Or configure by hand;
 settings live in `~/.jas/` (`JAS_HOME` overrides):
 
 ```sh
@@ -53,6 +54,8 @@ jas config list                                    # effective values + where ea
 Then:
 
 ```sh
+jas                                                 # inline chat in this project
+jas --continue                                      # resume this project's last session
 jas run "add a header comment to main.go"           # one-shot task
 jas run --approve=mutating "..."                    # confirm shell + file edits
 jas run --model z-ai/glm-5.3 "..."                  # one-run override
@@ -60,10 +63,11 @@ jas run --json "..."                                # event stream on stdout as 
 jas run --trust-project "..."                       # load AGENTS.md without asking
 ```
 
-Subcommands: `jas run`, `jas config set|get|unset|list|init`,
+Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
 `jas auth add|list|rm|rotate`, `jas --version`. Run flags: `--json`,
 `--model`, `--provider`, `--base-url`, `--approve`, `--max-turns`,
-`--trust-project`. There is deliberately no `--api-key` flag (argv leaks via
+`--trust-project`. The chat takes the same flags except `--json`, plus
+`--continue`; it needs a terminal, so scripts use `jas run`. There is deliberately no `--api-key` flag (argv leaks via
 shell history and `ps`).
 
 ## Configuration

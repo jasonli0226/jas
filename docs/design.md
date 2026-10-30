@@ -675,7 +675,18 @@ jas auth list                           # names + source only, never values
 jas auth rm openrouter | jas auth rotate openrouter
 
 jas run --model z-ai/glm-5.3 --provider openrouter "…"   # one-run override
+
+jas                       # inline chat in this project (first run: onboarding, then the chat)
+jas --continue            # resume this project's newest session in the chat
+jas --model z-ai/glm-5.3  # the same setting flags as jas run, plus --trust-project
 ```
+
+`jas` with no subcommand opens the inline chat; it needs a terminal on stdin
+and stdout, so scripts use `jas run "task"`, which is unchanged. A task
+argument to bare `jas` is a usage error pointing at `jas run`. The trust
+prompt for the project context file and project skills is asked before the
+chat starts. Chat sessions use the same `~/.jas/sessions/<id>/events.jsonl`
+layout and `session_started` payload as `jas run`.
 
 Settings keys (v1): `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`
