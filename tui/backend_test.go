@@ -37,7 +37,8 @@ type testBackend struct {
 	root        string
 	sessionsDir string
 	prov        *fake.Provider
-	closes      atomic.Int32 // calls to Live.Close, across all sessions; Close runs from tea commands
+	redact      func(string) string // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
+	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
 }
 
 const testWindow = 100000
@@ -51,6 +52,12 @@ func newTestBackend(t *testing.T, turns ...fake.Turn) *testBackend {
 }
 
 func (b *testBackend) config(path, model string, log core.EventLog, ui core.UI, gate core.Gate) (core.SessionConfig, *core.Budget) {
+	// Same payload shape as the real backend: events pass the redacting UI.
+	redact := b.redact
+	if redact == nil {
+		redact = func(s string) string { return s }
+	}
+	ui = core.NewRedactingUI(ui, redact)
 	log = core.NewUILog(log, ui)
 	reg := core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...)
 	ex := &core.Executor{Reg: reg, Policy: core.ExecPolicy{Root: b.root}, Gate: gate, Log: log}

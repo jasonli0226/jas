@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -465,4 +466,21 @@ func TestChat_QueuedTextSurvivesApproval(t *testing.T) {
 	assert.Contains(t, c.view(), "↳ earlier")
 	c.pump()
 	assert.Contains(t, requestText(b.prov.Requests[1]), "earlier")
+}
+
+func TestChat_UsageThroughRedactingUI(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	ui := core.NewRedactingUI(&bridge{gen: c.m.gen, send: c.update}, func(s string) string { return s })
+	ui.Event(core.EvUsage, map[string]any{"prompt_tokens": testWindow / 4, "completion_tokens": 1000, "cached_tokens": 0})
+	assert.Contains(t, c.view(), "· 25% · 26.0k tok ·")
+}
+
+func TestIntField_Shapes(t *testing.T) {
+	data := map[string]any{"i": 3, "f": 4.9, "n": json.Number("12"), "nf": json.Number("1.5e3"), "bad": json.Number("x")}
+	assert.Eq(t, intField(data, "i"), 3)
+	assert.Eq(t, intField(data, "f"), 4)
+	assert.Eq(t, intField(data, "n"), 12)
+	assert.Eq(t, intField(data, "nf"), 1500)
+	assert.Eq(t, intField(data, "bad"), 0)
+	assert.Eq(t, intField(data, "missing"), 0)
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -54,8 +55,9 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	return m.print(m.tr.Event(msg.typ, msg.data, m.o.Now())...)
 }
 
-// intField reads a number from an event payload, which holds ints when it
-// comes straight from core and float64s after a JSON round trip.
+// intField reads a number from an event payload: ints straight from core,
+// json.Number after the redacting UI (it decodes with UseNumber), float64
+// after a plain JSON round trip.
 func intField(data map[string]any, key string) int {
 	switch v := data[key].(type) {
 	case int:
@@ -64,6 +66,12 @@ func intField(data map[string]any, key string) int {
 		return int(v)
 	case float64:
 		return int(v)
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return int(n)
+		}
+		f, _ := v.Float64()
+		return int(f)
 	}
 	return 0
 }

@@ -188,6 +188,7 @@ func TestChat_AllowedRemovesGrant(t *testing.T) {
 func TestChat_RedactsNotices(t *testing.T) {
 	b := newTestBackend(t, shellTurn("echo sk-secret"), fake.Turn{Text: "ok"})
 	redact := func(s string) string { return strings.ReplaceAll(s, "sk-secret", "[REDACTED]") }
+	b.redact = redact
 	c := newTestChatOpts(t, b, Options{Level: core.ShellOnly, Redact: redact})
 	c.submit("go")
 	c.pumpUntilApproval()
