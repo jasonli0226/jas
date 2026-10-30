@@ -74,7 +74,7 @@ func NewSession(c SessionConfig) (*Session, error) {
 // ResumeSession continues a replayed conversation and writes session_resumed
 // to c.Log, which should be the reopened log of the same file. System and
 // Model come from c, never from the file: the caller rebuilds the system
-// prompt from current trust.
+// prompt from current trust and picks the model with ResumeModel.
 func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	s := newSession(c)
 	s.messages = slices.Clone(st.Messages)
@@ -186,13 +186,19 @@ func (s *Session) Steer(text string) {
 	s.queue = append(s.queue, text)
 }
 
-// drain empties the steering queue, returning its texts joined.
-func (s *Session) drain() string {
+// TakeSteering empties the steering queue and returns its texts in order, so
+// a caller that stops the run can put them back in the input box.
+func (s *Session) TakeSteering() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	text := strings.Join(s.queue, steerSep)
+	q := s.queue
 	s.queue = nil
-	return text
+	return q
+}
+
+// drain empties the steering queue, returning its texts joined.
+func (s *Session) drain() string {
+	return strings.Join(s.TakeSteering(), steerSep)
 }
 
 // Messages returns a copy of the conversation history.

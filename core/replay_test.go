@@ -375,3 +375,56 @@ func TestReplay_NewerSchemaVersionIsRefused(t *testing.T) {
 		t.Fatalf("want newer-version error, got %v", err)
 	}
 }
+
+func TestReplay_MessageIDsMatchEvents(t *testing.T) {
+	r, _ := twoSendRig(t)
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	byType := map[string][]string{}
+	for _, e := range r.events(t) {
+		ty := e["type"].(string)
+		byType[ty] = append(byType[ty], e["id"].(string))
+	}
+	users, asst, results := byType["user_message"], byType["assistant_message"], byType["tool_result"]
+	// user a, assistant tool_use, tool results, assistant A, user b, assistant B
+	want := []string{users[0], asst[0], results[0], asst[1], users[1], asst[2]}
+	assert.Eq(t, strings.Join(st.MessageIDs, ","), strings.Join(want, ","))
+}
+
+func TestReplay_SynthesizedResultsHaveNoID(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "go"}}}))
+	assert.NoErr(t, log.Append(core.EvAssistantMessage, map[string]any{
+		"content": []map[string]any{{"type": "tool_use", "tool_use_id": "c1", "name": "read", "input": map[string]any{}}}}))
+	assert.NoErr(t, log.Close())
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(st.MessageIDs), 3)
+	assert.Eq(t, st.MessageIDs[2], "")
+}
+
+func TestResumeModel(t *testing.T) {
+	st := core.ReplayState{Model: "glm-4.6", BaseURL: "https://openrouter.ai/api/v1/"}
+	m, notice := core.ResumeModel(st, "https://openrouter.ai/api/v1", "deepseek/x")
+	assert.Eq(t, m, "glm-4.6")
+	assert.Eq(t, notice, "")
+
+	m, notice = core.ResumeModel(st, "http://localhost:11434/v1", "qwen3")
+	assert.Eq(t, m, "qwen3")
+	assert.Contains(t, notice, "glm-4.6")
+	assert.Contains(t, notice, "qwen3")
+
+	m, notice = core.ResumeModel(core.ReplayState{}, "http://x", "qwen3")
+	assert.Eq(t, m, "qwen3")
+	assert.Eq(t, notice, "")
+}
+
+func TestReplay_RecordsBaseURL(t *testing.T) {
+	r, _ := twoSendRig(t)
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.BaseURL, "http://x")
+}

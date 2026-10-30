@@ -30,9 +30,14 @@ const (
 // ReplayState is a session file turned back into a conversation.
 type ReplayState struct {
 	Messages []providers.Message
-	Model    string   // last session_started/session_resumed/model_changed model
-	Root     string   // session_started.root
-	Notices  []string // e.g. "ignored unreadable line 41"
+	// MessageIDs[i] is the id of the event Messages[i] came from, for
+	// compaction's first_kept_id. A tool-results message takes the id of its
+	// first logged tool_result, or "" when replay synthesized every result.
+	MessageIDs []string
+	Model      string   // last session_started/session_resumed/model_changed model
+	BaseURL    string   // base_url of the last session_started/session_resumed
+	Root       string   // session_started.root
+	Notices    []string // e.g. "ignored unreadable line 41"
 	// Interrupted lists tool calls with no logged result, which replay
 	// answered with interruptedOutput. ResumeSession logs them as results.
 	Interrupted []InterruptedCall
@@ -46,9 +51,11 @@ type InterruptedCall struct{ ID, Tool, Status, Output string }
 // replayLine is one event line: the header plus every payload field replay uses.
 type replayLine struct {
 	V       int         `json:"v"`
+	ID      string      `json:"id"`
 	Type    string      `json:"type"`
 	TS      time.Time   `json:"ts"`
 	Model   string      `json:"model"`
+	BaseURL string      `json:"base_url"`
 	Root    string      `json:"root"`
 	Content []wireBlock `json:"content"`
 	CallID  string      `json:"call_id"`
@@ -111,6 +118,7 @@ type replayer struct {
 	order   []string                          // tool_use ids awaiting results, in call order
 	names   map[string]string                 // tool_use id → tool name
 	results map[string]providers.ContentBlock // results seen so far
+	firstID string                            // event id of the first result seen
 	ran     map[string]bool                   // tool_use ids with a tool_started event
 }
 
@@ -126,18 +134,22 @@ func (r *replayer) apply(line int, ev replayLine) {
 		}
 		r.started = true
 		r.setModel(ev.Model)
-	case EvSessionResumed, EvModelChanged:
+		r.st.BaseURL = ev.BaseURL
+	case EvSessionResumed:
+		r.setModel(ev.Model)
+		r.st.BaseURL = ev.BaseURL
+	case EvModelChanged:
 		r.setModel(ev.Model)
 	case EvUserMessage:
 		r.flushResults()
-		r.add(providers.RoleUser, ev.Content)
+		r.add(ev.ID, providers.RoleUser, ev.Content)
 	case EvAssistantMessage:
 		r.flushResults()
 		if ev.Content == nil {
 			r.notef("skipped assistant message at line %d: no stored content", line)
 			return
 		}
-		r.add(providers.RoleAssistant, ev.Content)
+		r.add(ev.ID, providers.RoleAssistant, ev.Content)
 		r.expectResults(ev.Content)
 	case EvToolStarted:
 		if slices.Contains(r.order, ev.CallID) {
@@ -154,8 +166,9 @@ func (r *replayer) setModel(m string) {
 	}
 }
 
-func (r *replayer) add(role providers.Role, content []wireBlock) {
+func (r *replayer) add(id string, role providers.Role, content []wireBlock) {
 	r.st.Messages = append(r.st.Messages, providers.Message{Role: role, Content: fromWire(content)})
+	r.st.MessageIDs = append(r.st.MessageIDs, id)
 }
 
 func (r *replayer) expectResults(content []wireBlock) {
@@ -173,6 +186,9 @@ func (r *replayer) expectResults(content []wireBlock) {
 func (r *replayer) recordResult(ev replayLine) {
 	if !slices.Contains(r.order, ev.CallID) {
 		return // no matching tool_use; nothing to answer
+	}
+	if r.firstID == "" {
+		r.firstID = ev.ID
 	}
 	r.results[ev.CallID] = providers.ContentBlock{
 		Type: providers.BlockToolResult, ToolUseID: ev.CallID, Text: ev.Output, IsError: ev.Status != statusOK,
@@ -200,7 +216,25 @@ func (r *replayer) flushResults() {
 		blocks[i] = b
 	}
 	r.st.Messages = append(r.st.Messages, providers.Message{Role: providers.RoleUser, Content: blocks})
-	r.order, r.results, r.names, r.ran = nil, nil, nil, nil
+	r.st.MessageIDs = append(r.st.MessageIDs, r.firstID)
+	r.order, r.results, r.names, r.ran, r.firstID = nil, nil, nil, nil, ""
+}
+
+// ResumeModel picks the model for a resumed session: the file's model when
+// the file was last opened against the same base URL, else configured. notice
+// is non-empty when the file's model was set aside.
+func ResumeModel(st ReplayState, baseURL, configured string) (model, notice string) {
+	if st.Model == "" || st.Model == configured {
+		return configured, ""
+	}
+	if sameBaseURL(st.BaseURL, baseURL) {
+		return st.Model, ""
+	}
+	return configured, fmt.Sprintf("session used model %s on another provider; continuing with %s", st.Model, configured)
+}
+
+func sameBaseURL(a, b string) bool {
+	return a != "" && strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
 
 // SessionInfo describes one saved session for a picker.

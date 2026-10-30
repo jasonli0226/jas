@@ -162,7 +162,8 @@ jas becomes the daily driver instead of pi when it is:
   message, as `jas run` does today).
 - **While an approval prompt is showing, Enter answers the prompt.** Text
   queued before the prompt appeared stays queued.
-- **Esc stops the run** and puts any queued text back in the input box.
+- **Esc stops the run** and puts any queued text back in the input box
+  (`Session.TakeSteering`).
 - (Author's call, matching pi) **Ctrl-C clears the input box**; pressing it
   twice on an empty box within about a second quits. Ctrl-C does not stop a
   run; Esc does.
@@ -228,7 +229,8 @@ queue lives in the session, not the UI.
    input; a summary that tries to call a tool is rejected. Stored as a
    `compaction` event `{summary, first_kept_id, tokens_before, usage}`, where
    `first_kept_id` is the **event id** of the first message event kept
-   verbatim; the original messages stay in the file. The two numbers are
+   verbatim (replay exposes these ids as `ReplayState.MessageIDs`); the
+   original messages stay in the file. The two numbers are
    settings, not magic values: `compact_reserve_tokens` (default 16384) and
    `compact_keep_tokens` (default 20000). Runs on the **session model** by
    default; a `compact_model` setting may name a cheaper one. Existing
@@ -250,7 +252,9 @@ queue lives in the session, not the UI.
      the session. The design.md event table is updated to say
      `session_started` is once per file and `session_ended` once per open.
    - The model recorded in the file is used on resume if it is on the current
-     provider; otherwise the configured model, with a notice.
+     provider; otherwise the configured model, with a notice. "On the current
+     provider" means the file's last `session_started` / `session_resumed`
+     `base_url` equals the current one (`core.ResumeModel`).
    - Replay must tolerate a crash: no final `session_ended`, and a truncated
      or unparseable last line (ignored with a notice, never fatal). It must not
      assume `session_ended` exists or appears once.
