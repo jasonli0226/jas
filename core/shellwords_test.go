@@ -20,14 +20,23 @@ func TestShellWords(t *testing.T) {
 		{"  a \t b  ", []string{"a", "b"}, true},
 		{"", nil, true},
 		{"   ", nil, true},
+		{`echo "a\b\$c\\d"`, []string{"echo", `a\b$c\d`}, true},
+		{"go\rtest x", []string{"go\rtest", "x"}, true},
 		{"echo 'x", nil, false},
 		{`echo "x`, nil, false},
 		{`echo x\`, nil, false},
 	}
 	for _, tc := range tests {
 		got, ok := ShellWords(tc.in)
-		if ok != tc.ok || (ok && !reflect.DeepEqual(got, tc.want) && len(got)+len(tc.want) > 0) {
+		if ok != tc.ok || (ok && !equalWords(got, tc.want)) {
 			t.Errorf("ShellWords(%q) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
 		}
 	}
+}
+
+func equalWords(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return len(a) == len(b)
+	}
+	return reflect.DeepEqual(a, b)
 }

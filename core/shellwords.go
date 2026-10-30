@@ -3,7 +3,7 @@ package core
 import "strings"
 
 // ShellWords splits cmd into words the way a POSIX shell would for quoting
-// alone: whitespace separates words, '…' is literal, "…" groups, and \ escapes
+// alone: space, tab and newline separate words, '…' is literal, "…" groups, and \ escapes
 // the next rune outside single quotes. ok is false on an unterminated quote or
 // a trailing backslash. It does no expansion.
 func ShellWords(cmd string) (words []string, ok bool) {
@@ -20,7 +20,7 @@ func ShellWords(cmd string) (words []string, ok bool) {
 	for i := 0; i < len(rs); i++ {
 		r := rs[i]
 		switch {
-		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+		case r == ' ' || r == '\t' || r == '\n':
 			flush()
 		case r == '\\':
 			if i+1 >= len(rs) {
@@ -51,7 +51,10 @@ func ShellWords(cmd string) (words []string, ok bool) {
 					if i+1 >= len(rs) {
 						return nil, false
 					}
-					i++
+					// POSIX: inside "…" a backslash only escapes $ ` " \ and newline.
+					if strings.ContainsRune("$`\"\\\n", rs[i+1]) {
+						i++
+					}
 				}
 				cur.WriteRune(rs[i])
 			}

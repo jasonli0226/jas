@@ -32,18 +32,28 @@ func NewGrants(windows bool) *Grants {
 // is not a simple, parseable command.
 func (g *Grants) shellKey(args json.RawMessage) (key, display string, ok bool) {
 	var a struct{ Command string }
-	if json.Unmarshal(args, &a) != nil {
+	if _, dup := duplicateKey(args); dup || json.Unmarshal(args, &a) != nil {
 		return "", "", false
 	}
 	if !g.simple(a.Command) {
 		return "", "", false
 	}
-	words, wok := ShellWords(a.Command)
-	if !wok || len(words) == 0 || envAssign.MatchString(words[0]) {
+	// The key words are the raw tokens, never unquoted ones: cmd.exe does not
+	// treat \ ' or " as quoting, so g\o must not pass for go.
+	words := strings.FieldsFunc(a.Command, func(r rune) bool { return r == ' ' || r == '\t' })
+	if len(words) == 0 || envAssign.MatchString(words[0]) {
+		return "", "", false
+	}
+	if _, wok := ShellWords(a.Command); !wok {
 		return "", "", false
 	}
 	if len(words) > 2 {
 		words = words[:2]
+	}
+	for _, w := range words {
+		if strings.ContainsAny(w, `\'"`) {
+			return "", "", false
+		}
 	}
 	// NUL cannot appear in a shell command, so it keeps ["a b","c"] and
 	// ["a","b c"] apart where the display text would not.
@@ -53,7 +63,7 @@ func (g *Grants) shellKey(args json.RawMessage) (key, display string, ok bool) {
 // simple reports whether the raw command text is free of operators that could
 // chain, redirect or substitute another command.
 func (g *Grants) simple(cmd string) bool {
-	bad := ";&|`><\n"
+	bad := ";&|`><\n\r"
 	if g.windows {
 		bad += "^%"
 	}
@@ -65,6 +75,9 @@ func (g *Grants) Covers(tool string, args json.RawMessage) bool {
 	var key string
 	switch tool {
 	case "edit", "write":
+		if _, dup := duplicateKey(args); dup {
+			return false
+		}
 		key = tool
 	case "shell":
 		k, _, ok := g.shellKey(args)
@@ -88,6 +101,9 @@ func (g *Grants) Add(tool string, args json.RawMessage) (grant string, ok bool) 
 	var key string
 	switch tool {
 	case "edit", "write":
+		if _, dup := duplicateKey(args); dup {
+			return "", false
+		}
 		key, grant = tool, tool
 	case "shell":
 		key, grant, ok = g.shellKey(args)

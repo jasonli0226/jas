@@ -25,7 +25,7 @@ func TestGrants_ShellFirstTwoWords(t *testing.T) {
 	assert.Eq(t, g.Covers("edit", shellArgs("go test")), false)
 }
 
-func TestGrants_OneWordAndQuotedWords(t *testing.T) {
+func TestGrants_OneWord(t *testing.T) {
 	g := NewGrants(false)
 	grant, ok := g.Add("shell", shellArgs("make"))
 	assert.Eq(t, ok, true)
@@ -33,11 +33,6 @@ func TestGrants_OneWordAndQuotedWords(t *testing.T) {
 	assert.Eq(t, g.Covers("shell", shellArgs("make")), true)
 	assert.Eq(t, g.Covers("shell", shellArgs("make all")), false)
 
-	// "a b" c and a "b c" render alike but are different word lists.
-	_, ok = g.Add("shell", shellArgs(`"a b" c`))
-	assert.Eq(t, ok, true)
-	assert.Eq(t, g.Covers("shell", shellArgs(`"a b" c d`)), true)
-	assert.Eq(t, g.Covers("shell", shellArgs(`a "b c"`)), false)
 }
 
 func TestGrants_NotSimpleNeverGrants(t *testing.T) {
@@ -123,4 +118,36 @@ func TestGrants_Concurrent(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		<-done
 	}
+}
+
+func TestGrants_LiteralKeyWords(t *testing.T) {
+	for _, win := range []bool{false, true} {
+		for _, c := range []string{`g\o test`, `'go' test`, `"go" test`, `go "test"`, `go te\st`, "go\rtest x"} {
+			g := NewGrants(win)
+			_, ok := g.Add("shell", shellArgs(c))
+			assert.Eq(t, ok, false)
+			base := NewGrants(win)
+			base.Add("shell", shellArgs("go test"))
+			assert.Eq(t, base.Covers("shell", shellArgs(c)), false)
+		}
+		// Quoting after the key words is fine.
+		g := NewGrants(win)
+		grant, ok := g.Add("shell", shellArgs(`git commit -m "a b"`))
+		assert.Eq(t, ok, true)
+		assert.Eq(t, grant, "shell: git commit")
+	}
+}
+
+func TestGrants_DuplicateKeysRejected(t *testing.T) {
+	g := NewGrants(false)
+	g.Add("shell", shellArgs("go test"))
+	g.Add("edit", json.RawMessage(`{}`))
+	dup := json.RawMessage(`{"command":"go test","COMMAND":"rm -rf x"}`)
+	assert.Eq(t, g.Covers("shell", dup), false)
+	_, ok := NewGrants(false).Add("shell", dup)
+	assert.Eq(t, ok, false)
+	dupEdit := json.RawMessage(`{"path":"a","Path":"b"}`)
+	assert.Eq(t, g.Covers("edit", dupEdit), false)
+	_, ok = NewGrants(false).Add("edit", dupEdit)
+	assert.Eq(t, ok, false)
 }
