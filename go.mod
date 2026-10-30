@@ -3,6 +3,7 @@ module github.com/jasonli0226/jas
 go 1.27
 
 require (
+	charm.land/bubbletea/v2 v2.1.1
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/charmbracelet/x/ansi v0.11.9
