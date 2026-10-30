@@ -300,3 +300,12 @@ func TestSession_SteerKeptWhenTurnCapHit(t *testing.T) {
 		t.Fatalf("steer committed on last turn: %s", msgSummary(s.Messages()))
 	}
 }
+
+func TestSession_TakeSteeringEmptiesQueue(t *testing.T) {
+	r := newRig(t, nil)
+	s := newSession(t, r)
+	s.Steer("one")
+	s.Steer("two")
+	assert.Eq(t, strings.Join(s.TakeSteering(), ","), "one,two")
+	assert.Eq(t, len(s.TakeSteering()), 0)
+}
