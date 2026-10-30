@@ -17,10 +17,11 @@ type Call struct {
 
 // Turn is one scripted provider response.
 type Turn struct {
-	Text  string
-	Calls []Call
-	Usage providers.Usage
-	Err   error // returned instead of finishing the stream
+	Reasoning string // emitted as its own event before Text
+	Text      string
+	Calls     []Call
+	Usage     providers.Usage
+	Err       error // returned instead of finishing the stream
 	// OnEmit, if set, runs after Text/Calls were delivered and before Block waits.
 	OnEmit func()
 	Block  bool // after emitting Text/Calls, wait for ctx cancel and fail with ctx.Err()
@@ -72,6 +73,11 @@ func (p *Provider) play(ctx context.Context, i int, t Turn, out chan<- providers
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
+		}
+	}
+	if t.Reasoning != "" {
+		if err := send(providers.StreamEvent{Reasoning: t.Reasoning}); err != nil {
+			return err
 		}
 	}
 	if t.Text != "" {

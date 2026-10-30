@@ -61,8 +61,9 @@ type Approver struct {
 
 var _ Gate = (*Approver)(nil)
 
-func (a *Approver) gated(t Tool) bool {
-	switch a.Level {
+// Gated reports whether a call to t needs approval at level.
+func Gated(level Level, t Tool) bool {
+	switch level {
 	case AllMutating:
 		return t.Kind() == Mutating
 	case ShellOnly:
@@ -73,13 +74,13 @@ func (a *Approver) gated(t Tool) bool {
 
 // Allow implements Gate.
 func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage) (Decision, error) {
-	if !a.gated(t) {
+	if !Gated(a.Level, t) {
 		return Granted, nil
 	}
 	if !a.Interactive {
 		return Unavailable, nil
 	}
-	prompt := fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), summarize(t.Name(), args))
+	prompt := fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeCall(t.Name(), args))
 
 	type answer struct {
 		line string
@@ -124,15 +125,15 @@ func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage) (Dec
 	}
 }
 
-// summarize is the one-line, length-capped description shown in the prompt:
+// SummarizeCall is the one-line, length-capped description shown in the prompt:
 // the command for shell, the path for write/edit, or the raw args when that
 // field is absent. Control and format runes are shown as visible escapes so
 // the text cannot rewrite the prompt; a cut is marked explicitly.
-func summarize(name string, args json.RawMessage) string {
+func SummarizeCall(tool string, args json.RawMessage) string {
 	var m map[string]any
 	_ = json.Unmarshal(args, &m)
 	key := "path"
-	if name == "shell" {
+	if tool == "shell" {
 		key = "command"
 	}
 	raw, _ := m[key].(string)

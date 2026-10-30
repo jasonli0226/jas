@@ -1,10 +1,12 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/jasonli0226/jas/providers"
@@ -121,8 +123,40 @@ func (r *run) prepare(c providers.ContentBlock) *slot {
 	s.tool = tool
 	if len(c.Input) > 0 && !json.Valid(c.Input) {
 		s.settle(Result{Output: fmt.Sprintf("invalid JSON arguments for tool %q", c.Name), IsError: true}, statusError)
+	} else if k, dup := duplicateKey(c.Input); dup {
+		// The prompt and the tool must read the same field; Go's struct decoding
+		// is case-insensitive and last-wins, so refuse the ambiguity outright.
+		s.settle(Result{Output: fmt.Sprintf("ambiguous JSON arguments for tool %q: duplicate key %q", c.Name, k), IsError: true}, statusError)
 	}
 	return s
+}
+
+// duplicateKey reports a top-level key of a JSON object that equals an earlier
+// one under strings.EqualFold (exact repeats included). Tool args are flat.
+func duplicateKey(args json.RawMessage) (key string, dup bool) {
+	dec := json.NewDecoder(bytes.NewReader(args))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return "", false
+	}
+	var seen []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", false
+		}
+		k, _ := tok.(string)
+		for _, p := range seen {
+			if strings.EqualFold(p, k) {
+				return k, true
+			}
+		}
+		seen = append(seen, k)
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 func (s *slot) settle(res Result, status string) {

@@ -175,6 +175,25 @@ func TestExec_MalformedArgs(t *testing.T) {
 	assert.Eq(t, ok.calls, 0)
 }
 
+func TestExec_DuplicateKeyArgsRejectedBeforeGate(t *testing.T) {
+	for _, in := range []string{
+		`{"command":"go test","COMMAND":"rm -rf x"}`,
+		`{"command":"a","command":"b"}`,
+	} {
+		sh := &fakeTool{name: "shell", kind: Mutating}
+		gateCalls := 0
+		e := newExec(&fakeLog{}, gateFunc(func(Tool) (Decision, error) { gateCalls++; return Granted, nil }), sh)
+		c := call("1", "shell")
+		c.Input = json.RawMessage(in)
+		res, err := e.Run(context.Background(), []providers.ContentBlock{c})
+		assert.NoErr(t, err)
+		assert.Eq(t, res[0].IsError, true)
+		assert.Contains(t, res[0].Text, `ambiguous JSON arguments for tool "shell": duplicate key`)
+		assert.Eq(t, gateCalls, 0)
+		assert.Eq(t, sh.calls, 0)
+	}
+}
+
 func TestExec_MutatingFsyncsStartedBeforeCall(t *testing.T) {
 	log := &fakeLog{}
 	var startedSynced bool

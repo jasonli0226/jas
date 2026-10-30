@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -12,12 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/term"
-
 	"github.com/jasonli0226/jas/core"
-	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/settings"
-	"github.com/jasonli0226/jas/skills"
 	"github.com/jasonli0226/jas/tools"
 )
 
@@ -44,61 +39,19 @@ func runCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	home, err := settingsHome()
+	e, err := prepare(ctx, ra.flags, ra.trust)
 	if err != nil {
 		return err
 	}
-	file, err := settings.LoadFile(filepath.Join(home, configFile))
-	if err != nil {
-		return err
-	}
-	cfg, err := settings.Resolve(ra.flags, os.Getenv, file).Build()
-	if err != nil {
-		return usageErr("%v", err)
-	}
-	level, err := core.ParseLevel(cfg.Approve)
-	if err != nil {
-		return usageErr("%v", err)
-	}
-	auth, err := loadAuthForRun(filepath.Join(home, authFile), cfg.Provider)
-	if err != nil {
-		return err
-	}
-	key, _, err := settings.ResolveKey(cfg.Provider, os.Getenv, auth)
-	if err != nil {
-		return usageErr("%v", err)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getwd: %w", err)
-	}
-	root := core.FindRoot(cwd)
+	red := e.red
 
-	path := filepath.Join(home, sessionsDir, core.NewSessionID(time.Now()), eventsFile)
+	path := filepath.Join(e.home, sessionsDir, core.NewSessionID(time.Now()), eventsFile)
 	var tee io.Writer
 	var ui core.UI = core.NewPrinter(os.Stdout)
 	if ra.json {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
-	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home)}}
-	red := newRedactor(key)
-	reportRedactor = red
 	ui = core.NewRedactingUI(ui, red.Redact)
-	stdin := bufio.NewReader(os.Stdin)
-	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
-	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
-	userHome, _ := os.UserHomeDir() // no home: user skills are skipped
-	projectSkills, pw := skills.Discover(skills.ProjectSources(root), policy.Denied)
-	userSkills, uw := skills.Discover(skills.UserSources(userHome), policy.Denied)
-	for _, w := range append(pw, uw...) {
-		warn(w)
-	}
-	pc, err := loadProjectContext(ctx, root, home, projectSkills, userSkills, interactive, ra.trust, stdin, os.Stderr, red.Redact, warn)
-	if err != nil {
-		return err
-	}
-	skillList, skillDirs := listedSkills(pc.skills)
-	policy.ReadRoots = skillDirs
 
 	// Open the log only once the session can start, so a setup failure
 	// leaves no log without session_started/session_ended.
@@ -111,25 +64,19 @@ func runCmd(ctx context.Context, args []string) error {
 
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
-		Policy: policy,
+		Policy: e.policy,
 		Gate: &core.Approver{
-			Level: level, In: stdin, Out: os.Stderr, Interactive: interactive,
+			Level: e.level, In: e.stdin, Out: os.Stderr, Interactive: e.interactive,
 		},
 		Log: log, Filter: red.Filter,
 	}
-	window, known := settings.ContextWindow(cfg.Model, file.ContextOverrides())
-	if !known {
-		fmt.Fprintln(os.Stderr, red.Redact(fmt.Sprintf("jas: unknown context window for model %q; assuming %d tokens (set models.%s.context_window)", cfg.Model, window, cfg.Model)))
-	}
+	e.warnUnknownWindow(e.cfg.Model)
 	_, err = core.Run(ctx, core.RunConfig{
-		Provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
-		Model:    cfg.Model, Prompt: ra.prompt, System: pc.system,
-		Exec: exec, Log: log, UI: ui, MaxTurns: cfg.MaxTurns,
-		Budget: &core.Budget{Window: window, ElideAt: cfg.ElideAt, Keep: cfg.KeepToolResults},
-		SessionMeta: map[string]any{
-			"base_url": cfg.BaseURL, "approve": level.String(), "root": root, "context_files": pc.files, "skills": skillList,
-			"context_window": window, "window_known": known,
-		},
+		Provider: e.provider,
+		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
+		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
+		Budget:      e.budget(e.cfg.Model),
+		SessionMeta: e.sessionMeta(e.cfg.Model),
 	})
 	if err == nil && !ra.json {
 		fmt.Println()

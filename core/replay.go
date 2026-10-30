@@ -102,7 +102,7 @@ func Replay(path string) (ReplayState, error) {
 	if err := sc.Err(); err != nil {
 		rp.notef("stopped reading after line %d: %v", n, err)
 	}
-	rp.flushResults()
+	rp.flushResults(true)
 	if !rp.started {
 		return ReplayState{}, fmt.Errorf("session %s has no session_started event", path)
 	}
@@ -141,10 +141,10 @@ func (r *replayer) apply(line int, ev replayLine) {
 	case EvModelChanged:
 		r.setModel(ev.Model)
 	case EvUserMessage:
-		r.flushResults()
+		r.flushResults(false)
 		r.add(ev.ID, providers.RoleUser, ev.Content)
 	case EvAssistantMessage:
-		r.flushResults()
+		r.flushResults(false)
 		if ev.Content == nil {
 			r.notef("skipped assistant message at line %d: no stored content", line)
 			return
@@ -197,8 +197,10 @@ func (r *replayer) recordResult(ev replayLine) {
 
 // flushResults emits the tool results for the last assistant message, filling
 // in "interrupted" (started) or "not_run" (never started) for calls that never
-// logged one.
-func (r *replayer) flushResults() {
+// logged one. Only the final flush (the last assistant message in the file)
+// reports them in Interrupted: earlier orphans were already moved past by a
+// later turn, so there is nothing to tell the user or log.
+func (r *replayer) flushResults(final bool) {
 	if len(r.order) == 0 {
 		return
 	}
@@ -211,7 +213,9 @@ func (r *replayer) flushResults() {
 				status, out = statusNotRun, notRunOutput
 			}
 			b = providers.ContentBlock{Type: providers.BlockToolResult, ToolUseID: id, Text: out, IsError: true}
-			r.st.Interrupted = append(r.st.Interrupted, InterruptedCall{ID: id, Tool: r.names[id], Status: status, Output: out})
+			if final {
+				r.st.Interrupted = append(r.st.Interrupted, InterruptedCall{ID: id, Tool: r.names[id], Status: status, Output: out})
+			}
 		}
 		blocks[i] = b
 	}
@@ -272,14 +276,13 @@ func ListSessions(sessionsDir, root string, limit int) ([]SessionInfo, error) {
 	}
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].mtime.After(cands[j].mtime) })
 
-	want := canonPath(root)
 	var out []SessionInfo
 	for _, c := range cands {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
 		info, sessRoot, ok := readHead(c.path)
-		if !ok || canonPath(sessRoot) != want {
+		if !ok || !samePath(sessRoot, root) {
 			continue
 		}
 		info.Path, info.ID = c.path, c.id

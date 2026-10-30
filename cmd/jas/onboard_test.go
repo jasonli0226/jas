@@ -34,8 +34,10 @@ func jasWithStdin(t *testing.T, home, stdin string, args ...string) (string, int
 
 func TestOnboard_WritesConfigAndAuth(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "jas")
-	_, code := jasWithStdin(t, home, "openrouter\n$OPENROUTER_API_KEY\nz-ai/glm-5.3\n")
-	assert.Eq(t, code, 0)
+	// Onboarding then continues into the chat, which needs a terminal.
+	errOut, code := jasWithStdin(t, home, "openrouter\n$OPENROUTER_API_KEY\nz-ai/glm-5.3\n")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "the chat needs a terminal")
 	var cfg map[string]any
 	b, err := os.ReadFile(filepath.Join(home, "config.json"))
 	assert.NoErr(t, err)
@@ -53,10 +55,11 @@ func TestOnboard_WritesConfigAndAuth(t *testing.T) {
 	assert.Eq(t, auth["openrouter"]["key"], "")
 }
 
-func TestOnboard_ExistingConfigPrintsUsage(t *testing.T) {
+func TestOnboard_ExistingConfigSkipsSetup(t *testing.T) {
 	home := t.TempDir()
 	assert.NoErr(t, os.WriteFile(filepath.Join(home, "config.json"), []byte("{}\n"), 0o600))
 	errOut, code := jasWithStdin(t, home, "")
-	assert.Eq(t, code, 0)
-	assert.Contains(t, errOut, "usage:")
+	assert.Eq(t, code, 2)
+	assert.NotContains(t, errOut, "Welcome to jas")
+	assert.Contains(t, errOut, "the chat needs a terminal")
 }

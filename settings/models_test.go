@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -41,4 +42,11 @@ func TestEmbeddedCatalogLoads(t *testing.T) {
 	if !known || w <= 0 {
 		t.Fatalf("well-known model: %d, %v", w, known)
 	}
+}
+
+func TestCatalogModels_Sorted(t *testing.T) {
+	old := catalog
+	t.Cleanup(func() { catalog = old })
+	catalog = map[string]int{"z/b": 1, "a/c": 2, "m": 3}
+	assert.Eq(t, strings.Join(CatalogModels(), ","), "a/c,m,z/b")
 }

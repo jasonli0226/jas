@@ -14,6 +14,8 @@ type redactingUI struct {
 
 func (u redactingUI) Text(delta string) { u.ui.Text(u.redact(delta)) }
 
+func (u redactingUI) Reasoning(delta string) { u.ui.Reasoning(u.redact(delta)) }
+
 func (u redactingUI) Event(typ string, data any) {
 	d, err := redactPayload(data, u.redact)
 	if err != nil {

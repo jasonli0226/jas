@@ -302,8 +302,10 @@ func encodeMessage(m Message) []oaiMessage {
 type oaiChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content          string `json:"content"`
+			Reasoning        string `json:"reasoning"`
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Function struct {
@@ -331,6 +333,9 @@ func parseChunk(payload []byte) ([]StreamEvent, error) {
 	}
 	var evs []StreamEvent
 	for _, ch := range c.Choices {
+		if r := firstNonEmpty(ch.Delta.Reasoning, ch.Delta.ReasoningContent); r != "" {
+			evs = append(evs, StreamEvent{Reasoning: r})
+		}
 		if ch.Delta.Content != "" {
 			evs = append(evs, StreamEvent{Text: ch.Delta.Content})
 		}
@@ -350,4 +355,11 @@ func parseChunk(payload []byte) ([]StreamEvent, error) {
 		}})
 	}
 	return evs, nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

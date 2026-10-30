@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/jasonli0226/jas/core"
@@ -16,6 +17,7 @@ import (
 var version = "dev"
 
 const usage = `usage:
+  jas [--continue] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project]
   jas run [--json] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project] "task"
   jas config set|get|unset|list|init
   jas auth add|list|rm|rotate
@@ -34,13 +36,17 @@ func main() {
 }
 
 func dispatch(ctx context.Context, args []string) int {
-	if len(args) == 0 {
-		return report(onboardOrUsage())
+	if len(args) > 0 {
+		switch args[0] {
+		case "--version", "-version", "version":
+			fmt.Println("jas " + version)
+			return core.ExitOK
+		}
+	}
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return report(chatCmd(ctx, args))
 	}
 	switch args[0] {
-	case "--version", "-version", "version":
-		fmt.Println("jas " + version)
-		return core.ExitOK
 	case "run":
 		return report(runCmd(ctx, args[1:]))
 	case "config":
