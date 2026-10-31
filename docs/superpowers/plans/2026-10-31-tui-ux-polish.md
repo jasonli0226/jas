@@ -1,6 +1,6 @@
 # Inline TUI UX Polish Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make the inline chat readable and resume-friendly without leaving Bubble Tea inline mode. Owner priority: user vs agent turns must be obvious in scrollback. Then resume reprints the transcript, tools show while running, streaming no longer flashes blank, slash picker and input history match daily use, and the status line carries denser cues.
 
@@ -56,15 +56,15 @@
 - Insert a **blank line between turns** (user ↔ assistant ↔ tool groups) so blocks don’t run together.
 - Avoid full left borders or boxes (Println scrollback can’t rewrite; borders fight narrow terminals).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `TestTranscript_UserChrome`: `User("hi")` after ANSI strip starts with `› hi`; style uses bold and a cyan-class colour (assert via lipgloss / known prefix + that `userStyle` is not equal to plain bold-only if you change it).
   - `TestTranscript_AssistantChrome`: feed a completed assistant paragraph through `Text`/`Flush`; after ANSI strip the first printed assistant line starts with `● ` or `jas `; a second turn gets the marker again; intra-turn continuation lines do not repeat the marker.
   - `TestTranscript_TurnGap`: user block then assistant flush → printed sequence has a blank line between the user block and the agent block.
   - Update any Plan 2 fixture that expected `["› hi", "Hello", …]` without agent chrome so expectations include the new marker.
-- [ ] **Step 2: Run** `go test ./tui/ -run 'Transcript_(UserChrome|AssistantChrome|TurnGap)|Chat_SendStreams' -v`. Expect FAIL.
-- [ ] **Step 3: Implement** styles and chrome in `transcript.go` / `style.go`; keep files under ~300 lines; all assistant text still goes through `cleanText` / markdown render as today.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
-- [ ] **Step 5: Commit** `fix(tui): role chrome and turn gaps for readable transcript`
+- [x] **Step 2: Run** `go test ./tui/ -run 'Transcript_(UserChrome|AssistantChrome|TurnGap)|Chat_SendStreams' -v`. Expect FAIL.
+- [x] **Step 3: Implement** styles and chrome in `transcript.go` / `style.go`; keep files under ~300 lines; all assistant text still goes through `cleanText` / markdown render as today.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
+- [x] **Step 5: Commit** `fix(tui): role chrome and turn gaps for readable transcript`
 
 ---
 
@@ -86,13 +86,13 @@
 - Do not re-emit events into the log; display only.
 - Generation / bridge rules unchanged: reprint is chat-owned Println, not bridge messages from an old gen.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `TestChat_ResumeReprintsTranscript`: test backend with a saved session containing user `"hello"`, assistant `"hi there"`, and a completed tool result. `--continue` / Resume path → `Printed()` after ANSI strip contains user chrome for `hello`, agent chrome for `hi there`, and a `▸` tool row, plus the `resumed` notice.
   - `TestChat_ResumeEmptySessionStillNotices`: resume with no messages still prints `resumed … · 0 messages` and does not panic.
-- [ ] **Step 2: Run** `go test ./tui/ -run 'ResumeReprint|ResumeEmpty' -v`. Expect FAIL.
-- [ ] **Step 3: Implement** reprint in `sessions.go` using Transcript helpers; width from the model.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
-- [ ] **Step 5: Commit** `fix(tui): reprint transcript on resume with role chrome`
+- [x] **Step 2: Run** `go test ./tui/ -run 'ResumeReprint|ResumeEmpty' -v`. Expect FAIL.
+- [x] **Step 3: Implement** reprint in `sessions.go` using Transcript helpers; width from the model.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
+- [x] **Step 5: Commit** `fix(tui): reprint transcript on resume with role chrome`
 
 ---
 
@@ -110,14 +110,14 @@
 - On `tool_result`, print the final row as today (ok / failed / denied / cancelled). Prefer replacing the mental “running” line by printing the final row beneath it (Println can’t rewrite scrollback); document that two lines per tool is OK for v1, or only show running in `Live()` / status if you can do it without alt-screen — **owner preference: visible feedback during the call**. A dim running Println + final Println is acceptable.
 - Optional status: while tools are in flight, append `working · N tools` (or keep `working…` and add the count).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `TestTranscript_ToolStartedShowsRunningRow`: `Event("tool_started", {call_id, tool, args})` returns a row containing `▸` and the tool/subject; after ANSI strip it is non-empty before any `tool_result`.
   - `TestTranscript_ToolResultStillFinalRow`: matching `tool_result` still produces the existing outcome row (`ok` / `failed: …` etc.).
   - `TestToolRow_RunningTruncatesToWidth` (if running rows share `toolRow`): width 20 → ≤ 20 visible runes, ends in `…`.
-- [ ] **Step 2: Run** `go test ./tui/ -run 'ToolStarted|ToolResultStill|RunningTruncat' -v`. Expect FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
-- [ ] **Step 5: Commit** `fix(tui): show live tool rows on tool_started`
+- [x] **Step 2: Run** `go test ./tui/ -run 'ToolStarted|ToolResultStill|RunningTruncat' -v`. Expect FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
+- [x] **Step 5: Commit** `fix(tui): show live tool rows on tool_started`
 
 ---
 
@@ -134,12 +134,12 @@
 - Alternative acceptable approach: line-at-a-time prose flush that never clears live before print ack — pick one and test it.
 - Cross-ref #58; close #58 when this lands if it fully covers that bug.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
   - `TestChat_StreamingNoBlankFlash`: stream two completed markdown blocks; between Flush/Println of block 1 and appearance in `Printed()`, `View` (or `Live()` + pending) still contains block 1’s text — never both empty live and missing from Printed for that block.
-- [ ] **Step 2: Run** `go test ./tui/ -run StreamingNoBlankFlash -v`. Expect FAIL.
-- [ ] **Step 3: Implement** the hold-until-ack (or line-at-a-time) path without alt-screen.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
-- [ ] **Step 5: Commit** `fix(tui): avoid blank flash between live stream and scrollback`
+- [x] **Step 2: Run** `go test ./tui/ -run StreamingNoBlankFlash -v`. Expect FAIL.
+- [x] **Step 3: Implement** the hold-until-ack (or line-at-a-time) path without alt-screen.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
+- [x] **Step 5: Commit** `fix(tui): avoid blank flash between live stream and scrollback`
 
 ---
 
@@ -157,14 +157,14 @@
 - Keep unknown-command + `suggest` behaviour for submitted typos.
 - Cap visible rows as today (picker max 10 / completions max 8 — align on one number and document it).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `TestChat_SlashOpensPicker`: typing `/` idle opens a picker (or equivalent listing driven by picker) whose items include `help` and `model`.
   - `TestChat_SlashFilterAndTab`: input `/mo` filters to `model`; Tab/Enter completes to `/model` (or runs bare `/model` picker for models — match Plan 2 bare `/model` behaviour; completing the command name is enough).
   - `TestPicker_FilterAndChoose` remains green if already present.
-- [ ] **Step 2: Run** `go test ./tui/ -run 'SlashOpens|SlashFilter|Picker_' -v`. Expect FAIL on new tests.
-- [ ] **Step 3: Implement** by reusing `picker`, not a second UI.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
-- [ ] **Step 5: Commit** `feat(tui): fuzzy slash command picker on /`
+- [x] **Step 2: Run** `go test ./tui/ -run 'SlashOpens|SlashFilter|Picker_' -v`. Expect FAIL on new tests.
+- [x] **Step 3: Implement** by reusing `picker`, not a second UI.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
+- [x] **Step 5: Commit** `feat(tui): fuzzy slash command picker on /`
 
 ---
 
@@ -183,14 +183,14 @@
 - Seed on resume from historical user messages (oldest→newest so Up gets the latest first).
 - Empty input + Down is a no-op; browsing then editing creates a new draft that doesn’t corrupt the ring until submit.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `TestChat_InputHistoryUpDown`: submit `a`, `b`; Up → `b`, Up → `a`, Down → `b`.
   - `TestChat_InputHistoryDedupeAndCap`: submitting the same text twice stores one entry; filling >100 still caps length at 100.
   - `TestChat_ResumeSeedsInputHistory`: resumed session with user msgs `one`,`two` → first Up shows `two`.
-- [ ] **Step 2: Run** `go test ./tui/ -run 'InputHistory' -v`. Expect FAIL.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
-- [ ] **Step 5: Commit** `feat(tui): Up/Down input history seeded on resume`
+- [x] **Step 2: Run** `go test ./tui/ -run 'InputHistory' -v`. Expect FAIL.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and expect PASS.
+- [x] **Step 5: Commit** `feat(tui): Up/Down input history seeded on resume`
 
 ---
 
@@ -210,18 +210,18 @@
   - Optional: git branch when `Root` is a repo and read is cheap/cached — skip if it needs network or slows Init; OK to defer branch behind a build tag or best-effort `git rev-parse` with timeout. If skipped, note in the commit body.
 - Keep `working…` / queued / press-Ctrl-C hints.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `TestStatus_InOutAndCtx`: fixture with known prompt/completion and window → rendered line contains the new cues; at width 20 still ≤ 20 visible runes with `…`.
   - `TestStatus_CtxThresholdStyle`: high ctx% uses a distinct style from low ctx% (compare stripped vs styled, or expose a helper).
-- [ ] **Step 2: Run** `go test ./tui/ -run 'Status_' -v`. Expect FAIL on new cases.
-- [ ] **Step 3: Implement**.
-- [ ] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and `GOOS=windows go vet ./...`. Expect PASS.
-- [ ] **Step 5: Commit** `feat(tui): denser status line with in/out and ctx cues`
+- [x] **Step 2: Run** `go test ./tui/ -run 'Status_' -v`. Expect FAIL on new cases.
+- [x] **Step 3: Implement**.
+- [x] **Step 4: Run** `go test -race ./tui/ ./cmd/jas/` and `GOOS=windows go vet ./...`. Expect PASS.
+- [x] **Step 5: Commit** `feat(tui): denser status line with in/out and ctx cues`
 
 ---
 
 ## Done when
 
-- [ ] Tasks 1–7 committed in order; #60–#66 can be closed with references to the commits (or left for the owner to close).
-- [ ] `go test -race ./...` green; `CGO_ENABLED=0 go build ./cmd/jas` succeeds.
+- [x] Tasks 1–7 committed in order; #60–#66 can be closed with references to the commits (or left for the owner to close).
+- [x] `go test -race ./...` green; `CGO_ENABLED=0 go build ./cmd/jas` succeeds.
 - [ ] Manual smoke (Linux terminal): several turns show distinct user vs agent chrome; `jas --continue` reprints history; a slow `shell` shows a running row; streaming doesn’t flash blank; `/` fuzzy picker works; Up recalls prior input; status shows denser cues.
