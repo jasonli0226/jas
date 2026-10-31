@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,6 +69,7 @@ type Model struct {
 
 	printed  []string // every block handed to tea.Println, in order
 	outbox   []string // blocks waiting for the in-flight print to finish
+	inflight []string // blocks of the in-flight print, until printedMsg
 	printing bool
 }
 
@@ -169,7 +171,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case noticeMsg:
 		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:
-		m.printing = false
+		m.printing, m.inflight = false, nil
 		return m, m.flush()
 	case closedMsg:
 		return m, m.onClosed(msg)
@@ -179,7 +181,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (m *Model) View() tea.View {
-	var parts []string
+	// Blocks not yet in scrollback stay on screen above the live region, so a
+	// finished block never blinks out between leaving Live and its Println.
+	parts := slices.Concat(m.inflight, m.outbox)
 	if live := m.tr.Live(); live != "" {
 		parts = append(parts, live)
 	}
@@ -254,10 +258,11 @@ func (m *Model) flush() tea.Cmd {
 		return nil
 	}
 	body := strings.Join(m.outbox, "\n")
-	m.outbox = nil
 	if done {
+		m.outbox = nil
 		return tea.Sequence(tea.Println(body), tea.Quit)
 	}
+	m.inflight, m.outbox = m.outbox, nil
 	m.printing = true
 	return tea.Sequence(tea.Println(body), func() tea.Msg { return printedMsg{} })
 }

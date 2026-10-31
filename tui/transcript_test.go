@@ -219,3 +219,46 @@ func TestTranscript_CompactionRow(t *testing.T) {
 	got := tr.Event("compaction", map[string]any{"tokens_before": json.Number("150000"), "tokens_after": json.Number("18000")}, t0)
 	eqStrings(t, plain(got), []string{"· compacted earlier messages (150.0k → 18.0k tok)"})
 }
+
+func TestTranscript_ToolStartedShowsRunningRow(t *testing.T) {
+	var tr Transcript
+	eqStrings(t, plain(tr.Text("before\n\n", t0)), []string{"● before"})
+	started := map[string]any{"call_id": "c1", "tool": "read", "args": map[string]any{"path": "a.go"}}
+	eqStrings(t, plain(tr.Event("tool_started", started, t0)), []string{})
+	// The running row lives in the live region with the gap it will print
+	// with, so the final row lands where the running one was.
+	assert.Eq(t, strings.TrimRight(ansi.Strip(tr.Live()), " "), "\n▸ read a.go running")
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
+		"status": "ok", "output": "x\n"}, t0))
+	eqStrings(t, got, []string{"", "▸ read a.go (1 lines)"})
+	assert.Eq(t, tr.Live(), "")
+}
+
+func TestTranscript_ParallelToolsStayRunningUntilTheirResult(t *testing.T) {
+	var tr Transcript
+	for _, id := range []string{"a", "b"} {
+		tr.Event("tool_started", map[string]any{"call_id": id, "tool": "ls",
+			"args": map[string]any{"path": id}}, t0)
+	}
+	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls a running\n▸ ls b running"})
+	tr.Event("tool_result", map[string]any{"call_id": "a", "tool": "ls", "status": "ok"}, t0)
+	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls b running"})
+}
+
+// A run can end without a tool's result (a log error, a cancelled call), so
+// Flush, which ends the run, drops rows still marked running.
+func TestTranscript_FlushDropsRunningRows(t *testing.T) {
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c", "tool": "ls"}, t0)
+	tr.Flush(t0)
+	assert.Eq(t, tr.Live(), "")
+}
+
+func TestToolRow_RunningTruncatesToWidth(t *testing.T) {
+	tr := Transcript{Width: 20}
+	tr.Event("tool_started", map[string]any{"call_id": "c", "tool": "shell",
+		"args": map[string]any{"command": "go test ./... -race -count=1"}}, t0)
+	row := ansi.Strip(tr.Live())
+	assert.Eq(t, len([]rune(row)), 20)
+	assert.Eq(t, strings.HasSuffix(row, "…"), true)
+}

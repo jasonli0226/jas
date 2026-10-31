@@ -525,3 +525,31 @@ func TestIntField_Shapes(t *testing.T) {
 	assert.Eq(t, intField(data, "bad"), 0)
 	assert.Eq(t, intField(data, "missing"), 0)
 }
+
+func TestChat_ToolRunningShownInView(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.update(eventMsg{gen: c.m.gen, typ: core.EvToolStarted, data: map[string]any{
+		"call_id": "c", "tool": "shell", "args": map[string]any{"command": "make test"}}})
+	assert.Contains(t, c.view(), "▸ shell make test running")
+	c.update(eventMsg{gen: c.m.gen, typ: core.EvToolResult, data: map[string]any{
+		"call_id": "c", "tool": "shell", "status": "ok"}})
+	assert.NotContains(t, c.view(), "running")
+	assert.Contains(t, strings.Join(plain(c.m.Printed()), "\n"), "▸ shell make test ok")
+}
+
+// Blocks handed to Println stay in the view until the print is acknowledged,
+// so a finished block is never missing from both the live region and
+// scrollback.
+func TestChat_StreamingNoBlankFlash(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	// Update without running the returned commands: the Println is in flight.
+	c.m.Update(textMsg{gen: c.m.gen, s: "Hello\n\n"})
+	assert.Contains(t, c.view(), "● Hello")
+	c.m.Update(textMsg{gen: c.m.gen, s: "World\n\n"}) // waits behind the first print
+	assert.Contains(t, c.view(), "● Hello\n\n  World")
+	c.m.Update(printedMsg{}) // the first print landed; the second goes out
+	assert.NotContains(t, c.view(), "Hello")
+	assert.Contains(t, c.view(), "  World")
+	c.m.Update(printedMsg{})
+	assert.NotContains(t, c.view(), "World")
+}

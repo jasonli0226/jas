@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ type Transcript struct {
 	thinking  bool
 	thinkFrom time.Time
 	calls     map[string]map[string]any // call_id -> args from tool_started
+	running   []startedCall             // tools started and not yet settled, in order
 	last      role                      // group of the last printed block
 	marked    bool                      // the agent marker went out this turn
 }
@@ -39,6 +41,9 @@ const (
 )
 
 const agentMarker = "● "
+
+// startedCall is a tool shown as running in the live region until its result.
+type startedCall struct{ id, tool string }
 
 // User renders the user's prompt as a full-width background band; later
 // lines are indented under the marker, which stays for copy/paste and
@@ -89,11 +94,13 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 	case "tool_started":
 		out := t.settle(now)
 		id, _ := data["call_id"].(string)
+		tool, _ := data["tool"].(string)
 		args, _ := data["args"].(map[string]any)
 		if t.calls == nil {
 			t.calls = map[string]map[string]any{}
 		}
 		t.calls[id] = args
+		t.running = append(t.running, startedCall{id: id, tool: tool})
 		return out
 	case "tool_result":
 		out := t.settle(now)
@@ -103,6 +110,7 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		output, _ := data["output"].(string)
 		args := t.calls[id]
 		delete(t.calls, id)
+		t.running = slices.DeleteFunc(t.running, func(c startedCall) bool { return c.id == id })
 		out = append(out, t.enter(roleTool)...)
 		return append(out, toolRow(tool, args, status, output, t.Width))
 	case "compaction":
@@ -119,11 +127,16 @@ func (t *Transcript) Notice(blocks ...string) []string {
 	return append(t.enter(roleNotice), blocks...)
 }
 
-// Flush ends a run: it prints the partial block and any pending thinking line.
-func (t *Transcript) Flush(now time.Time) []string { return t.settle(now) }
+// Flush ends a run: it prints the partial block and any pending thinking
+// line, and drops running rows whose result never came.
+func (t *Transcript) Flush(now time.Time) []string {
+	t.running = nil
+	return t.settle(now)
+}
 
-// Live is the rendered partial block for the live region, with the gap and
-// chrome it will have once printed so the text does not shift on handoff.
+// Live is the rendered partial block and the rows of tools still running, for
+// the live region. Each has the gap and chrome it will have once printed, so
+// nothing shifts when its final form lands in scrollback.
 func (t *Transcript) Live() string {
 	var parts []string
 	if t.thinking && t.ShowThinking {
@@ -136,6 +149,12 @@ func (t *Transcript) Live() string {
 	}
 	if len(parts) > 0 && t.last != roleNone && (t.last != roleAgent || t.marked) {
 		parts = append([]string{""}, parts...)
+	}
+	if len(t.running) > 0 && (len(parts) > 0 || t.last != roleNone && t.last != roleTool) {
+		parts = append(parts, "")
+	}
+	for _, c := range t.running {
+		parts = append(parts, toolRow(c.tool, t.calls[c.id], "running", "", t.Width))
 	}
 	return strings.Join(parts, "\n")
 }
