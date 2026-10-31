@@ -163,3 +163,16 @@ func TestRunCmd_NoCompaction(t *testing.T) {
 	assert.Eq(t, len(bodies()), 2)
 	assert.NotContains(t, errOut, "compact")
 }
+
+func TestCLI_RunNameTitlesSession(t *testing.T) {
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "ok"}})
+	out, errOut, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=k"}, "run", "--json", "--name", " nightly  lint ", "task")
+	assert.Eq(t, code, 0)
+	first, _, _ := strings.Cut(out, "\n")
+	var m map[string]any
+	if err := json.Unmarshal([]byte(first), &m); err != nil {
+		t.Fatalf("bad line %q (stderr %q)", first, errOut)
+	}
+	assert.Eq(t, m["type"], any("session_started"))
+	assert.Eq(t, m["title"], any("nightly lint"))
+}

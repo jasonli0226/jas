@@ -26,7 +26,8 @@ const (
 
 type runArgs struct {
 	json   bool
-	trust  bool // --trust-project: load the project context file without asking
+	trust  bool   // --trust-project: load the project context file without asking
+	name   string // --name: session title, logged on session_started
 	prompt string
 	flags  map[string]string // setting key -> value, only flags that were passed
 }
@@ -71,12 +72,16 @@ func runCmd(ctx context.Context, args []string) error {
 		Log: log, Filter: red.Filter,
 	}
 	e.warnUnknownWindow(e.cfg.Model)
+	meta := e.sessionMeta(e.cfg.Model)
+	if ra.name != "" {
+		meta["title"] = ra.name
+	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: e.provider,
 		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
-		SessionMeta: e.sessionMeta(e.cfg.Model),
+		SessionMeta: meta,
 	})
 	if err == nil && !ra.json {
 		fmt.Println()
@@ -114,6 +119,7 @@ func parseRun(args []string) (runArgs, error) {
 	var ra runArgs
 	fs.BoolVar(&ra.json, "json", false, "emit the event stream as JSONL on stdout")
 	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
+	fs.StringVar(&ra.name, "name", "", "title for the session")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
@@ -126,9 +132,13 @@ func parseRun(args []string) (runArgs, error) {
 		return ra, usageErr(`expected exactly one task argument: jas run [flags] "task"`)
 	}
 	ra.prompt = fs.Arg(0)
+	var err error
+	if ra.name, err = parseName(fs, ra.name); err != nil {
+		return ra, err
+	}
 	ra.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "json" && f.Name != "trust-project" {
+		if f.Name != "json" && f.Name != "trust-project" && f.Name != "name" {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})

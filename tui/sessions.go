@@ -28,25 +28,36 @@ type pendingOpen struct {
 	live    *Live          // the opened session; set before done closes
 }
 
-// openFirst opens the first session, or with Continue resumes the newest one.
+// openFirst opens the first session, or with Continue resumes the newest
+// one, and titles it with Name when set.
 func (m *Model) openFirst() tea.Cmd {
 	b, gate, o := m.b, m.gate, m.o
 	return m.beginOpen(func(ui core.UI) sessionMsg {
-		var notices []string
-		if o.Continue {
-			infos, err := b.Sessions("")
-			if err != nil {
-				return sessionMsg{err: err}
+		msg := openOrContinue(b, gate, o, ui)
+		if msg.err == nil && o.Name != "" {
+			if err := msg.live.Session.SetTitle(o.Name); err != nil {
+				msg.notices = append(msg.notices, err.Error())
 			}
-			if len(infos) > 0 {
-				live, notices, err := b.Resume(infos[0].Path, ui, gate)
-				return sessionMsg{live: live, notices: notices, resumed: true, err: err}
-			}
-			notices = append(notices, "no saved session for this project; starting a new one")
 		}
-		live, err := b.NewSession(o.Model, ui, gate)
-		return sessionMsg{live: live, notices: notices, err: err}
+		return msg
 	})
+}
+
+func openOrContinue(b Backend, gate core.Gate, o Options, ui core.UI) sessionMsg {
+	var notices []string
+	if o.Continue {
+		infos, err := b.Sessions("")
+		if err != nil {
+			return sessionMsg{err: err}
+		}
+		if len(infos) > 0 {
+			live, notices, err := b.Resume(infos[0].Path, ui, gate)
+			return sessionMsg{live: live, notices: notices, resumed: true, err: err}
+		}
+		notices = append(notices, "no saved session for this project; starting a new one")
+	}
+	live, err := b.NewSession(o.Model, ui, gate)
+	return sessionMsg{live: live, notices: notices, err: err}
 }
 
 // newSession replaces the current session with a fresh one on m.model.

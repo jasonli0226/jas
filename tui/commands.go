@@ -25,6 +25,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"quit":     func(m *Model, _ string) tea.Cmd { return m.quit() },
 	"new":      func(m *Model, _ string) tea.Cmd { return m.newSession() },
 	"model":    (*Model).cmdModel,
+	"name":     (*Model).cmdName,
 	"thinking": (*Model).cmdThinking,
 	"approve":  (*Model).cmdApprove,
 	"allowed":  (*Model).cmdAllowed,
@@ -35,15 +36,16 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 }
 
 // idleOnly commands are refused during a run. That is what keeps
-// Session.SetModel, Session.Messages, Session.Compact and Live.Close off a
-// session while its Send is running, and what keeps the generation steady
-// during a run.
-var idleOnly = map[string]bool{"new": true, "model": true, "resume": true, "compact": true}
+// Session.SetModel, Session.SetTitle, Session.Messages, Session.Compact and
+// Live.Close off a session while its Send is running, and what keeps the
+// generation steady during a run.
+var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true}
 
 const helpText = `commands
   /help                  this list
   /new                   start a fresh conversation (model, thinking, approval level and grants are kept)
   /model [name]          switch model; bare /model opens a picker
+  /name [title]          name this session (shown in /resume); bare /name shows it
   /resume                continue a recent session in this project (grants and level reset)
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /session               session file, tokens used, context use
@@ -136,6 +138,7 @@ var commandDesc = map[string]string{
 	"quit":     "save the session and quit",
 	"new":      "start a fresh conversation",
 	"model":    "switch model",
+	"name":     "name this session",
 	"thinking": "show or hide thinking",
 	"approve":  "set the approval level",
 	"allowed":  "list and remove always grants",
@@ -272,6 +275,21 @@ func (m *Model) cmdHelp(string) tea.Cmd {
 	return m.notice(strings.Split(helpText, "\n")...)
 }
 
+// cmdName sets the session title, or with no argument shows it.
+func (m *Model) cmdName(title string) tea.Cmd {
+	if title == "" {
+		if t := m.live.Session.Title(); t != "" {
+			return m.notice("title: " + t)
+		}
+		return m.notice("no title; /name <title> sets one")
+	}
+	var cmds []tea.Cmd
+	if err := m.live.Session.SetTitle(title); err != nil {
+		cmds = append(cmds, m.print(errStyle.Render(m.clean(err.Error()))))
+	}
+	return tea.Batch(append(cmds, m.notice("session named "+m.live.Session.Title()))...)
+}
+
 func (m *Model) cmdModel(name string) tea.Cmd {
 	if name != "" {
 		return m.setModel(name)
@@ -367,7 +385,11 @@ func (m *Model) cmdResume(string) tea.Cmd {
 	}
 	items := make([]pickItem, len(infos))
 	for i, in := range infos {
-		items[i] = pickItem{label: m.clean(in.Started.Local().Format(timeLayout) + " " + in.FirstMessage), value: in.Path}
+		label := in.FirstMessage
+		if in.Title != "" {
+			label = in.Title
+		}
+		items[i] = pickItem{label: m.clean(in.Started.Local().Format(timeLayout) + " " + label), value: in.Path}
 	}
 	m.openPicker("resume", items, m.resumeSession)
 	return nil

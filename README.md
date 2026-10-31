@@ -68,8 +68,8 @@ jas run --trust-project "..."                       # load AGENTS.md without ask
 Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
 `jas auth add|list|rm|rotate`, `jas --version`. Run flags: `--json`,
 `--model`, `--provider`, `--base-url`, `--approve`, `--max-turns`,
-`--trust-project`. The chat takes the same flags except `--json`, plus
-`--continue`; it needs a terminal, so scripts use `jas run`. There is deliberately no `--api-key` flag (argv leaks via
+`--trust-project`, `--name` (session title). The chat takes the same flags
+except `--json`, plus `--continue`; it needs a terminal, so scripts use `jas run`. There is deliberately no `--api-key` flag (argv leaks via
 shell history and `ps`).
 
 ## Chat
@@ -89,6 +89,9 @@ model, approval level, context use and token counts.
 - Each tool call shows a running row while it runs, then one result row.
 - **`jas --continue`** or **`/resume`** reopens a saved session and reprints
   its conversation; Up/Down history comes back with it.
+- **`/name <title>`** (or `jas --name`) names the session. The `/resume`
+  picker lists it by that title instead of its first message, and the status
+  line shows it.
 
 ## Configuration
 

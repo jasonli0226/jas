@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,6 +38,7 @@ type ReplayState struct {
 	Model      string   // last session_started/session_resumed/model_changed model
 	BaseURL    string   // base_url of the last session_started/session_resumed
 	Root       string   // session_started.root
+	Title      string   // last session_titled title, else session_started.title
 	Notices    []string // e.g. "ignored unreadable line 41"
 	// Interrupted lists tool calls with no logged result, which replay
 	// answered with interruptedOutput. ResumeSession logs them as results.
@@ -57,6 +59,7 @@ type replayLine struct {
 	Model   string      `json:"model"`
 	BaseURL string      `json:"base_url"`
 	Root    string      `json:"root"`
+	Title   string      `json:"title"`
 	Content []wireBlock `json:"content"`
 	CallID  string      `json:"call_id"`
 	Status  string      `json:"status"`
@@ -133,7 +136,7 @@ func (r *replayer) apply(line int, ev replayLine) {
 	switch ev.Type {
 	case EvSessionStarted:
 		if !r.started {
-			r.st.Root = ev.Root
+			r.st.Root, r.st.Title = ev.Root, ev.Title
 		}
 		r.started = true
 		r.setModel(ev.Model)
@@ -143,6 +146,8 @@ func (r *replayer) apply(line int, ev replayLine) {
 		r.st.BaseURL = ev.BaseURL
 	case EvModelChanged:
 		r.setModel(ev.Model)
+	case EvSessionTitled:
+		r.st.Title = ev.Title
 	case EvUserMessage:
 		r.flushResults(false)
 		r.add(ev.ID, providers.RoleUser, ev.Content)
@@ -265,6 +270,7 @@ type SessionInfo struct {
 	ID           string    // directory name
 	Started      time.Time // session_started ts
 	FirstMessage string    // first user_message text, one line, ≤80 runes
+	Title        string    // latest title; "" when none is set
 }
 
 // ListSessions returns up to limit sessions under sessionsDir whose root is
@@ -309,7 +315,13 @@ func ListSessions(sessionsDir, root string, limit int) ([]SessionInfo, error) {
 	return out, nil
 }
 
-// readHead reads a session file up to its first user_message. ok is false when
+// titledMarker is how a session_titled line spells its type; readHead
+// decodes only lines holding it once the first user message is found.
+var titledMarker = []byte(`"type":"` + EvSessionTitled + `"`)
+
+// readHead reads a session file's start, first user_message and latest
+// title. A title can be set at any point, so the whole file is scanned, but
+// past the first user message only title lines are decoded. ok is false when
 // the file has no session_started or no user message.
 func readHead(path string) (info SessionInfo, root string, ok bool) {
 	f, err := os.Open(path)
@@ -320,23 +332,30 @@ func readHead(path string) (info SessionInfo, root string, ok bool) {
 	started := false
 	sc := newLogScanner(f)
 	for sc.Scan() {
+		if ok && !bytes.Contains(sc.Bytes(), titledMarker) {
+			continue
+		}
 		var ev replayLine
 		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue
 		}
 		switch ev.Type {
 		case EvSessionStarted:
-			started = true
-			root, info.Started = ev.Root, ev.TS
-		case EvUserMessage:
 			if !started {
+				root, info.Started, info.Title = ev.Root, ev.TS, ev.Title
+			}
+			started = true
+		case EvSessionTitled:
+			info.Title = ev.Title
+		case EvUserMessage:
+			if !started || ok {
 				continue
 			}
 			info.FirstMessage = blocksLine(ev.Content, firstMsgRunes)
-			return info, root, true
+			ok = true
 		}
 	}
-	return info, root, false
+	return info, root, ok
 }
 
 // blocksLine joins the text blocks, collapses whitespace and cuts to max runes.

@@ -48,6 +48,7 @@ type TurnResult struct {
 type Session struct {
 	c        SessionConfig
 	model    string
+	title    string
 	messages []providers.Message
 	ids      []string        // event id per message; "" for tool results
 	turns    int             // session total, for session_ended
@@ -81,6 +82,7 @@ func NewSession(c SessionConfig) (*Session, error) {
 // prompt from current trust and picks the model with ResumeModel.
 func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	s := newSession(c)
+	s.title = st.Title
 	s.messages = slices.Clone(st.Messages)
 	s.ids = make([]string, len(s.messages))
 	copy(s.ids, st.MessageIDs)
@@ -233,6 +235,33 @@ func (s *Session) SetModel(model string) error {
 		return fmt.Errorf("event log: %w", err)
 	}
 	return nil
+}
+
+// maxTitleRunes caps a session title, like the picker's first-message line.
+const maxTitleRunes = 80
+
+// SetTitle names the session and logs session_titled; "" clears the name.
+// The title is folded to one line and capped. Like SetModel it takes effect
+// even if logging fails; the log error is returned.
+func (s *Session) SetTitle(title string) error {
+	s.title = NormalizeTitle(title)
+	if err := s.c.Log.Append(EvSessionTitled, map[string]any{"title": s.title}); err != nil {
+		return fmt.Errorf("event log: %w", err)
+	}
+	return nil
+}
+
+// Title is the session's current title, "" when none is set.
+func (s *Session) Title() string { return s.title }
+
+// NormalizeTitle collapses whitespace to single spaces and cuts the title to
+// maxTitleRunes.
+func NormalizeTitle(title string) string {
+	rs := []rune(strings.Join(strings.Fields(title), " "))
+	if len(rs) > maxTitleRunes {
+		rs = rs[:maxTitleRunes]
+	}
+	return string(rs)
 }
 
 // Close writes session_ended with session totals. Later calls do nothing.

@@ -583,3 +583,57 @@ func TestResumeSession_AfterCompactionCanCompactAgain(t *testing.T) {
 	assert.Contains(t, req.Messages[0].Content[0].Text, "<previous-summary>")
 	assert.Contains(t, s2.Messages()[0].Content[0].Text, "SUMMARY-TWO")
 }
+
+func TestReplay_LatestTitleWins(t *testing.T) {
+	r, _ := twoSendRig(t)
+	log, err := core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	assert.NoErr(t, log.Append(core.EvSessionTitled, map[string]any{"title": "first"}))
+	assert.NoErr(t, log.Append(core.EvSessionTitled, map[string]any{"title": "second"}))
+	assert.NoErr(t, log.Close())
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.Title, "second")
+}
+
+func TestReplay_TitleFromSessionStarted(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "events.jsonl")
+	log, err := core.OpenEventLog(p, nil, nil)
+	assert.NoErr(t, err)
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "title": "ci job"}))
+	assert.NoErr(t, log.Close())
+	st, err := core.Replay(p)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.Title, "ci job")
+}
+
+func TestResumeSession_KeepsTitle(t *testing.T) {
+	r, _ := twoSendRig(t)
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	st.Title = "kept"
+	log, err := core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	c := r.sessionConfig()
+	c.Log = log
+	c.Exec.Log = log
+	s, err := core.ResumeSession(c, st)
+	assert.NoErr(t, err)
+	assert.Eq(t, s.Title(), "kept")
+	assert.NoErr(t, log.Close())
+}
+
+func TestListSessions_TitleSetAfterFirstMessage(t *testing.T) {
+	dir, root := t.TempDir(), t.TempDir()
+	writeSession(t, dir, "s1", root, "hello", time.Now())
+	p := filepath.Join(dir, "s1", "events.jsonl")
+	log, err := core.OpenEventLog(p, nil, nil)
+	assert.NoErr(t, err)
+	assert.NoErr(t, log.Append(core.EvSessionTitled, map[string]any{"title": "named"}))
+	assert.NoErr(t, log.Close())
+	got, err := core.ListSessions(dir, root, 10)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(got), 1)
+	assert.Eq(t, got[0].Title, "named")
+	assert.Eq(t, got[0].FirstMessage, "hello")
+}

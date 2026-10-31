@@ -384,3 +384,25 @@ func TestSession_TracksMessageEventIDs(t *testing.T) {
 	assert.Eq(t, strings.Join(s.MessageIDs(), ","), strings.Join(want, ","))
 	assert.Eq(t, len(s.MessageIDs()), len(s.Messages()))
 }
+
+func TestSession_SetTitleNormalizesAndLogs(t *testing.T) {
+	r := newRig(t, nil)
+	s := newSession(t, r)
+	assert.NoErr(t, s.SetTitle("  fix  login\n bug "))
+	assert.Eq(t, s.Title(), "fix login bug")
+	assert.NoErr(t, s.SetTitle(""))
+	assert.Eq(t, s.Title(), "")
+	var titles []string
+	for _, e := range r.events(t) {
+		if e["type"] == "session_titled" {
+			titles = append(titles, e["title"].(string))
+		}
+	}
+	assert.Eq(t, strings.Join(titles, "|"), "fix login bug|")
+}
+
+func TestSession_SetTitleCapsLength(t *testing.T) {
+	s := newSession(t, newRig(t, nil))
+	assert.NoErr(t, s.SetTitle(strings.Repeat("x", 200)))
+	assert.Eq(t, len([]rune(s.Title())), 80)
+}

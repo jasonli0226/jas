@@ -20,6 +20,7 @@ type statusInfo struct {
 	In, Out int // session totals of prompt and completion tokens
 	Root    string
 	Branch  string // git branch of Root, "" outside a repo
+	Title   string // session title, "" when unset
 	Running bool
 	Queued  int // steering texts waiting for the run
 
@@ -43,6 +44,9 @@ func (s statusInfo) Render(width int) string {
 	}
 	head := fmt.Sprintf("%s · %s · ", core.Sanitize(s.Model), s.Level)
 	tail := fmt.Sprintf(" · ↑%s ↓%s · %s", formatTokens(s.In), formatTokens(s.Out), folder)
+	if s.Title != "" {
+		tail += " · " + core.Sanitize(s.Title)
+	}
 	if s.ShowThinking {
 		tail += " · thinking shown"
 	}

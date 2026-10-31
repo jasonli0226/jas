@@ -17,8 +17,8 @@ import (
 var version = "dev"
 
 const usage = `usage:
-  jas [--continue] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project]
-  jas run [--json] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project] "task"
+  jas [--continue] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project]
+  jas run [--json] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project] "task"
   jas config set|get|unset|list|init
   jas auth add|list|rm|rotate
   jas --version
