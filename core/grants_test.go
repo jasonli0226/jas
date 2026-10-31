@@ -25,14 +25,49 @@ func TestGrants_ShellFirstTwoWords(t *testing.T) {
 	assert.Eq(t, g.Covers("edit", shellArgs("go test")), false)
 }
 
-func TestGrants_OneWord(t *testing.T) {
+// A grant needs a program and a subcommand: a lone word would cover every
+// argument, and a flag or path second word is not a subcommand.
+func TestGrants_NeedsSubcommand(t *testing.T) {
+	for _, c := range []string{"make", "go ./...", "git -c alias.x=!rm x", "ls -la", "cat ~/.ssh/id", "go ../x"} {
+		_, ok := NewGrants(false).Add("shell", shellArgs(c))
+		if ok {
+			t.Errorf("%q got a grant", c)
+		}
+	}
 	g := NewGrants(false)
-	grant, ok := g.Add("shell", shellArgs("make"))
-	assert.Eq(t, ok, true)
-	assert.Eq(t, grant, "shell: make")
-	assert.Eq(t, g.Covers("shell", shellArgs("make")), true)
-	assert.Eq(t, g.Covers("shell", shellArgs("make all")), false)
+	g.Add("shell", shellArgs("make test"))
+	assert.Eq(t, g.Covers("shell", shellArgs("make")), false)
+}
 
+// Interpreters, wrappers and destructive commands run whatever their
+// arguments say, so no grant may cover them.
+func TestGrants_RiskyProgramsNeverGrant(t *testing.T) {
+	cmds := []string{"find . -delete", "rm -rf x", `python -c "import os"`, "python3 -c x",
+		"python3.12 -m pip", "sh -c x", "bash script.sh", "zsh x", "env go test", "sudo make install",
+		"xargs rm x", "npx foo", "node -e x", "perl -e x", "ruby -e x", "./run.sh test",
+		"/bin/sh -c x", "timeout 5 rm", "nohup rm x", "eval x y", "exec rm x", "pwsh -c x",
+		"powershell -c x", "cmd /c x"}
+	for _, win := range []bool{false, true} {
+		for _, c := range cmds {
+			if _, ok := NewGrants(win).Add("shell", shellArgs(c)); ok {
+				t.Errorf("windows=%v: %q got a grant", win, c)
+			}
+		}
+	}
+	for _, c := range []string{"Python.exe -c x", "BASH.EXE x", `C:\Windows\cmd.exe /c x`} {
+		if _, ok := NewGrants(true).Add("shell", shellArgs(c)); ok {
+			t.Errorf("windows: %q got a grant", c)
+		}
+	}
+}
+
+func TestGrants_EverydayCommandsStillGrant(t *testing.T) {
+	for _, c := range []string{"go test ./...", "git commit -m x", "npm run build", "make test",
+		"cargo build --release", "echo hi", "go mod tidy", "golangci-lint run"} {
+		if _, ok := NewGrants(false).Add("shell", shellArgs(c)); !ok {
+			t.Errorf("%q got no grant", c)
+		}
+	}
 }
 
 func TestGrants_NotSimpleNeverGrants(t *testing.T) {
@@ -55,7 +90,7 @@ func TestGrants_NotSimpleNeverGrants(t *testing.T) {
 }
 
 func TestGrants_WindowsExtras(t *testing.T) {
-	for _, c := range []string{"echo ^x", "echo %PATH%"} {
+	for _, c := range []string{"echo hi ^x", "echo hi %PATH%"} {
 		_, ok := NewGrants(true).Add("shell", shellArgs(c))
 		assert.Eq(t, ok, false)
 		_, ok = NewGrants(false).Add("shell", shellArgs(c))

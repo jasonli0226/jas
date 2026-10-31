@@ -124,7 +124,18 @@ jas becomes the daily driver instead of pi when it is:
     rules (author's call):
     - Words come from a quote-aware shell split of the command; the first two
       words must be **equal**, not prefixes (`go test` does not match
-      `go testx`). A one-word command grants that word.
+      `go testx`).
+    - Only a program and a subcommand can be granted: a command needs two
+      words, the first a bare program name (no path), the second a
+      subcommand (`[A-Za-z0-9][A-Za-z0-9._:-]*`, so no flag, path or
+      pattern). A bare `make` or `git -c …` always asks.
+    - Programs that run or delete whatever their arguments name never get a
+      grant: shells (`sh`, `bash`, `cmd`, `powershell`, …), interpreters
+      (`python`, `node`, `perl`, …), wrappers (`env`, `sudo`, `xargs`,
+      `timeout`, `nohup`, …), `find`, `rm` and similar (#45). The list is
+      `riskyPrograms` in `core/grants.go`; names are compared lowercased
+      without a Windows extension or version suffix (`Python3.12.exe` is
+      `python`).
     - A command is not simple, so it always asks and can't create a grant, if
       its text contains anywhere (substring check, quoted or not) any of `;`,
       `&`, `|`, `$(`, a backtick, `>`, `<`, or a newline; or if it starts with

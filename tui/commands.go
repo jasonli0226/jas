@@ -54,7 +54,8 @@ const helpText = `commands
   /skill:<name> [text]   run a skill
   /quit                  save the session and quit
 an always grant on a shell command covers any arguments to the first two words
-  (always on "go test ./core" also allows "go test ./...")
+  (always on "go test ./core" also allows "go test ./...");
+  shells, interpreters, sudo/env/xargs-style wrappers, find and rm never get one
 keys
   Enter send or steer · Alt+Enter or Shift+Enter newline · Esc stop the run
   Up/Down recall earlier input (from the first or last line of the input)
