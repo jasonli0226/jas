@@ -59,7 +59,11 @@ type Model struct {
 	picker   *picker      // the open picker, shown in place of the input
 	onPick   func(value string) tea.Cmd
 	reply    string // the last final reply, for /copy
-	err      error  // fatal error returned by Run
+
+	slashFor    string // input text the / menu cursor belongs to
+	slashCursor int
+	slashHidden string // input text at which Esc dismissed the / menu
+	err         error  // fatal error returned by Run
 
 	lastCtrlC time.Time
 	hint      string // replaces the status line until the next key
@@ -200,8 +204,8 @@ func (m *Model) View() tea.View {
 		parts = append(parts, m.picker.view(m.width))
 	} else {
 		parts = append(parts, m.input.View())
-		for _, name := range m.completions() {
-			parts = append(parts, dimStyle.Render(ansi.Truncate("  /"+name, m.width, "…")))
+		if menu := m.slashMenu(); menu != nil && len(menu.visible()) > 0 {
+			parts = append(parts, menu.rows(m.width))
 		}
 	}
 	parts = append(parts, m.statusLine())
