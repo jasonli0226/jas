@@ -148,3 +148,18 @@ func TestCLI_ApproveInvalidIsUsageError(t *testing.T) {
 	assert.Eq(t, code, 2)
 	assert.Contains(t, errOut, "never|shell|mutating")
 }
+
+// A prompt over the compaction threshold would compact in the chat; jas run
+// has compaction off, so the run goes on with no compaction event.
+func TestRunCmd_NoCompaction(t *testing.T) {
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "ls", Args: `{}`}}, Usage: providers.Usage{PromptTokens: 120000}},
+		{Text: "done"},
+	})
+	out, errOut, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=k", "JAS_COMPACT_KEEP_TOKENS=1"}, "run", "--json", "task")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, `"type":"session_ended"`)
+	assert.NotContains(t, out, `"type":"compaction"`)
+	assert.Eq(t, len(bodies()), 2)
+	assert.NotContains(t, errOut, "compact")
+}

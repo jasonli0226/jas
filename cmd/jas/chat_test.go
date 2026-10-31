@@ -207,3 +207,16 @@ func TestChatExit_KilledByCancelIsInterrupted(t *testing.T) {
 	assert.Eq(t, chatExit(ctx, other), other)
 	assert.Eq(t, chatExit(ctx, nil), nil)
 }
+
+func TestChatBackend_EnablesCompaction(t *testing.T) {
+	e := testEnv(t)
+	e.cfg.CompactReserve, e.cfg.CompactKeep, e.cfg.CompactModel = 8000, 4000, "z-ai/glm-x"
+	b := &chatBackend{e: e}
+	c := b.config("m", nil, core.NewQuietUI(), core.AllowAll{})
+	if c.Compact == nil {
+		t.Fatal("chat sessions should have compaction on")
+	}
+	assert.Eq(t, *c.Compact, core.CompactConfig{Reserve: 8000, Keep: 4000, Model: "z-ai/glm-x"})
+	assert.Eq(t, settings.DefaultCompactReserve, core.DefaultCompactReserve)
+	assert.Eq(t, settings.DefaultCompactKeep, core.DefaultCompactKeep)
+}

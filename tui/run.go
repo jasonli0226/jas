@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -17,30 +19,60 @@ type runDoneMsg struct {
 	err error
 }
 
-// activeRun is a Send in progress on its own goroutine.
+// compactDoneMsg reports that a /compact returned.
+type compactDoneMsg struct {
+	gen int
+	res core.CompactResult
+	err error
+}
+
+// activeRun is a Send or a /compact in progress on its own goroutine.
 type activeRun struct {
-	cancel context.CancelFunc
-	done   chan struct{} // closed when Send returns
+	cancel  context.CancelFunc
+	done    chan struct{} // closed when the work returns
+	compact bool          // a /compact, which prints its own result line
 }
 
 func (m *Model) running() bool { return m.run != nil }
 
+// spawn makes work the active run: it runs on a goroutine with a cancellable
+// ctx and posts the message it returns.
+func (m *Model) spawn(compact bool, work func(context.Context) tea.Msg) {
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &activeRun{cancel: cancel, done: make(chan struct{}), compact: compact}
+	m.run = r
+	send := m.send
+	go func() {
+		msg := work(ctx)
+		close(r.done)
+		send(msg)
+	}()
+}
+
 // startRun prints shown as the user block and sends text on a goroutine,
 // which posts runDoneMsg when Send returns.
 func (m *Model) startRun(text, shown string) tea.Cmd {
-	ctx, cancel := context.WithCancel(context.Background())
-	r := &activeRun{cancel: cancel, done: make(chan struct{})}
-	m.run = r
-	gen, s, send := m.gen, m.live.Session, m.send
-	go func() {
+	gen, s := m.gen, m.live.Session
+	m.spawn(false, func(ctx context.Context) tea.Msg {
 		res, err := s.Send(ctx, text)
-		close(r.done)
-		send(runDoneMsg{gen: gen, res: res, err: err})
-	}()
+		return runDoneMsg{gen: gen, res: res, err: err}
+	})
 	return m.print(m.tr.User(shown)...)
 }
 
-// onEvent tracks usage and steering delivery, and prints tool rows.
+// startCompact compacts the session on a goroutine, which posts
+// compactDoneMsg when Compact returns.
+func (m *Model) startCompact(focus string) tea.Cmd {
+	gen, s := m.gen, m.live.Session
+	m.spawn(true, func(ctx context.Context) tea.Msg {
+		res, err := s.Compact(ctx, focus)
+		return compactDoneMsg{gen: gen, res: res, err: err}
+	})
+	return m.notice("compacting…")
+}
+
+// onEvent tracks usage, steering delivery and compaction, and prints tool
+// and compaction rows.
 func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	switch msg.typ {
 	case core.EvUsage:
@@ -50,6 +82,16 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	case core.EvUserMessage:
 		if steer, _ := msg.data["steer"].(bool); steer {
 			m.queued = nil // the loop delivered every queued text at once
+		}
+	case core.EvCompaction:
+		// The next request sends only what is left, so ctx% drops now.
+		m.usage.prompt = intField(msg.data, "tokens_after")
+		if u, ok := msg.data["usage"].(map[string]any); ok {
+			m.usage.in += intField(u, "prompt_tokens")
+			m.usage.out += intField(u, "completion_tokens")
+		}
+		if m.run != nil && m.run.compact {
+			return nil // /compact prints its own line when it returns
 		}
 	}
 	return m.print(m.tr.Event(msg.typ, msg.data, m.o.Now())...)
@@ -87,13 +129,7 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	if msg.res.Final != "" {
 		m.reply = msg.res.Final
 	}
-	if left := m.live.Session.TakeSteering(); len(left) > 0 {
-		text := strings.Join(left, "\n")
-		if cur := m.input.Value(); cur != "" {
-			text += "\n" + cur
-		}
-		m.input.SetValue(text)
-	}
+	m.restoreSteering()
 	blocks := m.tr.Flush(m.o.Now())
 	if n := runNotice(msg.res); n != "" {
 		blocks = append(blocks, dimStyle.Render(m.o.Redact(n)))
@@ -106,6 +142,44 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 		closeCmd = m.closeSession() // before print, so flush waits for the close
 	}
 	return tea.Batch(closeCmd, m.print(blocks...))
+}
+
+// restoreSteering puts steering that never reached the model back in front
+// of the input.
+func (m *Model) restoreSteering() {
+	if left := m.live.Session.TakeSteering(); len(left) > 0 {
+		text := strings.Join(left, "\n")
+		if cur := m.input.Value(); cur != "" {
+			text += "\n" + cur
+		}
+		m.input.SetValue(text)
+	}
+}
+
+// onCompactDone ends a /compact: it prints the outcome, puts back steering
+// typed meanwhile and lets a pending quit proceed.
+func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
+	m.run.cancel()
+	m.run = nil
+	m.queued = nil
+	m.restoreSteering()
+	var line string
+	switch {
+	case msg.err == nil:
+		m.usage.prompt = msg.res.TokensAfter
+		line = dimStyle.Render(fmt.Sprintf("compacted %d messages · %s → %s tok",
+			msg.res.Messages, formatTokens(msg.res.TokensBefore), formatTokens(msg.res.TokensAfter)))
+	case errors.Is(msg.err, core.ErrNothingToCompact):
+		line = dimStyle.Render("nothing to compact yet")
+	default:
+		reason := strings.TrimPrefix(msg.err.Error(), compactFailed)
+		line = errStyle.Render(compactFailed + m.clean(reason))
+	}
+	var closeCmd tea.Cmd
+	if m.quitting {
+		closeCmd = m.closeSession() // before print, so flush waits for the close
+	}
+	return tea.Batch(closeCmd, m.print(line))
 }
 
 // onApproval opens the approval prompt, closing any open picker so Enter
@@ -152,8 +226,9 @@ func runNotice(res core.TurnResult) string {
 	return core.Sanitize(res.Status) + ": " + reason
 }
 
-// quit cancels an active run and waits for it (onRunDone resumes the quit),
-// then closes the session; the program ends after the last print.
+// quit cancels an active run and waits for it (onRunDone or onCompactDone
+// resumes the quit), then closes the session; the program ends after the
+// last print.
 func (m *Model) quit() tea.Cmd {
 	m.quitting = true
 	if m.run != nil {

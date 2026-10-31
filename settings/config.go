@@ -17,6 +17,8 @@ const (
 	DefaultElideAt         = "0.6"
 	DefaultKeepToolResults = 6
 	DefaultApprove         = "never"
+	DefaultCompactReserve  = 16384 // matches core.DefaultCompactReserve
+	DefaultCompactKeep     = 20000 // matches core.DefaultCompactKeep
 
 	homeDirName = ".jas"
 )
@@ -57,7 +59,10 @@ var Keys = []KeySpec{
 	{Name: "max_tool_output", Default: strconv.Itoa(DefaultMaxToolOutput), Validate: positiveInt},
 	{Name: "elide_at", Default: DefaultElideAt, Validate: fractionOpen},
 	{Name: "keep_tool_results", Default: strconv.Itoa(DefaultKeepToolResults), Validate: nonNegativeInt},
-	{Name: "redact_skip_paths", Validate: func(string) error { return nil }},
+	{Name: "redact_skip_paths", Validate: anyValue},
+	{Name: "compact_reserve_tokens", Default: strconv.Itoa(DefaultCompactReserve), Validate: positiveInt},
+	{Name: "compact_keep_tokens", Default: strconv.Itoa(DefaultCompactKeep), Validate: positiveInt},
+	{Name: "compact_model", Validate: anyValue}, // "" = the session's model
 }
 
 // LookupKey finds a plain key spec by name.
@@ -122,6 +127,8 @@ func (e Effective) Validate() error {
 	}
 	return nil
 }
+
+func anyValue(string) error { return nil }
 
 func nonEmpty(s string) error {
 	if strings.TrimSpace(s) == "" {

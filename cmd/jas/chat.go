@@ -160,6 +160,7 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 
 // config is the session setup shared by NewSession and Resume. The system
 // prompt always comes from the current trust decision, never from the file.
+// Compaction is on in the chat only; jas run leaves it off.
 func (b *chatBackend) config(model string, log core.EventLog, ui core.UI, gate core.Gate) core.SessionConfig {
 	e := b.e
 	ui = core.NewRedactingUI(ui, e.red.Redact)
@@ -172,6 +173,7 @@ func (b *chatBackend) config(model string, log core.EventLog, ui core.UI, gate c
 		Provider: e.provider, Model: model, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget: e.budget(model), Meta: e.sessionMeta(model),
+		Compact: &core.CompactConfig{Reserve: e.cfg.CompactReserve, Keep: e.cfg.CompactKeep, Model: e.cfg.CompactModel},
 	}
 }
 

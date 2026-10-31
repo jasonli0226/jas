@@ -107,3 +107,9 @@ func TestTranscript_JSONRoundTripShape(t *testing.T) {
 	got := plain(tr.Event("tool_result", data, t0))
 	eqStrings(t, got, []string{"▸ grep p (2 matches)"})
 }
+
+func TestTranscript_CompactionRow(t *testing.T) {
+	var tr Transcript
+	got := tr.Event("compaction", map[string]any{"tokens_before": json.Number("150000"), "tokens_after": json.Number("18000")}, t0)
+	eqStrings(t, plain(got), []string{"· compacted earlier messages (150.0k → 18.0k tok)"})
+}

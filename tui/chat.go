@@ -159,6 +159,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == m.gen {
 			return m, m.onRunDone(msg)
 		}
+	case compactDoneMsg:
+		if msg.gen == m.gen {
+			return m, m.onCompactDone(msg)
+		}
 	case approvalMsg:
 		m.onApproval(msg)
 	case noticeMsg:

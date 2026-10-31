@@ -54,7 +54,8 @@ func (t *Transcript) Reasoning(delta string, now time.Time) []string {
 	return out
 }
 
-// Event handles agent events; only tool_started and tool_result print.
+// Event handles agent events; only tool_started, tool_result and compaction
+// print.
 func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []string {
 	switch typ {
 	case "tool_started":
@@ -75,6 +76,10 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		args := t.calls[id]
 		delete(t.calls, id)
 		return append(out, toolRow(tool, args, status, output, t.Width))
+	case "compaction":
+		row := fmt.Sprintf("· compacted earlier messages (%s → %s tok)",
+			formatTokens(intField(data, "tokens_before")), formatTokens(intField(data, "tokens_after")))
+		return append(t.settle(now), dimStyle.Render(row))
 	}
 	return nil
 }

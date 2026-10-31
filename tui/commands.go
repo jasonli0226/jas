@@ -14,6 +14,7 @@ import (
 
 const (
 	waitNotice     = "wait for the reply or press Esc first"
+	compactFailed  = "compaction failed: "
 	maxCompletions = 8 // most entries the / listing shows
 	maxSuggestDist = 2 // furthest typo suggest still corrects
 	timeLayout     = "2006-01-02 15:04"
@@ -31,18 +32,21 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"session":  (*Model).cmdSession,
 	"copy":     (*Model).cmdCopy,
 	"resume":   (*Model).cmdResume,
+	"compact":  (*Model).startCompact,
 }
 
 // idleOnly commands are refused during a run. That is what keeps
-// Session.SetModel, Session.Messages and Live.Close off a session while its
-// Send is running, and what keeps the generation steady during a run.
-var idleOnly = map[string]bool{"new": true, "model": true, "resume": true}
+// Session.SetModel, Session.Messages, Session.Compact and Live.Close off a
+// session while its Send is running, and what keeps the generation steady
+// during a run.
+var idleOnly = map[string]bool{"new": true, "model": true, "resume": true, "compact": true}
 
 const helpText = `commands
   /help                  this list
   /new                   start a fresh conversation (model, thinking, approval level and grants are kept)
   /model [name]          switch model; bare /model opens a picker
   /resume                continue a recent session in this project (grants and level reset)
+  /compact [focus]       summarize older messages to free context; focus steers the summary
   /session               session file, tokens used, context use
   /thinking              show or hide thinking
   /approve [level]       approval level: never | shell | mutating

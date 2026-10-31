@@ -691,7 +691,9 @@ layout and `session_started` payload as `jas run`.
 
 Settings keys (v1): `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`
-(the per-path redaction opt-out, §9), and per-model
+(the per-path redaction opt-out, §9), the chat's compaction keys
+`compact_reserve_tokens` (default 16384), `compact_keep_tokens` (default
+20000) and `compact_model` (default: the session's model), and per-model
 `models.<name>.context_window`. Each key `k` has a matching `JAS_<K>` env var
 and, for the per-run ones, a `--<k>` flag. There is deliberately **no
 `--api-key` flag**: argv shows up in shell history and `ps`. Keys come from

@@ -22,6 +22,9 @@ type Run struct {
 	ElideAt         float64
 	KeepToolResults int
 	RedactSkipPaths []string
+	CompactReserve  int
+	CompactKeep     int
+	CompactModel    string // "" = the session's model
 }
 
 // Build validates e and returns typed settings. Missing model or base_url
@@ -32,7 +35,7 @@ func (e Effective) Build() (Run, error) {
 	}
 	r := Run{
 		Provider: e["provider"].Raw, Model: e["model"].Raw, BaseURL: e["base_url"].Raw,
-		Approve: e["approve"].Raw,
+		Approve: e["approve"].Raw, CompactModel: e["compact_model"].Raw,
 	}
 	if r.Provider == "" {
 		r.Provider = ProviderCustom
@@ -50,6 +53,8 @@ func (e Effective) Build() (Run, error) {
 	r.MaxToolOutput, _ = strconv.Atoi(e["max_tool_output"].Raw)
 	r.KeepToolResults, _ = strconv.Atoi(e["keep_tool_results"].Raw)
 	r.ElideAt, _ = strconv.ParseFloat(e["elide_at"].Raw, 64)
+	r.CompactReserve, _ = strconv.Atoi(e["compact_reserve_tokens"].Raw)
+	r.CompactKeep, _ = strconv.Atoi(e["compact_keep_tokens"].Raw)
 	for _, p := range strings.Split(e["redact_skip_paths"].Raw, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			r.RedactSkipPaths = append(r.RedactSkipPaths, p)
