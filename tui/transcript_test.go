@@ -6,19 +6,40 @@ import (
 	"testing"
 	"time"
 
-	"charm.land/lipgloss/v2"
+	"fmt"
+	"image/color"
+
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/internal/assert"
 )
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
+// plain strips styling and the background bands' padding: trailing spaces
+// on each line and the blank rows above and below a band.
 func plain(blocks []string) []string {
 	out := make([]string, len(blocks))
 	for i, b := range blocks {
-		out[i] = ansi.Strip(b)
+		lines := strings.Split(ansi.Strip(b), "\n")
+		for j, l := range lines {
+			lines[j] = strings.TrimRight(l, " ")
+		}
+		for len(lines) > 1 && lines[0] == "" {
+			lines = lines[1:]
+		}
+		for len(lines) > 1 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		out[i] = strings.Join(lines, "\n")
 	}
 	return out
+}
+
+// bgSeq is the SGR parameter lipgloss emits for a truecolor background.
+func bgSeq(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
 func eqStrings(t *testing.T, got, want []string) {
@@ -73,15 +94,27 @@ func TestTranscript_UserChrome(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.User("hi"))
 	assert.Eq(t, strings.HasPrefix(got[0], "› hi"), true)
-	assert.Eq(t, userStyle.GetBold(), true)
-	assert.Eq(t, userStyle.GetForeground(), lipgloss.Color("6"))
+	assert.Eq(t, userStyle.GetBackground(), userBg)
 	assert.Eq(t, assistantStyle.GetForeground() != userStyle.GetForeground(), true)
+}
+
+func TestTranscript_UserBand(t *testing.T) {
+	tr := Transcript{Width: 20}
+	got := tr.User("hi")
+	assert.Eq(t, len(got), 1)
+	lines := strings.Split(ansi.Strip(got[0]), "\n")
+	assert.Eq(t, len(lines), 3) // padding row, text, padding row
+	assert.Eq(t, strings.TrimRight(lines[1], " "), "› hi")
+	for _, l := range lines {
+		assert.Eq(t, ansi.StringWidth(l), 20)
+	}
+	assert.Contains(t, got[0], bgSeq(userBg))
 }
 
 func TestTranscript_AssistantChrome(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.Text("Hello\nthere\n\nWorld\n\n", t0))
-	eqStrings(t, got, []string{"● Hello\n  there", "  World"})
+	eqStrings(t, got, []string{"● Hello\n  there", "", "  World"})
 
 	// A tool row ends the agent turn; the next text is a new turn.
 	tr.Event("tool_started", map[string]any{"call_id": "c", "args": map[string]any{}}, t0)
@@ -90,13 +123,24 @@ func TestTranscript_AssistantChrome(t *testing.T) {
 	eqStrings(t, got, []string{"", "● Again"})
 }
 
+func TestTranscript_WrapsUnderMarker(t *testing.T) {
+	tr := Transcript{Width: 12}
+	got := plain(tr.Text("aaa bbb ccc ddd\n\n", t0))
+	eqStrings(t, got, []string{"● aaa bbb\n  ccc ddd"})
+	got = plain(tr.User("one two three four"))
+	eqStrings(t, got, []string{"", "› one two\n  three four"})
+	// Live wraps the same way, so nothing shifts when the block is printed.
+	tr.Text("eee fff ggg hhh", t0)
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n● eee fff\n  ggg hhh")
+}
+
 func TestTranscript_AssistantLiveMatchesPrinted(t *testing.T) {
 	var tr Transcript
 	tr.User("hi")
 	tr.Text("par", t0)
 	assert.Eq(t, ansi.Strip(tr.Live()), "\n● par")
 	tr.Text("t\n\nnext", t0)
-	assert.Eq(t, ansi.Strip(tr.Live()), "  next")
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n  next")
 }
 
 func TestTranscript_TurnGap(t *testing.T) {
@@ -128,8 +172,30 @@ func TestToolRow_Formats(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Eq(t, ansi.Strip(toolRow(tc.tool, tc.args, tc.status, tc.output, 200)), tc.want)
+			assert.Eq(t, strings.TrimRight(ansi.Strip(toolRow(tc.tool, tc.args, tc.status, tc.output, 200)), " "), tc.want)
 		})
+	}
+}
+
+func TestToolRow_StatusBand(t *testing.T) {
+	ok := toolRow("ls", nil, "ok", "a\n", 30)
+	assert.Eq(t, ansi.StringWidth(ok), 30)
+	assert.Contains(t, ok, bgSeq(toolOkBg))
+	for _, status := range []string{"error", "denied", "cancelled"} {
+		row := toolRow("shell", map[string]any{"command": "x"}, status, "", 30)
+		assert.Contains(t, row, bgSeq(toolErrBg))
+	}
+}
+
+func TestBands_DistinctOnANSI16(t *testing.T) {
+	ansi16 := func(c color.Color) color.Color { return colorprofile.ANSI.Convert(c) }
+	seen := map[color.Color]string{}
+	for name, c := range map[string]color.Color{"user": userBg, "ok": toolOkBg, "err": toolErrBg, "other": toolOtherBg} {
+		got := ansi16(c)
+		if prev, dup := seen[got]; dup {
+			t.Fatalf("%s and %s bands both map to %v on 16-colour terminals", prev, name, got)
+		}
+		seen[got] = name
 	}
 }
 
