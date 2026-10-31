@@ -339,7 +339,7 @@ func TestChat_UsageFeedsStatusLine(t *testing.T) {
 		Usage: providers.Usage{PromptTokens: testWindow / 4, CompletionTokens: 1000}}))
 	c.submit("hi")
 	c.pump()
-	assert.Contains(t, c.view(), "m · never · 25% · 26.0k tok · "+filepath.Base(c.b.root))
+	assert.Contains(t, c.view(), "m · never · 25% · ↑25.0k ↓1.0k · "+filepath.Base(c.b.root))
 }
 
 func TestChat_DropsMessagesFromOldSession(t *testing.T) {
@@ -513,7 +513,7 @@ func TestChat_UsageThroughRedactingUI(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t))
 	ui := core.NewRedactingUI(&bridge{gen: c.m.gen, send: c.update}, func(s string) string { return s })
 	ui.Event(core.EvUsage, map[string]any{"prompt_tokens": testWindow / 4, "completion_tokens": 1000, "cached_tokens": 0})
-	assert.Contains(t, c.view(), "· 25% · 26.0k tok ·")
+	assert.Contains(t, c.view(), "· 25% · ↑25.0k ↓1.0k ·")
 }
 
 func TestIntField_Shapes(t *testing.T) {

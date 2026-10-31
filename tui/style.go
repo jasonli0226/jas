@@ -34,5 +34,7 @@ var (
 	stringStyle    = lipgloss.NewStyle().Foreground(orangeFg)
 	commentStyle   = lipgloss.NewStyle().Foreground(mutedFg)
 	numberStyle    = lipgloss.NewStyle().Foreground(greenFg)
+	ctxWarnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	ctxHotStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	codeSpanStyle  = lipgloss.NewStyle().Foreground(violetFg)
 )

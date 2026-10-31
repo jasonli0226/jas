@@ -50,6 +50,7 @@ type Model struct {
 	lastGen  int            // the newest generation handed out
 	model    string         // used by /new; follows /model and /resume
 	window   int
+	branch   string // git branch of the root, refreshed per session and run
 	usage    usage
 	run      *activeRun
 	queued   []string     // steering sent during the current run
@@ -199,7 +200,7 @@ func (m *Model) View() tea.View {
 			parts = append(parts, dimStyle.Render(ansi.Truncate("  /"+name, m.width, "…")))
 		}
 	}
-	parts = append(parts, dimStyle.Render(m.statusLine()))
+	parts = append(parts, m.statusLine())
 	// The zero KeyboardEnhancements still requests basic key disambiguation
 	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
 	// apart from Enter on terminals that support it.
@@ -217,11 +218,13 @@ func (m *Model) prompt() string {
 
 func (m *Model) statusLine() string {
 	if m.hint != "" {
-		return ansi.Truncate(m.hint, m.width, "…")
+		return dimStyle.Render(ansi.Truncate(m.hint, m.width, "…"))
 	}
 	return statusInfo{
 		Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
-		Tokens: m.usage.in + m.usage.out, Root: m.o.Root, Running: m.running(), Queued: len(m.queued),
+		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch,
+		Running: m.running(), Queued: len(m.queued),
+		Thinking: m.tr.thinking, ShowThinking: m.tr.ShowThinking,
 	}.Render(m.width)
 }
 

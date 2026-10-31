@@ -149,6 +149,7 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 		m.reply = msg.res.Final
 	}
 	m.restoreSteering()
+	m.branch = gitBranch(m.o.Root) // the run may have switched branches
 	blocks := m.tr.Flush(m.o.Now())
 	if n := runNotice(msg.res); n != "" {
 		blocks = append(blocks, m.tr.Notice(dimStyle.Render(m.o.Redact(n)))...)

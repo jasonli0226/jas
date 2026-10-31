@@ -108,6 +108,7 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 	}
 	m.live, m.closer, m.gen, m.model = msg.live, &sessionCloser{live: msg.live}, msg.gen, msg.live.Model
 	m.window = m.b.Window(msg.live.Model)
+	m.branch = gitBranch(m.o.Root)
 	if msg.live.Budget != nil && msg.live.Budget.Window > 0 {
 		m.window = msg.live.Budget.Window
 	}
