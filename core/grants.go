@@ -12,6 +12,38 @@ import (
 // envAssign matches a leading VAR=value word, which makes a command non-simple.
 var envAssign = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
+// subcommand matches a second word that names a subcommand: not a flag, a
+// path or a pattern.
+var subcommand = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]*$`)
+
+// riskyPrograms run or delete whatever their arguments name: shells,
+// interpreters, wrappers that run another command, and destructive tools. A
+// grant on any of them would cover arbitrary code, so they always ask. Names
+// are compared lowercased, without a Windows extension or version suffix.
+var riskyPrograms = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "csh": true,
+	"tcsh": true, "ash": true, "busybox": true, "cmd": true, "powershell": true, "pwsh": true,
+	"env": true, "sudo": true, "doas": true, "su": true, "runas": true, "xargs": true,
+	"find": true, "rm": true, "rmdir": true, "del": true, "dd": true,
+	"python": true, "py": true, "node": true, "deno": true, "bun": true, "bunx": true,
+	"npx": true, "pnpx": true, "ruby": true, "perl": true, "php": true, "lua": true,
+	"osascript": true, "eval": true, "exec": true, "command": true, "builtin": true,
+	"nohup": true, "timeout": true, "nice": true, "time": true, "watch": true, "ssh": true,
+}
+
+// grantable reports whether the first two words of a command may key a
+// grant: a program by bare name that is not risky, then a subcommand.
+func grantable(words []string) bool {
+	if len(words) < 2 || strings.ContainsAny(words[0], `/\`) || !subcommand.MatchString(words[1]) {
+		return false
+	}
+	name := strings.ToLower(words[0])
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".com"} {
+		name = strings.TrimSuffix(name, ext)
+	}
+	return !riskyPrograms[strings.TrimRight(name, "0123456789.")]
+}
+
 // Grants holds the approvals a user gave for the rest of a session: the shell
 // commands that start with an approved pair of words, and whole edit/write
 // tools. It is safe for concurrent use.
@@ -29,8 +61,8 @@ func NewGrants(windows bool) *Grants {
 }
 
 // shellKey returns the internal key and display text for a shell call: its
-// first two words (one if there is only one). ok is false for anything that
-// is not a simple, parseable command.
+// first two words. ok is false for anything that is not a simple, parseable
+// command whose first two words are grantable.
 func (g *Grants) shellKey(args json.RawMessage) (key, display string, ok bool) {
 	var a struct{ Command string }
 	if _, dup := duplicateKey(args); dup || json.Unmarshal(args, &a) != nil {
@@ -45,12 +77,10 @@ func (g *Grants) shellKey(args json.RawMessage) (key, display string, ok bool) {
 	if len(words) == 0 || envAssign.MatchString(words[0]) {
 		return "", "", false
 	}
-	if _, wok := ShellWords(a.Command); !wok {
+	if _, wok := ShellWords(a.Command); !wok || !grantable(words) {
 		return "", "", false
 	}
-	if len(words) > 2 {
-		words = words[:2]
-	}
+	words = words[:2]
 	for _, w := range words {
 		if strings.ContainsAny(w, `\'"`) {
 			return "", "", false
