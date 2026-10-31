@@ -83,4 +83,20 @@ func TestGitBranch(t *testing.T) {
 	assert.Eq(t, gitBranch(wt), "wt")
 
 	assert.Eq(t, gitBranch(t.TempDir()), "")
+
+	// Relative gitdir (submodules), HEAD outside refs/heads, reftable's
+	// placeholder HEAD, and a HEAD that is not a regular file.
+	sub := t.TempDir()
+	write(filepath.Join(sub, "mods", "a", "HEAD"), "ref: refs/heads/sub\n")
+	write(filepath.Join(sub, ".git"), "gitdir: mods/a\r\n")
+	assert.Eq(t, gitBranch(sub), "sub")
+	odd := t.TempDir()
+	write(filepath.Join(odd, ".git", "HEAD"), "ref: refs/remotes/origin/x\n")
+	assert.Eq(t, gitBranch(odd), "")
+	reftable := t.TempDir()
+	write(filepath.Join(reftable, ".git", "HEAD"), "ref: refs/heads/.invalid\n")
+	assert.Eq(t, gitBranch(reftable), "")
+	notFile := t.TempDir()
+	assert.NoErr(t, os.MkdirAll(filepath.Join(notFile, ".git", "HEAD"), 0o755))
+	assert.Eq(t, gitBranch(notFile), "")
 }

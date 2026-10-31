@@ -81,12 +81,18 @@ func (s statusInfo) ctxStyle() lipgloss.Style {
 
 // gitBranch reads the branch checked out at root straight from .git (no
 // subprocess): the branch name, a short hash when detached, "" outside a
-// repo. A linked worktree's .git is a file naming its git dir.
+// repo. A linked worktree's .git is a file naming its git dir. Reftable
+// repos keep a placeholder HEAD (refs/heads/.invalid) and show no branch.
 func gitBranch(root string) string {
 	dir := filepath.Join(root, ".git")
-	if b, err := os.ReadFile(dir); err == nil {
-		rest, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
-		if !ok {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return ""
+	}
+	if !fi.IsDir() {
+		b, ok := readGitFile(dir)
+		rest, found := strings.CutPrefix(strings.TrimSpace(b), "gitdir: ")
+		if !ok || !found {
 			return ""
 		}
 		if !filepath.IsAbs(rest) {
@@ -94,18 +100,39 @@ func gitBranch(root string) string {
 		}
 		dir = rest
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "HEAD"))
-	if err != nil {
+	b, ok := readGitFile(filepath.Join(dir, "HEAD"))
+	if !ok {
 		return ""
 	}
-	head := strings.TrimSpace(string(b))
+	head := strings.TrimSpace(b)
 	if ref, ok := strings.CutPrefix(head, "ref: refs/heads/"); ok {
+		if ref == ".invalid" {
+			return ""
+		}
 		return ref
 	}
-	if len(head) >= 7 {
+	if len(head) >= 7 && strings.Trim(head, "0123456789abcdef") == "" {
 		return head[:7]
 	}
 	return ""
+}
+
+// maxGitFile bounds what gitBranch reads; HEAD and .git files are tiny.
+const maxGitFile = 4096
+
+// readGitFile reads a small regular file. The status line re-reads .git
+// after every run, so a FIFO or device the agent left there must not block
+// or flood the UI.
+func readGitFile(path string) (string, bool) {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxGitFile {
+		return "", false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
 }
 
 // formatTokens shortens a token count: 999, 12.3k, 2.5M.
