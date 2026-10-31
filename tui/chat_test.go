@@ -159,7 +159,7 @@ func TestChat_SendStreamsAndPrints(t *testing.T) {
 	assert.Eq(t, c.m.input.Value(), "")
 	assert.Contains(t, c.view(), "working…")
 	c.pump()
-	eqStrings(t, plain(c.m.Printed()), []string{"› hi", "Hello", "World"})
+	eqStrings(t, plain(c.m.Printed()), []string{"› hi", "", "● Hello", "  World"})
 	assert.NotContains(t, c.view(), "working…")
 }
 
