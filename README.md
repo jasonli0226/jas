@@ -24,6 +24,8 @@ The repo is private, so install from a clone (Go 1.27+):
 
 ```sh
 go install ./cmd/jas            # from the repo root; or: make build  ->  ./bin/jas
+make chat                       # rebuild and open the chat on the current code
+make chat ARGS=--continue       # same, resuming the last session (DIR=... picks the project)
 ```
 
 The module path is `github.com/jasonli0226/jas`; once the repo is public,

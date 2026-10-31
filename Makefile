@@ -1,10 +1,20 @@
 LDFLAGS := -s -w
 MAX_SIZE := 15728640
 
-.PHONY: build test perf bench size
+.PHONY: build install chat test perf bench size
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/jas ./cmd/jas
+
+# Puts the current build on PATH as `jas` (in $(go env GOBIN) or ~/go/bin).
+install:
+	CGO_ENABLED=0 go install -trimpath -ldflags="$(LDFLAGS)" ./cmd/jas
+
+# Rebuilds and opens the inline chat on the current code. DIR picks the
+# project to chat in (default: this repo); ARGS passes flags, e.g.
+#   make chat ARGS=--continue    make chat DIR=~/some/project
+chat: build
+	cd $(or $(DIR),.) && $(CURDIR)/bin/jas $(ARGS)
 
 test:
 	go vet ./...
