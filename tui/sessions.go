@@ -118,8 +118,11 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 	}
 	if msg.resumed {
 		m.gate.Reset(m.o.Level) // grants and level changes are never stored in a session
-		blocks = append(blocks, dimStyle.Render(fmt.Sprintf("resumed %s · %d messages",
-			m.clean(msg.live.ID), len(msg.live.Session.Messages()))))
+		// Reprint the conversation, then the notice, so scrollback ends at the input.
+		msgs := msg.live.Session.Messages()
+		blocks = append(blocks, m.tr.History(msgs, m.o.Redact, m.o.Now())...)
+		blocks = append(blocks, m.tr.Notice(dimStyle.Render(fmt.Sprintf("resumed %s · %d messages",
+			m.clean(msg.live.ID), len(msgs))))...)
 	}
 	var closeCmd tea.Cmd
 	if m.quitting { // quit began while the session was opening

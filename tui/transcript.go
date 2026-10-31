@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/providers"
 )
 
 // Transcript turns streamed text and agent events into finished, styled
@@ -120,6 +121,44 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		return append(out, dimStyle.Render(row))
 	}
 	return nil
+}
+
+// History renders saved messages with the live chrome, for a resume. Tool
+// results pair with their tool_use by id for the row's subject.
+func (t *Transcript) History(msgs []providers.Message, redact func(string) string, now time.Time) []string {
+	var out []string
+	uses := map[string]providers.ContentBlock{}
+	for _, msg := range msgs {
+		if _, ok := core.IsSummary(msg); ok {
+			out = append(out, t.Notice(dimStyle.Render("· compacted earlier messages"))...)
+			continue
+		}
+		for _, b := range msg.Content {
+			switch {
+			case b.Type == providers.BlockToolUse:
+				uses[b.ToolUseID] = b
+			case b.Type == providers.BlockToolResult:
+				out = append(out, t.historyTool(uses[b.ToolUseID], b, redact)...)
+			case b.Type == providers.BlockText && msg.Role == providers.RoleUser:
+				out = append(out, t.User(redact(b.Text))...)
+			case b.Type == providers.BlockText:
+				out = append(out, t.Text(redact(b.Text), now)...)
+				out = append(out, t.settle(now)...)
+			}
+		}
+	}
+	return out
+}
+
+// historyTool renders a saved tool result as the final row of its call.
+func (t *Transcript) historyTool(use, res providers.ContentBlock, redact func(string) string) []string {
+	var args map[string]any
+	_ = json.Unmarshal([]byte(redact(string(use.Input))), &args) // no args: the row has no subject
+	status := "ok"
+	if res.IsError {
+		status = "error"
+	}
+	return append(t.enter(roleTool), toolRow(use.Name, args, status, redact(res.Text), t.Width))
 }
 
 // Notice prints jas-owned notice blocks as their own group.

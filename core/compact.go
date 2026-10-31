@@ -72,7 +72,7 @@ func cutIndex(msgs []providers.Message, keepTokens int) int {
 	}
 	floor := 0
 	if len(msgs) > 0 {
-		if _, ok := isSummary(msgs[0]); ok {
+		if _, ok := IsSummary(msgs[0]); ok {
 			floor = 1
 		}
 	}
@@ -95,8 +95,8 @@ func isToolResults(m providers.Message) bool {
 	return true
 }
 
-// isSummary reports whether m is a compaction summary and returns its text.
-func isSummary(m providers.Message) (string, bool) {
+// IsSummary reports whether m is a compaction summary and returns its text.
+func IsSummary(m providers.Message) (string, bool) {
 	if m.Role != providers.RoleUser || len(m.Content) != 1 || m.Content[0].Type != providers.BlockText {
 		return "", false
 	}
