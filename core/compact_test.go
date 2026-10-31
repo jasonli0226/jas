@@ -70,10 +70,10 @@ func TestCutIndex_NoValidCut(t *testing.T) {
 }
 
 func TestIsSummary(t *testing.T) {
-	s, ok := isSummary(summaryMessage("hello"))
+	s, ok := IsSummary(summaryMessage("hello"))
 	assert.Eq(t, ok, true)
 	assert.Eq(t, s, "hello")
-	_, ok = isSummary(textMsg(providers.RoleUser, 3))
+	_, ok = IsSummary(textMsg(providers.RoleUser, 3))
 	assert.Eq(t, ok, false)
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/internal/assert"
+	"github.com/jasonli0226/jas/providers"
 )
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -243,6 +244,40 @@ func TestTranscript_ParallelToolsStayRunningUntilTheirResult(t *testing.T) {
 	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls a running\n▸ ls b running"})
 	tr.Event("tool_result", map[string]any{"call_id": "a", "tool": "ls", "status": "ok"}, t0)
 	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls b running"})
+}
+
+func TestTranscript_HistoryReprintsTurns(t *testing.T) {
+	msgs := []providers.Message{
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{
+			{Type: providers.BlockText, Text: "[jas] The earlier conversation was compacted. Summary:\n\nold"}}},
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{{Type: providers.BlockText, Text: "hello"}}},
+		{Role: providers.RoleAssistant, Content: []providers.ContentBlock{
+			{Type: providers.BlockText, Text: "hi there"},
+			{Type: providers.BlockToolUse, ToolUseID: "c1", Name: "ls", Input: json.RawMessage(`{"path":"src"}`)}}},
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolResult, ToolUseID: "c1", Text: "a\nb"}}},
+		{Role: providers.RoleAssistant, Content: []providers.ContentBlock{{Type: providers.BlockText, Text: "done"}}},
+	}
+	var tr Transcript
+	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
+	eqStrings(t, got, []string{"· compacted earlier messages", "", "› hello", "", "● hi there",
+		"", "▸ ls src (2 entries)", "", "● done"})
+}
+
+func TestTranscript_HistoryEmpty(t *testing.T) {
+	var tr Transcript
+	assert.Eq(t, len(tr.History(nil, func(s string) string { return s }, t0)), 0)
+	eqStrings(t, plain(tr.Notice("resumed")), []string{"resumed"})
+}
+
+func TestTranscript_HistoryRedacts(t *testing.T) {
+	msgs := []providers.Message{
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{{Type: providers.BlockText, Text: "key sk-1"}}},
+		{Role: providers.RoleAssistant, Content: []providers.ContentBlock{{Type: providers.BlockText, Text: "got sk-1"}}},
+	}
+	var tr Transcript
+	redact := func(s string) string { return strings.ReplaceAll(s, "sk-1", "***") }
+	eqStrings(t, plain(tr.History(msgs, redact, t0)), []string{"› key ***", "", "● got ***"})
 }
 
 // A run can end without a tool's result (a log error, a cancelled call), so

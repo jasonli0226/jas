@@ -371,6 +371,24 @@ func TestChat_ContinueResumesNewest(t *testing.T) {
 	assert.Contains(t, c.printedText(), "resumed "+first.m.live.ID+" · 2 messages")
 }
 
+func TestChat_ResumeReprintsTranscript(t *testing.T) {
+	b := newTestBackend(t,
+		fake.Turn{Calls: []fake.Call{{Name: "ls", Args: `{}`}}},
+		fake.Turn{Text: "hi there"})
+	first := newTestChat(t, b)
+	first.submit("hello")
+	first.pump()
+	first.key("ctrl+c")
+	first.key("ctrl+c")
+
+	c := newTestChatOpts(t, b, Options{Continue: true})
+	got := plain(c.m.Printed())
+	assert.Eq(t, len(got), 7)
+	eqStrings(t, got[:2], []string{"› hello", ""})
+	assert.Eq(t, strings.HasPrefix(got[2], "▸ ls ."), true)
+	eqStrings(t, got[3:], []string{"", "● hi there", "", "resumed " + c.m.live.ID + " · 4 messages"})
+}
+
 func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {
 	b := newTestBackend(t)
 	c, init := newUnopenedChat(t, b, Options{})
