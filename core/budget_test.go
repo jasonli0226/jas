@@ -123,3 +123,12 @@ func TestBudget_AlreadyElidedNotRecounted(t *testing.T) {
 		t.Fatalf("stats = %+v", st)
 	}
 }
+
+func TestBudget_RebaseForgetsObservation(t *testing.T) {
+	b := &core.Budget{Window: 100000}
+	msgs := []providers.Message{textMsg(providers.RoleUser, 4000), textMsg(providers.RoleAssistant, 400)}
+	b.Observe(5000, 1)
+	assert.Eq(t, b.Count(msgs), 5100)
+	b.Rebase()
+	assert.Eq(t, b.Count(msgs), 1100)
+}

@@ -292,6 +292,14 @@ func (h *hookLog) Append(typ string, data any) error {
 	return err
 }
 
+func (h *hookLog) AppendID(typ string, data any) (string, error) {
+	id, err := h.EventLog.AppendID(typ, data)
+	if typ == h.typ {
+		h.onAppend()
+	}
+	return id, err
+}
+
 func TestSession_SteerAfterEscAtFinalIsNotCommitted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := newRig(t, []fake.Turn{{Text: "done"}})
@@ -351,4 +359,28 @@ func TestSession_ForwardsReasoningToUI(t *testing.T) {
 	assert.Eq(t, len(last.Content), 1)
 	assert.Eq(t, last.Content[0].Type, providers.BlockText)
 	assert.Eq(t, last.Content[0].Text, "A")
+}
+
+func eventIDs(evs []map[string]any, typ string) []string {
+	var out []string
+	for _, e := range evs {
+		if e["type"] == typ {
+			out = append(out, e["id"].(string))
+		}
+	}
+	return out
+}
+
+func TestSession_TracksMessageEventIDs(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Calls: []fake.Call{{Name: "ls", Args: `{}`}}}, {Text: "done"}})
+	s := newSession(t, r)
+	res := send(t, s, context.Background(), "go")
+	assert.Eq(t, res.Status, "ok")
+	evs := r.events(t)
+	user, asst := eventIDs(evs, core.EvUserMessage), eventIDs(evs, core.EvAssistantMessage)
+	assert.Eq(t, len(user), 1)
+	assert.Eq(t, len(asst), 2)
+	want := []string{user[0], asst[0], "", asst[1]}
+	assert.Eq(t, strings.Join(s.MessageIDs(), ","), strings.Join(want, ","))
+	assert.Eq(t, len(s.MessageIDs()), len(s.Messages()))
 }

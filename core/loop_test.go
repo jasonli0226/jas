@@ -258,6 +258,12 @@ func (l failLog) Append(typ string, d any) error {
 	}
 	return l.EventLog.Append(typ, d)
 }
+func (l failLog) AppendID(typ string, d any) (string, error) {
+	if l.fail[typ] {
+		return "", errBoom
+	}
+	return l.EventLog.AppendID(typ, d)
+}
 func (l failLog) AppendSync(typ string, d any) error {
 	if l.fail[typ] {
 		return errBoom

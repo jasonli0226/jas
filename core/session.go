@@ -48,6 +48,7 @@ type Session struct {
 	c        SessionConfig
 	model    string
 	messages []providers.Message
+	ids      []string        // event id per message; "" for tool results
 	turns    int             // session total, for session_ended
 	usage    providers.Usage // session total, for session_ended
 	logErr   error           // first event-log failure in the current Send
@@ -80,6 +81,8 @@ func NewSession(c SessionConfig) (*Session, error) {
 func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	s := newSession(c)
 	s.messages = slices.Clone(st.Messages)
+	s.ids = make([]string, len(s.messages))
+	copy(s.ids, st.MessageIDs)
 	if err := s.open(EvSessionResumed); err != nil {
 		return nil, err
 	}
@@ -157,12 +160,19 @@ func (s *Session) begin(text string, steer bool) *msgState {
 
 func (s *Session) addUser(text string, steer bool) {
 	content := []providers.ContentBlock{{Type: providers.BlockText, Text: text}}
-	s.messages = append(s.messages, providers.Message{Role: providers.RoleUser, Content: content})
 	data := map[string]any{"content": toWire(content)}
 	if steer {
 		data["steer"] = true
 	}
-	s.note(s.c.Log.Append(EvUserMessage, data))
+	id, err := s.c.Log.AppendID(EvUserMessage, data)
+	s.note(err)
+	s.push(providers.Message{Role: providers.RoleUser, Content: content}, id)
+}
+
+// push appends a message with the id of its event ("" if it has none).
+func (s *Session) push(msg providers.Message, id string) {
+	s.messages = append(s.messages, msg)
+	s.ids = append(s.ids, id)
 }
 
 // endTurn writes turn_ended. A log failure turns an otherwise clean turn into
@@ -206,6 +216,12 @@ func (s *Session) drain() string {
 // Messages returns a copy of the conversation history.
 func (s *Session) Messages() []providers.Message {
 	return slices.Clone(s.messages)
+}
+
+// MessageIDs returns the event id of each message, aligned with Messages; ""
+// for tool-results messages.
+func (s *Session) MessageIDs() []string {
+	return slices.Clone(s.ids)
 }
 
 // SetModel switches the model for later requests and logs model_changed. The
@@ -298,14 +314,13 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		return s.streamFailed(ctx, streamErr, msg, uses)
 	}
 
-	s.logAssistant(msg, len(uses) == 0)
-	s.messages = append(s.messages, msg)
+	s.push(msg, s.logAssistant(msg, len(uses) == 0))
 	if len(uses) == 0 {
 		m.final = textOf(msg)
 		return true, endOK, ExitOK, ""
 	}
 	results, err := c.Exec.Run(ctx, uses)
-	s.messages = append(s.messages, providers.Message{Role: providers.RoleUser, Content: results})
+	s.push(providers.Message{Role: providers.RoleUser, Content: results}, "")
 	if err != nil { // queued steering stays queued for the caller
 		st, code := classify(err)
 		return true, st, code, err.Error()
@@ -342,9 +357,8 @@ func (s *Session) streamFailed(ctx context.Context, err error, msg providers.Mes
 	switch {
 	case ctx.Err() != nil || errors.Is(err, context.Canceled):
 		if len(uses) > 0 {
-			s.logAssistant(msg, false)
-			s.messages = append(s.messages, msg)
-			s.messages = append(s.messages, providers.Message{Role: providers.RoleUser, Content: s.cancelUses(uses)})
+			s.push(msg, s.logAssistant(msg, false))
+			s.push(providers.Message{Role: providers.RoleUser, Content: s.cancelUses(uses)}, "")
 		}
 		return true, endInterrupted, ExitInterrupted, "interrupted"
 	case errors.Is(err, providers.ErrContextLength):
@@ -381,8 +395,11 @@ func addUsage(a, b providers.Usage) providers.Usage {
 	return a
 }
 
-func (s *Session) logAssistant(msg providers.Message, final bool) {
-	s.note(s.c.Log.Append(EvAssistantMessage, map[string]any{
+// logAssistant logs msg and returns its event id ("" if the append failed).
+func (s *Session) logAssistant(msg providers.Message, final bool) string {
+	id, err := s.c.Log.AppendID(EvAssistantMessage, map[string]any{
 		"text": textOf(msg), "final": final, "content": toWire(msg.Content),
-	}))
+	})
+	s.note(err)
+	return id
 }

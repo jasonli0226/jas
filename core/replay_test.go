@@ -458,3 +458,27 @@ func TestReplay_OnlyTrailingOrphansAreInterrupted(t *testing.T) {
 	}
 	assert.Eq(t, strings.Join(got, ","), "c1,c2")
 }
+
+func TestResumeSession_SeedsIDs(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Calls: []fake.Call{{Name: "ls", Args: `{}`}}}, {Text: "done"}})
+	s := newSession(t, r)
+	send(t, s, context.Background(), "go")
+	assert.NoErr(t, s.Close("ok", 0))
+	assert.NoErr(t, r.cfg.Log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	log2, err := core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	c := r.sessionConfig()
+	c.Log = log2
+	c.Exec.Log = log2
+	s2, err := core.ResumeSession(c, st)
+	assert.NoErr(t, err)
+	assert.NoErr(t, s2.Close("ok", 0))
+	assert.NoErr(t, log2.Close())
+
+	assert.Eq(t, len(st.MessageIDs), 4)
+	assert.Eq(t, strings.Join(s2.MessageIDs(), ","), strings.Join(st.MessageIDs, ","))
+	assert.Eq(t, len(s2.MessageIDs()), len(s2.Messages()))
+}
