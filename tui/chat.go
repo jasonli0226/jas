@@ -166,7 +166,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approvalMsg:
 		m.onApproval(msg)
 	case noticeMsg:
-		return m, m.print(dimStyle.Render(msg.s))
+		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:
 		m.printing = false
 		return m, m.flush()

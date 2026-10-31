@@ -82,6 +82,10 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	case core.EvUserMessage:
 		if steer, _ := msg.data["steer"].(bool); steer {
 			m.queued = nil // the loop delivered every queued text at once
+			// Print the delivered steering as a user block so the reply that
+			// follows opens a new agent turn instead of continuing the last.
+			blocks := m.tr.Flush(m.o.Now())
+			return m.print(append(blocks, m.tr.User(contentText(msg.data))...)...)
 		}
 	case core.EvCompaction:
 		// The next request sends only what is left, so ctx% drops now.
@@ -95,6 +99,21 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		}
 	}
 	return m.print(m.tr.Event(msg.typ, msg.data, m.o.Now())...)
+}
+
+// contentText joins the text blocks of a user_message payload as the
+// redacting UI delivers it (decoded JSON).
+func contentText(data map[string]any) string {
+	blocks, _ := data["content"].([]any)
+	var parts []string
+	for _, b := range blocks {
+		if blk, ok := b.(map[string]any); ok && blk["type"] == "text" {
+			if s, _ := blk["text"].(string); s != "" {
+				parts = append(parts, s)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // intField reads a number from an event payload: ints straight from core,
@@ -132,10 +151,10 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	m.restoreSteering()
 	blocks := m.tr.Flush(m.o.Now())
 	if n := runNotice(msg.res); n != "" {
-		blocks = append(blocks, dimStyle.Render(m.o.Redact(n)))
+		blocks = append(blocks, m.tr.Notice(dimStyle.Render(m.o.Redact(n)))...)
 	}
 	if msg.err != nil {
-		blocks = append(blocks, errStyle.Render("event log error: "+m.clean(msg.err.Error())))
+		blocks = append(blocks, m.tr.Notice(errStyle.Render("event log error: "+m.clean(msg.err.Error())))...)
 	}
 	var closeCmd tea.Cmd
 	if m.quitting {
@@ -181,7 +200,7 @@ func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
 	if m.quitting {
 		closeCmd = m.closeSession() // before print, so flush waits for the close
 	}
-	return tea.Batch(closeCmd, m.print(line))
+	return tea.Batch(closeCmd, m.print(m.tr.Notice(line)...))
 }
 
 // onApproval opens the approval prompt, closing any open picker so Enter

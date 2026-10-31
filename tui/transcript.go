@@ -103,6 +103,11 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 	return nil
 }
 
+// Notice prints jas-owned notice blocks as their own group.
+func (t *Transcript) Notice(blocks ...string) []string {
+	return append(t.enter(roleNotice), blocks...)
+}
+
 // Flush ends a run: it prints the partial block and any pending thinking line.
 func (t *Transcript) Flush(now time.Time) []string { return t.settle(now) }
 

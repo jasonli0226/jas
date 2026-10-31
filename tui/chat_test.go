@@ -186,6 +186,35 @@ func TestChat_SteerWhileRunning(t *testing.T) {
 	assert.Contains(t, requestText(b.prov.Requests[1]), "also")
 }
 
+func TestChat_SteerPrintsUserBlock(t *testing.T) {
+	release := make(chan struct{})
+	b := newTestBackend(t,
+		fake.Turn{Calls: []fake.Call{{Name: "ls", Args: `{}`}}, OnEmit: func() { <-release }},
+		fake.Turn{Text: "done"})
+	c := newTestChat(t, b)
+	c.submit("hi")
+	c.submit("also")
+	close(release)
+	c.pump()
+	got := plain(c.m.Printed())
+	assert.Eq(t, len(got), 7)
+	eqStrings(t, append(got[:2:2], got[3:]...), []string{"› hi", "", "", "› also", "", "● done"})
+	assert.Eq(t, strings.HasPrefix(got[2], "▸ ls"), true)
+}
+
+func TestChat_NoticeSeparatesUserTurns(t *testing.T) {
+	started := make(chan struct{})
+	c := newTestChat(t, newTestBackend(t,
+		fake.Turn{Block: true, OnEmit: func() { close(started) }}, fake.Turn{Text: "ok"}))
+	c.submit("go")
+	<-started // Esc before the request starts would leave the Block turn for "retry"
+	c.key("esc")
+	c.pump()
+	c.submit("retry")
+	c.pump()
+	eqStrings(t, plain(c.m.Printed()), []string{"› go", "", "interrupted", "", "› retry", "", "● ok"})
+}
+
 func TestChat_EscRestoresQueuedText(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t, fake.Turn{Block: true}))
 	c.submit("go")
