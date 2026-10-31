@@ -100,6 +100,8 @@ half the compaction threshold. `compact_model` picks the summary model
 (default: the session's). `/compact [focus]` compacts on demand. `jas run`
 does not compact.
 
+Inline chat UX polish (role chrome, resume reprint, live tools) is tracked in [`docs/superpowers/plans/2026-10-31-tui-ux-polish.md`](docs/superpowers/plans/2026-10-31-tui-ux-polish.md).
+
 API keys come from `auth.json` (literal, mode 0600), a `$ENV_NAME` reference
 stored there, or `JAS_API_KEY`. `jas auth list` shows names and sources,
 never values.
