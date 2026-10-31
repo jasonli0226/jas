@@ -12,6 +12,7 @@ const fence = "```"
 
 var (
 	boldRe     = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	codeSpanRe = regexp.MustCompile("`([^`]+)`")
 	headingRe  = regexp.MustCompile(`^#{1,6}\s+(.*)$`)
 	bulletRe   = regexp.MustCompile(`^(\s*)[-*]\s+(.*)$`)
 	orderedRe  = regexp.MustCompile(`^(\s*)(\d+)\.\s+(.*)$`)
@@ -133,24 +134,52 @@ func renderBlock(raw string) string {
 }
 
 func inline(s string) string {
+	s = codeSpanRe.ReplaceAllStringFunc(s, func(m string) string {
+		return codeSpanStyle.Render(m[1 : len(m)-1])
+	})
 	return boldRe.ReplaceAllStringFunc(s, func(m string) string {
 		return boldStyle.Render(m[2 : len(m)-2])
 	})
 }
 
+// renderCode shows a fenced block pi-style: dim fence lines around the code,
+// which is indented and highlighted. A block cut off before its closing
+// fence still gets one.
 func renderCode(lines []string) string {
 	body := lines[1:]
 	if n := len(body); n > 0 && isFence(body[n-1]) {
 		body = body[:n-1]
 	}
-	for i, l := range body {
-		body[i] = highlight(strings.ReplaceAll(l, "\t", "    "))
+	out := make([]string, 0, len(body)+2)
+	out = append(out, fenceStyle.Render(strings.TrimSpace(lines[0])))
+	for _, l := range body {
+		out = append(out, hangIndent+highlight(strings.ReplaceAll(l, "\t", "    ")))
 	}
-	return codeBox.Render(strings.Join(body, "\n"))
+	return strings.Join(append(out, fenceStyle.Render(fence)), "\n")
 }
 
-// highlight colours string literals, // and # comments, and numbers; it is
-// language-agnostic, so it only looks at lexical shape.
+// keywords is a union of common Go, JS/TS, Python, Rust and shell keywords;
+// highlight does not know the block's language.
+var keywords = map[string]bool{}
+
+func init() {
+	for _, k := range strings.Fields(`
+		break case chan const continue default defer else fallthrough for func go
+		goto if import interface map package range return select struct switch type
+		var nil true false
+		async await catch class delete export extends finally from function let new
+		null this throw try typeof undefined void yield
+		and as def del elif except in is lambda not or pass raise while with
+		None True False self
+		enum fn impl loop match mod mut pub trait use where
+		do done esac fi then local`) {
+		keywords[k] = true
+	}
+}
+
+// highlight colours keywords, calls (an identifier followed by "("), string
+// literals, // and # comments, and numbers; it is language-agnostic, so it
+// only looks at lexical shape.
 func highlight(line string) string {
 	rs := []rune(line)
 	var b strings.Builder
@@ -179,17 +208,36 @@ func highlight(line string) string {
 			}
 			paint(numberStyle, i, j)
 			i = j
-		default:
+		case isWordRune(r):
 			j := i
 			for j < len(rs) && isWordRune(rs[j]) {
 				j++
 			}
-			j = max(j, i+1)
-			b.WriteString(string(rs[i:j]))
+			word := string(rs[i:j])
+			switch {
+			case keywords[word]:
+				b.WriteString(keywordStyle.Render(word))
+			case isCall(rs, j):
+				b.WriteString(funcStyle.Render(word))
+			default:
+				b.WriteString(word)
+			}
 			i = j
+		default:
+			b.WriteRune(r)
+			i++
 		}
 	}
 	return b.String()
+}
+
+// isCall reports whether the word ending at rs[end] is followed by "(",
+// allowing spaces in between.
+func isCall(rs []rune, end int) bool {
+	for end < len(rs) && rs[end] == ' ' {
+		end++
+	}
+	return end < len(rs) && rs[end] == '('
 }
 
 func isWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }

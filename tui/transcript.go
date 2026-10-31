@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/core"
 )
@@ -39,10 +40,20 @@ const (
 
 const agentMarker = "● "
 
-// User renders the user's prompt; later lines are indented under the marker.
+// User renders the user's prompt as a full-width background band; later
+// lines are indented under the marker, which stays for copy/paste and
+// terminals without colour.
 func (t *Transcript) User(text string) []string {
-	lines := strings.Split(strings.TrimRight(cleanText(text), "\n"), "\n")
-	return append(t.enter(roleUser), userStyle.Render("› "+strings.Join(lines, "\n"+hangIndent)))
+	body := hang(strings.TrimRight(cleanText(text), "\n"), "› ", t.Width)
+	return append(t.enter(roleUser), band(userStyle, t.Width).Render(body))
+}
+
+// band stretches a background style to the terminal width, when known.
+func band(st lipgloss.Style, width int) lipgloss.Style {
+	if width > 0 {
+		return st.Width(width)
+	}
+	return st
 }
 
 // Text feeds assistant text. The first text after reasoning closes the
@@ -121,9 +132,9 @@ func (t *Transcript) Live() string {
 		}
 	}
 	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
-		parts = append(parts, hang(renderBlock(p), t.nextAgentPrefix()))
+		parts = append(parts, hang(renderBlock(p), t.nextAgentPrefix(), t.Width))
 	}
-	if len(parts) > 0 && t.last != roleNone && t.last != roleAgent {
+	if len(parts) > 0 && t.last != roleNone && (t.last != roleAgent || t.marked) {
 		parts = append([]string{""}, parts...)
 	}
 	return strings.Join(parts, "\n")
@@ -144,12 +155,15 @@ func (t *Transcript) enter(r role) []string {
 }
 
 // agentBlock renders a finished assistant block: the turn's first block gets
-// the agent marker, the rest hang under it.
+// the agent marker, the rest hang under it after a blank line.
 func (t *Transcript) agentBlock(raw string) []string {
 	out := t.enter(roleAgent)
+	if t.marked {
+		out = append(out, "")
+	}
 	prefix := t.nextAgentPrefix()
 	t.marked = true
-	return append(out, hang(renderBlock(raw), prefix))
+	return append(out, hang(renderBlock(raw), prefix, t.Width))
 }
 
 func (t *Transcript) nextAgentPrefix() string {
@@ -159,8 +173,12 @@ func (t *Transcript) nextAgentPrefix() string {
 	return assistantStyle.Render(agentMarker)
 }
 
-// hang prefixes the first line of block with first and indents the rest.
-func hang(block, first string) string {
+// hang prefixes the first line of block with first and indents the rest,
+// wrapping to width first so wrapped rows stay under the marker too.
+func hang(block, first string, width int) string {
+	if w := width - len(hangIndent); w > 0 {
+		block = ansi.Wrap(block, w, "")
+	}
 	lines := strings.Split(block, "\n")
 	for i := range lines {
 		if i == 0 {
@@ -195,18 +213,22 @@ func (t *Transcript) endThinking(now time.Time) []string {
 	return append(out, dimStyle.Render(fmt.Sprintf("· thought for %ds", secs)))
 }
 
-// toolRow renders "▸ <tool> <subject> <outcome>", cut to width with an ellipsis.
+// toolRow renders "▸ <tool> <subject> <outcome>", cut to width with an
+// ellipsis, on a band coloured by status.
 func toolRow(tool string, args map[string]any, status, output string, width int) string {
 	row := fmt.Sprintf("▸ %s %s %s", core.Sanitize(tool), subject(tool, args), outcome(tool, status, output))
 	row = strings.Join(strings.Fields(row), " ")
 	if width > 0 {
 		row = ansi.Truncate(row, width, "…")
 	}
+	bg := toolOtherBg
 	switch status {
+	case "ok":
+		bg = toolOkBg
 	case "error", "denied", "cancelled":
-		return errStyle.Render(row)
+		bg = toolErrBg
 	}
-	return dimStyle.Render(row)
+	return band(toolStyle.Background(bg), width).Render(row)
 }
 
 func argString(args map[string]any, key string) string {
