@@ -156,7 +156,9 @@ Only each skill's name, description and path go in the system prompt; the
 model reads the full `SKILL.md` (and any `references/` or `scripts/`) with
 the `read` tool when a task matches. `read`, `ls` and `grep` may open listed
 skill directories (the deny floor still applies there); `write`, `edit` and
-`shell` stay confined to the project as before.
+`shell` stay confined to the project as before. In chat, a read of a
+`SKILL.md` shows as a `◆ skill <name>` row, and `/skill:<name>` prints the
+same marker above your message.
 
 - On a name clash the first skill found wins, in the table's order: project
   before user, `.agents` before `.claude`. A warning names both. The same

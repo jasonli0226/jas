@@ -131,7 +131,9 @@ func TestChat_SkillCommandSendsPrompt(t *testing.T) {
 	msgs := b.prov.Requests[0].Messages
 	last := msgs[len(msgs)-1]
 	assert.Eq(t, last.Content[0].Text, want)
-	assert.Eq(t, plain(c.m.Printed())[0], "› /skill:review fix it")
+	printed := plain(c.m.Printed())
+	assert.Eq(t, printed[0], "◆ skill review")
+	assert.Eq(t, printed[1], "› /skill:review fix it")
 }
 
 func TestChat_UnknownSkillIsUnknownCommand(t *testing.T) {

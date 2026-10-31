@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,9 @@ import (
 type Transcript struct {
 	ShowThinking bool
 	Width        int
+	// Skills maps each SKILL.md path to its skill name, so a read of one
+	// shows as a skill row.
+	Skills map[string]string
 
 	text      mdStream
 	reasoning mdStream
@@ -41,7 +45,10 @@ const (
 	roleNotice
 )
 
-const agentMarker = "● "
+const (
+	agentMarker = "● "
+	skillMarker = "◆ skill "
+)
 
 // startedCall is a tool shown as running in the live region until its result.
 type startedCall struct{ id, tool string }
@@ -113,7 +120,7 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		delete(t.calls, id)
 		t.running = slices.DeleteFunc(t.running, func(c startedCall) bool { return c.id == id })
 		out = append(out, t.enter(roleTool)...)
-		return append(out, toolRow(tool, args, status, output, t.Width))
+		return append(out, t.row(tool, args, status, output))
 	case "compaction":
 		row := fmt.Sprintf("· compacted earlier messages (%s → %s tok)",
 			formatTokens(intField(data, "tokens_before")), formatTokens(intField(data, "tokens_after")))
@@ -158,7 +165,7 @@ func (t *Transcript) historyTool(use, res providers.ContentBlock, redact func(st
 	if res.IsError {
 		status = "error"
 	}
-	return append(t.enter(roleTool), toolRow(use.Name, args, status, redact(res.Text), t.Width))
+	return append(t.enter(roleTool), t.row(use.Name, args, status, redact(res.Text)))
 }
 
 // Notice prints jas-owned notice blocks as their own group.
@@ -193,7 +200,7 @@ func (t *Transcript) Live() string {
 		parts = append(parts, "")
 	}
 	for _, c := range t.running {
-		parts = append(parts, toolRow(c.tool, t.calls[c.id], "running", "", t.Width))
+		parts = append(parts, t.row(c.tool, t.calls[c.id], "running", ""))
 	}
 	return strings.Join(parts, "\n")
 }
@@ -271,10 +278,44 @@ func (t *Transcript) endThinking(now time.Time) []string {
 	return append(out, dimStyle.Render(fmt.Sprintf("· thought for %ds", secs)))
 }
 
+// row renders a tool call, or a skill row when it reads a known SKILL.md.
+func (t *Transcript) row(tool string, args map[string]any, status, output string) string {
+	if name, ok := t.skillRead(tool, args); ok {
+		out := "loaded"
+		if status != "ok" {
+			out = outcome(tool, status, output)
+		}
+		return statusRow(fmt.Sprintf("%s%s %s", skillMarker, core.Sanitize(name), out), status, t.Width)
+	}
+	return toolRow(tool, args, status, output, t.Width)
+}
+
+// skillRead returns the skill whose SKILL.md a read call loads.
+func (t *Transcript) skillRead(tool string, args map[string]any) (string, bool) {
+	p, _ := args["path"].(string)
+	if tool != "read" || p == "" {
+		return "", false
+	}
+	name, ok := t.Skills[filepath.Clean(p)]
+	return name, ok
+}
+
+// SkillUser renders a /skill invocation: the skill marker, then the prompt
+// as typed, in one group.
+func (t *Transcript) SkillUser(name, shown string) []string {
+	out := append(t.enter(roleUser), dimStyle.Render(skillMarker+core.Sanitize(name)))
+	return append(out, t.User(shown)...)
+}
+
 // toolRow renders "▸ <tool> <subject> <outcome>", cut to width with an
 // ellipsis, on a band coloured by status.
 func toolRow(tool string, args map[string]any, status, output string, width int) string {
 	row := fmt.Sprintf("▸ %s %s %s", core.Sanitize(tool), subject(tool, args), outcome(tool, status, output))
+	return statusRow(row, status, width)
+}
+
+// statusRow cuts row to width and puts it on a band coloured by status.
+func statusRow(row, status string, width int) string {
 	row = strings.Join(strings.Fields(row), " ")
 	if width > 0 {
 		row = ansi.Truncate(row, width, "…")

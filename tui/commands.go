@@ -224,7 +224,8 @@ func (m *Model) unknownCommand(name string) tea.Cmd {
 	return m.print(errStyle.Render(msg))
 }
 
-// skillCommand sends the skill's prompt as the user message, shown as typed.
+// skillCommand sends the skill's prompt as the user message, shown as typed
+// under the skill marker.
 func (m *Model) skillCommand(skill, arg, text string) tea.Cmd {
 	prompt, ok := m.b.SkillPrompt(skill, arg)
 	if !ok {
@@ -234,7 +235,7 @@ func (m *Model) skillCommand(skill, arg, text string) tea.Cmd {
 		return m.notice(waitNotice)
 	}
 	m.input.Reset()
-	return m.startRun(prompt, text)
+	return m.startRun(prompt, m.tr.SkillUser(skill, text))
 }
 
 // clean masks secrets and escapes control characters in one line of text.

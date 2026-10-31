@@ -151,6 +151,18 @@ func TestChatBackend_SkillPromptRedacts(t *testing.T) {
 	assert.Eq(t, ok, false)
 }
 
+func TestChatBackend_SkillFilesMapsLocationToName(t *testing.T) {
+	e := testEnv(t)
+	e.pc.skills = []skills.Skill{
+		{Name: "deploy", Location: "/s/deploy/SKILL.md"},
+		{Name: "manual", Location: "/s/manual/SKILL.md", DisableModelInvocation: true},
+	}
+	files := (&chatBackend{e: e}).SkillFiles()
+	assert.Eq(t, len(files), 2)
+	assert.Eq(t, files["/s/deploy/SKILL.md"], "deploy")
+	assert.Eq(t, files["/s/manual/SKILL.md"], "manual")
+}
+
 func TestChatBackend_ModelsUnion(t *testing.T) {
 	e := testEnv(t)
 	e.file = settings.File{Models: map[string]settings.ModelOverride{"zz": {ContextWindow: 1000}, "m": {ContextWindow: 2000}}}

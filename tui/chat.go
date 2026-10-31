@@ -115,7 +115,7 @@ func New(b Backend, o Options) *Model {
 	in.Focus()
 	m := &Model{
 		b: b, o: o, input: in, width: defaultWidth, model: o.Model,
-		tr: Transcript{Width: defaultWidth},
+		tr: Transcript{Width: defaultWidth, Skills: b.SkillFiles()},
 	}
 	// send is set after New (Run needs the program first), so read it late.
 	m.gate = NewGate(o.Level, o.Windows, o.Redact, func(msg tea.Msg) { m.send(msg) })

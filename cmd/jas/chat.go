@@ -228,6 +228,16 @@ func (b *chatBackend) SkillNames() []string {
 	return names
 }
 
+// SkillFiles maps each skill's SKILL.md path to its name, so the chat can
+// show the model loading one as a skill row.
+func (b *chatBackend) SkillFiles() map[string]string {
+	files := make(map[string]string, len(b.e.pc.skills))
+	for _, s := range b.e.pc.skills {
+		files[s.Location] = s.Name
+	}
+	return files
+}
+
 // SkillPrompt is the user message that invokes skill name with text.
 func (b *chatBackend) SkillPrompt(name, text string) (string, bool) {
 	i := slices.IndexFunc(b.e.pc.skills, func(s skills.Skill) bool { return s.Name == name })
