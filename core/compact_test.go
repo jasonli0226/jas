@@ -35,6 +35,17 @@ func TestCompactThreshold(t *testing.T) {
 	}
 }
 
+func TestCompactKeep(t *testing.T) {
+	tests := []struct{ window, reserve, keep, want int }{
+		{200000, 16384, 20000, 20000},
+		{32768, 16384, 20000, 8192},
+		{2000, 16384, 1200, 500},
+	}
+	for _, tc := range tests {
+		assert.Eq(t, compactKeep(tc.window, tc.reserve, tc.keep), tc.want)
+	}
+}
+
 func TestCutIndex_KeepsTailAndSkipsToolResults(t *testing.T) {
 	// 40 bytes = 10 tokens per message; the tail reaches 40 tokens at index 2.
 	msgs := []providers.Message{
@@ -118,4 +129,26 @@ func TestWithFileLists_ReplacesOldBlocks(t *testing.T) {
 	twice := withFileLists(once, []string{"r.go"}, []string{"m.go"})
 	assert.Eq(t, twice, "sum\n\n<read-files>\nr.go\n</read-files>\n<modified-files>\nm.go\n</modified-files>")
 	assert.Eq(t, withFileLists(once, nil, nil), "sum")
+}
+
+func TestCutIndex_WalkBackEdges(t *testing.T) {
+	// Every message is a tool-results message: the walk-back reaches 0.
+	all := []providers.Message{resultMsg("a", "x"), resultMsg("b", "x"), resultMsg("c", "x")}
+	assert.Eq(t, cutIndex(all, 1), 0)
+
+	// The candidate lands on a tool-results message and walks back to index 0.
+	head := []providers.Message{
+		resultMsg("a", strings.Repeat("x", 40)),
+		textMsg(providers.RoleAssistant, 40),
+	}
+	assert.Eq(t, cutIndex(head, 15), 0)
+
+	// After a summary the walk-back stops at the floor and finds nothing.
+	msgs := []providers.Message{
+		summaryMessage("S"),
+		useMsg("c1", "", `{}`),
+		resultMsg("c1", strings.Repeat("x", 40)),
+		textMsg(providers.RoleAssistant, 40),
+	}
+	assert.Eq(t, cutIndex(msgs, 15), 0) // candidate 2 is tool-results, walks back to 1
 }

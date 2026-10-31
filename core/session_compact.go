@@ -35,7 +35,7 @@ func (s *Session) Compact(ctx context.Context, focus string) (CompactResult, err
 	if len(s.messages) > 0 {
 		prev, hasPrev = isSummary(s.messages[0])
 	}
-	cut := cutIndex(s.messages, c.Compact.Keep)
+	cut := cutIndex(s.messages, compactKeep(c.Budget.Window, c.Compact.Reserve, c.Compact.Keep))
 	if cut == 0 {
 		return CompactResult{}, ErrNothingToCompact
 	}

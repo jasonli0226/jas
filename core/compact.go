@@ -46,6 +46,12 @@ func compactThreshold(window, reserve int) int {
 	return max(window-reserve, window/2)
 }
 
+// compactKeep caps the kept tail at half the trigger, so a compaction always
+// brings the prompt well under the threshold, even on small windows.
+func compactKeep(window, reserve, keep int) int {
+	return min(keep, compactThreshold(window, reserve)/2)
+}
+
 // cutIndex returns the index of the first message kept verbatim, or 0 when
 // there is nothing worth compacting. The cut never lands on a tool-results
 // message, so a tool call stays with its results.

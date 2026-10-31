@@ -95,7 +95,8 @@ per-model `models.<name>.context_window`.
 The chat compacts its context: once the prompt passes the window minus
 `compact_reserve_tokens` (default 16384; never below half the window), older
 messages are replaced by a summary, keeping about `compact_keep_tokens` (default
-20000) of recent messages verbatim. `compact_model` picks the summary model
+20000) of recent messages verbatim; on small windows that amount is capped at
+half the compaction threshold. `compact_model` picks the summary model
 (default: the session's). `/compact [focus]` compacts on demand. `jas run`
 does not compact.
 

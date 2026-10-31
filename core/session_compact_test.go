@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -275,4 +276,103 @@ func TestSession_CompactKeptMessageWithoutID(t *testing.T) {
 	}
 	assert.Eq(t, len(r.prov.Requests), 0)
 	assert.Eq(t, msgSummary(s.Messages()), msgSummary(old))
+}
+
+// smallWindowRig runs a session on the compactWindow with a Reserve far over
+// the window (so the trigger is half the window, 1000 tokens) and every model
+// turn, summaries included, answering with about 100 tokens.
+func smallWindowRig(t *testing.T, keep int) (*rig, *core.Session) {
+	t.Helper()
+	turns := make([]fake.Turn, 40)
+	for i := range turns {
+		turns[i] = fake.Turn{Text: "A" + tokens(100)}
+	}
+	r := newRig(t, turns)
+	return r, newCompactSession(t, r, &core.CompactConfig{Reserve: 16384, Keep: keep})
+}
+
+// summaryRequests counts the tool-less requests, which are summaries.
+func summaryRequests(r *rig) int {
+	n := 0
+	for _, req := range r.prov.Requests {
+		if len(req.Tools) == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSession_SmallWindowKeepIsClamped(t *testing.T) {
+	// Keep 1200 is above the 1000-token trigger: unclamped, the kept tail
+	// alone is over the threshold and every Send compacts again.
+	r, s := smallWindowRig(t, 1200)
+	ctx := context.Background()
+	const sends = 10
+	compacted := false
+	for i := 0; i < sends; i++ {
+		reqs, sums := len(r.prov.Requests), summaryRequests(r)
+		res := send(t, s, ctx, "u"+tokens(100))
+		assert.Eq(t, res.Status, "ok")
+		if compacted && summaryRequests(r) == sums {
+			assert.Eq(t, len(r.prov.Requests)-reqs, 1)
+		}
+		if summaryRequests(r) > sums {
+			if compacted {
+				t.Fatalf("send %d compacted straight after a compaction", i)
+			}
+			compacted = true
+			continue
+		}
+		compacted = false
+	}
+	n := len(eventsOf(r.events(t), "compaction"))
+	if n == 0 || n >= sends/2 {
+		t.Fatalf("compactions = %d over %d sends", n, sends)
+	}
+}
+
+func TestSession_KeepLargerThanWindowStillCompacts(t *testing.T) {
+	r, s := smallWindowRig(t, 2500)
+	ctx := context.Background()
+	for i := 0; i < 6; i++ {
+		res := send(t, s, ctx, "u"+tokens(100))
+		assert.Eq(t, res.Status, "ok")
+	}
+	assert.Eq(t, len(eventsOf(r.events(t), "compaction")) > 0, true)
+}
+
+// compactFailLog fails the compaction event's write.
+type compactFailLog struct{ core.EventLog }
+
+func (l *compactFailLog) AppendID(typ string, data any) (string, error) {
+	if typ == core.EvCompaction {
+		return "", errBoom
+	}
+	return l.EventLog.AppendID(typ, data)
+}
+
+func TestSession_CompactLogFailureLeavesSession(t *testing.T) {
+	r := newRig(t, []fake.Turn{
+		{Text: "A1" + tokens(100)}, {Text: "A2" + tokens(100)}, {Text: "A3" + tokens(100)},
+		{Text: summaryReply, Usage: providers.Usage{PromptTokens: 11, CompletionTokens: 3}},
+	})
+	r.cfg.Log = &compactFailLog{EventLog: r.cfg.Log}
+	s := newCompactSession(t, r, &core.CompactConfig{Reserve: 0, Keep: 150})
+	ctx := context.Background()
+	for _, u := range []string{"u1", "u2", "u3"} {
+		assert.Eq(t, send(t, s, ctx, u+tokens(100)).Status, "ok")
+	}
+	msgs, ids := s.Messages(), s.MessageIDs()
+
+	_, err := s.Compact(ctx, "")
+	if err == nil || !errors.Is(err, errBoom) {
+		t.Fatalf("err = %v, want wrapped errBoom", err)
+	}
+	assert.Eq(t, msgSummary(s.Messages()), msgSummary(msgs))
+	assert.Eq(t, strings.Join(s.MessageIDs(), ","), strings.Join(ids, ","))
+	assert.Eq(t, len(eventsOf(r.events(t), "compaction")), 0)
+
+	// The summary's usage was not added to the session total.
+	assert.NoErr(t, s.Close("ok", core.ExitOK))
+	assert.Eq(t, lastEnded(t, r.events(t))["prompt_tokens"].(float64), 0.0)
 }
