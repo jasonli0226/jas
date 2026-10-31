@@ -29,6 +29,7 @@ const (
 	EvTurnEnded        = "turn_ended"
 	EvSessionResumed   = "session_resumed"
 	EvModelChanged     = "model_changed"
+	EvCompaction       = "compaction"
 )
 
 const (
