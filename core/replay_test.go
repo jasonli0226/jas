@@ -482,3 +482,104 @@ func TestResumeSession_SeedsIDs(t *testing.T) {
 	assert.Eq(t, strings.Join(s2.MessageIDs(), ","), strings.Join(st.MessageIDs, ","))
 	assert.Eq(t, len(s2.MessageIDs()), len(s2.Messages()))
 }
+
+// compactedRig runs three sends, a Compact, then keeps going; turns holds the
+// provider script after the three initial replies. It returns the live session.
+func compactedRig(t *testing.T, rest ...fake.Turn) (*rig, *core.Session) {
+	t.Helper()
+	turns := append([]fake.Turn{
+		{Text: "A1" + tokens(100)}, {Text: "A2" + tokens(100)}, {Text: "A3" + tokens(100)},
+		{Text: summaryReply},
+	}, rest...)
+	r := newRig(t, turns)
+	s := newCompactSession(t, r, &core.CompactConfig{Keep: 150})
+	for _, u := range []string{"u1", "u2", "u3"} {
+		send(t, s, context.Background(), u+tokens(100))
+	}
+	_, err := s.Compact(context.Background(), "")
+	assert.NoErr(t, err)
+	return r, s
+}
+
+func closeAll(t *testing.T, r *rig, s *core.Session) {
+	t.Helper()
+	assert.NoErr(t, s.Close("ok", 0))
+	assert.NoErr(t, r.cfg.Log.Close())
+}
+
+func TestReplay_CompactionRoundTrip(t *testing.T) {
+	r, s := compactedRig(t, fake.Turn{Text: "A4"})
+	send(t, s, context.Background(), "u4")
+	want, wantIDs := s.Messages(), s.MessageIDs()
+	closeAll(t, r, s)
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	if !reflect.DeepEqual(st.Messages, want) {
+		t.Fatalf("replayed messages differ:\n got %s\nwant %s", msgSummary(st.Messages), msgSummary(want))
+	}
+	assert.Eq(t, strings.Join(st.MessageIDs, ","), strings.Join(wantIDs, ","))
+	assert.Eq(t, len(st.Notices), 0)
+}
+
+func TestReplay_UsesLatestCompaction(t *testing.T) {
+	r, s := compactedRig(t, fake.Turn{Text: "A4" + tokens(100)}, fake.Turn{Text: "A5" + tokens(100)}, fake.Turn{Text: "SUMMARY-TWO"})
+	send(t, s, context.Background(), "u4"+tokens(100))
+	send(t, s, context.Background(), "u5"+tokens(100))
+	_, err := s.Compact(context.Background(), "")
+	assert.NoErr(t, err)
+	want, wantIDs := s.Messages(), s.MessageIDs()
+	closeAll(t, r, s)
+
+	evs := eventsOf(r.events(t), "compaction")
+	assert.Eq(t, len(evs), 2)
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Contains(t, st.Messages[0].Content[0].Text, "SUMMARY-TWO")
+	assert.Eq(t, st.MessageIDs[0], evs[1]["id"].(string))
+	if !reflect.DeepEqual(st.Messages, want) {
+		t.Fatalf("replayed messages differ:\n got %s\nwant %s", msgSummary(st.Messages), msgSummary(want))
+	}
+	assert.Eq(t, strings.Join(st.MessageIDs, ","), strings.Join(wantIDs, ","))
+}
+
+func TestReplay_CompactionUnknownKeptID(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "hi"}}}))
+	assert.NoErr(t, log.Append(core.EvCompaction, map[string]any{"summary": "S", "first_kept_id": "e999999"}))
+	assert.NoErr(t, log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(st.Messages), 1)
+	assert.Eq(t, st.Messages[0].Content[0].Text, "hi")
+	assert.Eq(t, strings.Join(st.Notices, "|"), "ignored compaction at line 3: first kept message not found")
+}
+
+func TestResumeSession_AfterCompactionCanCompactAgain(t *testing.T) {
+	r, s := compactedRig(t, fake.Turn{Text: "A4" + tokens(100)}, fake.Turn{Text: "SUMMARY-TWO"})
+	send(t, s, context.Background(), "u4"+tokens(100))
+	closeAll(t, r, s)
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	log2, err := core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = log2.Close() })
+	c := r.sessionConfig()
+	c.Log = log2
+	c.Exec.Log = log2
+	c.Budget = &core.Budget{Window: compactWindow, ElideAt: 1, Keep: core.DefaultKeepToolResults}
+	c.Compact = &core.CompactConfig{Keep: 150}
+	s2, err := core.ResumeSession(c, st)
+	assert.NoErr(t, err)
+	_, err = s2.Compact(context.Background(), "")
+	assert.NoErr(t, err)
+
+	req := r.prov.Requests[len(r.prov.Requests)-1]
+	assert.Contains(t, req.Messages[0].Content[0].Text, "<previous-summary>")
+	assert.Contains(t, s2.Messages()[0].Content[0].Text, "SUMMARY-TWO")
+}

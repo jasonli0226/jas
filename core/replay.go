@@ -61,6 +61,9 @@ type replayLine struct {
 	CallID  string      `json:"call_id"`
 	Status  string      `json:"status"`
 	Output  string      `json:"output"`
+	// compaction payload
+	Summary     string `json:"summary"`
+	FirstKeptID string `json:"first_kept_id"`
 }
 
 func newLogScanner(r io.Reader) *bufio.Scanner {
@@ -151,6 +154,8 @@ func (r *replayer) apply(line int, ev replayLine) {
 		}
 		r.add(ev.ID, providers.RoleAssistant, ev.Content)
 		r.expectResults(ev.Content)
+	case EvCompaction:
+		r.compact(line, ev)
 	case EvToolStarted:
 		if slices.Contains(r.order, ev.CallID) {
 			r.ran[ev.CallID] = true
@@ -158,6 +163,19 @@ func (r *replayer) apply(line int, ev replayLine) {
 	case EvToolResult:
 		r.recordResult(ev)
 	}
+}
+
+// compact replaces the history before first_kept_id with the summary, as the
+// live session did. An unknown id leaves the history alone.
+func (r *replayer) compact(line int, ev replayLine) {
+	r.flushResults(false)
+	idx := slices.Index(r.st.MessageIDs, ev.FirstKeptID)
+	if ev.FirstKeptID == "" || idx < 0 {
+		r.notef("ignored compaction at line %d: first kept message not found", line)
+		return
+	}
+	r.st.Messages = append([]providers.Message{summaryMessage(ev.Summary)}, r.st.Messages[idx:]...)
+	r.st.MessageIDs = append([]string{ev.ID}, r.st.MessageIDs[idx:]...)
 }
 
 func (r *replayer) setModel(m string) {
