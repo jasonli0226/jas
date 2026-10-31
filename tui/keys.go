@@ -39,6 +39,10 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+c":
 		return m.onCtrlC()
+	case "up", "down":
+		if m.onHistoryKey(k) {
+			return nil
+		}
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -57,6 +61,7 @@ func (m *Model) onEnter() tea.Cmd {
 	if text == "" || m.live == nil || m.opening != nil {
 		return nil
 	}
+	m.hist.add(text)
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
 	}
@@ -67,6 +72,28 @@ func (m *Model) onEnter() tea.Cmd {
 		return nil
 	}
 	return m.startRun(text, text)
+}
+
+// onHistoryKey recalls submitted input: Up from the first line of the
+// input, Down from the last, so the arrows still move within a multi-line
+// draft. A recalled / command keeps the / menu shut.
+func (m *Model) onHistoryKey(k string) bool {
+	if m.approval != nil {
+		return false
+	}
+	var v string
+	var ok bool
+	switch {
+	case k == "up" && m.input.Line() == 0:
+		v, ok = m.hist.prev(m.input.Value())
+	case k == "down" && m.input.Line() == m.input.LineCount()-1:
+		v, ok = m.hist.next()
+	}
+	if ok {
+		m.input.SetValue(v)
+		m.slashHidden = v
+	}
+	return ok
 }
 
 // onCtrlC clears non-empty input without arming the quit; on an empty box a

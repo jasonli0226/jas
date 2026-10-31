@@ -57,6 +57,7 @@ an always grant on a shell command covers any arguments to the first two words
   (always on "go test ./core" also allows "go test ./...")
 keys
   Enter send or steer · Alt+Enter or Shift+Enter newline · Esc stop the run
+  Up/Down recall earlier input (from the first or last line of the input)
   Ctrl-C clear the input; twice on an empty box quits
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel`
