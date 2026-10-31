@@ -402,7 +402,7 @@ per-task containers ship in v3).
       `jas resume` (event-log replay, §3 side-effect rules)
 - [ ] MCP client support (stdio first, then HTTP)
 - [ ] Bubble Tea TUI: live status board of running/queued tasks
-- [ ] **Auto-compaction** (pi parity): trigger at `window − reserve`
+- [x] **Auto-compaction** (pi parity): trigger at `window − reserve`
       (16k default); summarize older history with a cheap model into a summary
       entry; originals kept in the session file (v1 already elides tool results)
 - [ ] **Session tree**: `parent_id` already on events from v1 → branches, fork,
@@ -415,7 +415,8 @@ per-task containers ship in v3).
       scenario files and hook scripts (§11)
 - [ ] **Project-scoped settings** (§10): `jas config set --project …` writes
       `.jas/scenario.yaml` keys
-- [ ] **Checkpoint/resume** from `events.jsonl` replay (§3 side-effect rules)
+- [x] **Checkpoint/resume** from `events.jsonl` replay (§3 side-effect rules):
+      shipped for the chat as `jas --continue` and `/resume`
 - [ ] **Blind secret access** (§9 layer 3)
 - [ ] **Web access**: `web_fetch` + `web_search` + `git_clone` scenario tools (§12.1)
 - [ ] **Steering & follow-up queues**: user messages enter after the current
@@ -425,8 +426,8 @@ per-task containers ship in v3).
 
 ## 6. v3 ideas
 
-- skills (instruction+tool manifests) — Hermes-style, aligned with the
-  agentskills.io `SKILL.md` spec (pi follows it; interop with Claude Code/Hermes)
+- skill tool manifests — Hermes-style. Instruction-only `SKILL.md` skills
+  (agentskills.io spec) already shipped (§3)
 - optional `.mcp.json` interop alongside `scenario.yaml`'s `mcp:` block
   (scenario.yaml remains the single runtime-policy format — #9)
 - **`jas learn <topic>`**: research → draft → human approval → save a skill (§12.2)
@@ -466,8 +467,8 @@ sandbox, toolsets, hooks, mcp). See #9.
 
 - **AGENTS.md** (adopted in v1, #8) complements scenario.yaml: project
   instructions for the model. It cannot express runtime policy.
-- **SKILL.md / `.mcp.json`** stay on the v3 roadmap for interop; they do **not**
-  replace `scenario.yaml`.
+- **SKILL.md** skills shipped (§3) and **`.mcp.json`** stays on the v3 roadmap
+  for interop; neither replaces `scenario.yaml`.
 - **Blueprints** (scaffold-from-preset / `jas new` / `jas scenario save`) are
   **dropped** — they don't advance the agent loop. `jas bootstrap` (below)
   still drafts a scenario from an existing project.
@@ -619,7 +620,6 @@ TUI slash commands.
 ├── auth.json                  # saved API keys (chmod 0600; see §9 for the threat model)
 ├── trust.json                 # project trust answers: root path + content hash (§3)
 ├── scenarios/                 # saved scenario presets (not blueprints — #9)
-├── skills/                    # v3: instruction+tool manifest dirs
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3)
 ├── run/                       # v2: farm supervisor sockets (<farm-id>.sock, 0600)
 └── AGENTS.md                  # global instructions appended to every system prompt
@@ -879,5 +879,5 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 | Context | auto-compaction (summary at `window − reserve`) | v1: chunked tool-result elision + clean stop; v2: same compaction | elision is the cheap v1 floor |
 | Sessions | JSONL tree, `--continue` / `--resume` / `--fork` | versioned JSONL events with `parent_id`; resume and fork in v2 | write-ahead `tool_started` for at-most-once side effects |
 | Parallelism | one session per process (tmux for more) | `jas farm --n N`: worktree per task, review queue (v2) | core jas bet |
-| Extensibility | TS extensions, npm/git packages, skills, prompt templates, MCP | `Tool` interface, MCP (v2), hooks + scenarios (v2), skills (v3) | no plugin ABI in Go; scenarios are data |
+| Extensibility | TS extensions, npm/git packages, skills, prompt templates, MCP | `Tool` interface, MCP (v2), hooks + scenarios (v2), `SKILL.md` skills | no plugin ABI in Go; scenarios are data |
 | Secrets | `auth.json`, keys out of settings | four layers (§9): deny floor, output redaction, blind access (v2), redacted log | redaction is the backstop for YOLO shell |

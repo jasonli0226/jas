@@ -72,6 +72,24 @@ Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
 `--continue`; it needs a terminal, so scripts use `jas run`. There is deliberately no `--api-key` flag (argv leaks via
 shell history and `ps`).
 
+## Chat
+
+`jas` opens an inline chat. Replies stream into the terminal's own scrollback
+(no full-screen mode), above the input box and a status line showing the
+model, approval level, context use and token counts.
+
+- **Enter** sends; **Alt+Enter** or **Shift+Enter** adds a newline. Typing
+  while a reply runs steers it: the text reaches the model at its next step.
+  **Esc** stops the run; **Ctrl-C** clears the input, and twice on an empty
+  box quits.
+- **`/`** opens a command menu, filtered as you type, with every command and
+  `/skill:<name>`; Up/Down move, Tab or Enter completes. `/help` lists every
+  command and key.
+- **Up/Down** from the first or last line of the input recall earlier input.
+- Each tool call shows a running row while it runs, then one result row.
+- **`jas --continue`** or **`/resume`** reopens a saved session and reprints
+  its conversation; Up/Down history comes back with it.
+
 ## Configuration
 
 Precedence: flag > `JAS_*` env var > `~/.jas/config.json` > built-in default.
@@ -101,8 +119,6 @@ messages are replaced by a summary, keeping about `compact_keep_tokens` (default
 half the compaction threshold. `compact_model` picks the summary model
 (default: the session's). `/compact [focus]` compacts on demand. `jas run`
 does not compact.
-
-Inline chat UX polish (role chrome, resume reprint, live tools) is tracked in [`docs/superpowers/plans/2026-10-31-tui-ux-polish.md`](docs/superpowers/plans/2026-10-31-tui-ux-polish.md).
 
 API keys come from `auth.json` (literal, mode 0600), a `$ENV_NAME` reference
 stored there, or `JAS_API_KEY`. `jas auth list` shows names and sources,
@@ -170,6 +186,31 @@ superset of the one before.
 A denied call returns `status: denied` to the model and the run continues.
 With no TTY (CI, piped stdin) a gated call cannot be answered: jas records
 `approval: unavailable` and exits 5.
+
+### Always grants (chat)
+
+The chat asks `approve <tool>: <call>? [y/N/always]`. `y` allows the call
+once, Enter or `n` denies it, and any other text denies it and is passed to
+the model as steering. `always` allows matching calls until jas quits:
+grants survive `/new` but not `/resume` or `--continue`, are never saved, and
+`/allowed` lists and removes them. A call that can't get a grant is allowed
+once. An
+`edit` or `write` grant covers the whole tool. A shell grant covers later
+commands with the same first two words, a program and its subcommand
+(`go test`, `git commit`, `npm run`), with any arguments.
+
+No shell grant is offered for:
+
+- commands containing `;`, `&`, `|`, `$(`, a backtick, `>`, `<` or a
+  newline, or starting with `VAR=` (on Windows also `^` and `%`);
+- one-word commands, programs given by path (`./run.sh`), or a second word
+  that is a flag or path;
+- shells, interpreters (`python`, `node`, …), wrappers that run another
+  command (`env`, `sudo`, `xargs`, `timeout`, …), `find`, `rm` and similar.
+
+Arguments after the two words are not checked, and some subcommands take
+flags that run another program (`go test -exec`, `git fetch --upload-pack`).
+Grant only what you would approve with any arguments.
 
 ## Exit codes
 
