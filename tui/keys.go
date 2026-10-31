@@ -71,7 +71,7 @@ func (m *Model) onEnter() tea.Cmd {
 		m.queued = append(m.queued, text)
 		return nil
 	}
-	return m.startRun(text, text)
+	return m.startRun(text, m.tr.User(text))
 }
 
 // onHistoryKey recalls submitted input: Up from the first line of the

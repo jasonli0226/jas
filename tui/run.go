@@ -49,15 +49,15 @@ func (m *Model) spawn(compact bool, work func(context.Context) tea.Msg) {
 	}()
 }
 
-// startRun prints shown as the user block and sends text on a goroutine,
-// which posts runDoneMsg when Send returns.
-func (m *Model) startRun(text, shown string) tea.Cmd {
+// startRun prints the shown blocks and sends text on a goroutine, which
+// posts runDoneMsg when Send returns.
+func (m *Model) startRun(text string, shown []string) tea.Cmd {
 	gen, s := m.gen, m.live.Session
 	m.spawn(false, func(ctx context.Context) tea.Msg {
 		res, err := s.Send(ctx, text)
 		return runDoneMsg{gen: gen, res: res, err: err}
 	})
-	return m.print(m.tr.User(shown)...)
+	return m.print(shown...)
 }
 
 // startCompact compacts the session on a goroutine, which posts

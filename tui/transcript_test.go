@@ -297,3 +297,42 @@ func TestToolRow_RunningTruncatesToWidth(t *testing.T) {
 	assert.Eq(t, len([]rune(row)), 20)
 	assert.Eq(t, strings.HasSuffix(row, "…"), true)
 }
+
+var testSkills = map[string]string{"/skills/review/SKILL.md": "review"}
+
+func TestTranscript_SkillReadShowsSkillRow(t *testing.T) {
+	tr := Transcript{Skills: testSkills}
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "read",
+		"args": map[string]any{"path": "/skills/review/SKILL.md"}}, t0)
+	eqStrings(t, plain([]string{tr.Live()}), []string{"◆ skill review running"})
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
+		"status": "ok", "output": "x\ny\n"}, t0))
+	eqStrings(t, got, []string{"◆ skill review loaded"})
+}
+
+func TestTranscript_SkillReadFailedKeepsReason(t *testing.T) {
+	tr := Transcript{Skills: testSkills}
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "read",
+		"args": map[string]any{"path": "/skills/review/SKILL.md"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
+		"status": "error", "output": "no such file"}, t0))
+	eqStrings(t, got, []string{"◆ skill review failed: no such file"})
+}
+
+func TestTranscript_HistoryShowsSkillRow(t *testing.T) {
+	msgs := []providers.Message{
+		{Role: providers.RoleAssistant, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolUse, ToolUseID: "c1", Name: "read", Input: json.RawMessage(`{"path":"/skills/review/SKILL.md"}`)}}},
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolResult, ToolUseID: "c1", Text: "body"}}},
+	}
+	tr := Transcript{Skills: testSkills}
+	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
+	eqStrings(t, got, []string{"◆ skill review loaded"})
+}
+
+func TestTranscript_SkillUserMarksTheInvocation(t *testing.T) {
+	var tr Transcript
+	eqStrings(t, plain(tr.SkillUser("review", "/skill:review fix it")),
+		[]string{"◆ skill review", "› /skill:review fix it"})
+}

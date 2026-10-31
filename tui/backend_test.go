@@ -137,6 +137,9 @@ func (b *testBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 
 func (b *testBackend) Models() []string     { return []string{"m", "m2"} }
 func (b *testBackend) SkillNames() []string { return []string{"review"} }
+func (b *testBackend) SkillFiles() map[string]string {
+	return map[string]string{"/skills/review/SKILL.md": "review"}
+}
 
 func (b *testBackend) Window(string) int {
 	if b.window > 0 {

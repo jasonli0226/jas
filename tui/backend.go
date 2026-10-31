@@ -10,6 +10,7 @@ type Backend interface {
 	Models() []string
 	Window(model string) int
 	SkillNames() []string
+	SkillFiles() map[string]string                // SKILL.md path -> skill name
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
 }
 
