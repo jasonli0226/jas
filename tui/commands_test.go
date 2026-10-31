@@ -213,6 +213,38 @@ func TestChat_SlashListingAndTab(t *testing.T) {
 	assert.NotContains(t, c.view(), "/skill:review")
 }
 
+func TestChat_SlashMenuShowsDescriptions(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/")
+	v := c.view()
+	assert.Contains(t, v, "› /allowed") // the cursor starts on the first row
+	assert.Contains(t, v, "/model")
+	assert.Contains(t, v, "switch model")
+}
+
+// Names starting with what is typed rank above names merely containing it.
+func TestChat_SlashMenuPrefixFirstAndUpDown(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/s")
+	v := c.view()
+	assert.Eq(t, strings.Index(v, "/skill:review") < strings.Index(v, "/resume"), true)
+	c.update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Contains(t, c.view(), "› /skill:review")
+	c.update(tea.KeyPressMsg{Code: tea.KeyEnter}) // a partial name completes
+	assert.Eq(t, c.m.input.Value(), "/skill:review ")
+	assert.Eq(t, len(c.m.Printed()), 0)
+}
+
+func TestChat_SlashMenuEscDismissesUntilEdited(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/s")
+	c.update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.NotContains(t, c.view(), "/session")
+	assert.Eq(t, c.m.input.Value(), "/s")
+	c.typeText("e")
+	assert.Contains(t, c.view(), "/session")
+}
+
 func TestChat_HelpMentionsGrantScope(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t))
 	c.submit("/help")

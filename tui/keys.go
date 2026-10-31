@@ -25,6 +25,9 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if k != "ctrl+c" {
 		m.hint = ""
 	}
+	if menu := m.slashMenu(); menu != nil && m.onSlashKey(menu, msg) {
+		return nil
+	}
 	switch k {
 	case "enter":
 		return m.onEnter()
@@ -36,11 +39,6 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+c":
 		return m.onCtrlC()
-	case "tab":
-		if list := m.completions(); len(list) > 0 {
-			m.input.SetValue("/" + list[0] + " ")
-			return nil
-		}
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)

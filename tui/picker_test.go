@@ -32,7 +32,7 @@ func pickKey(p *picker, k string) (pickResult, string) {
 }
 
 func TestPicker_FilterAndChoose(t *testing.T) {
-	p := &picker{title: "pick", items: []pickItem{{"a-one", "1"}, {"b-two", "2"}}}
+	p := &picker{title: "pick", items: []pickItem{{label: "a-one", value: "1"}, {label: "b-two", value: "2"}}}
 	res, _ := pickKey(p, "TWO")
 	assert.Eq(t, res, pickOpen)
 	assert.Eq(t, len(p.visible()), 1)
@@ -42,7 +42,7 @@ func TestPicker_FilterAndChoose(t *testing.T) {
 }
 
 func TestPicker_MoveBackspaceAndCancel(t *testing.T) {
-	p := &picker{title: "pick", items: []pickItem{{"a-one", "1"}, {"b-two", "2"}}}
+	p := &picker{title: "pick", items: []pickItem{{label: "a-one", value: "1"}, {label: "b-two", value: "2"}}}
 	pickKey(p, "up") // clamps at the top
 	pickKey(p, "down")
 	pickKey(p, "down") // clamps at the bottom
@@ -62,7 +62,7 @@ func TestPicker_MoveBackspaceAndCancel(t *testing.T) {
 func TestPicker_ViewShowsTenRowsAroundCursor(t *testing.T) {
 	var items []pickItem
 	for i := range 15 {
-		items = append(items, pickItem{fmt.Sprintf("item %02d", i), fmt.Sprint(i)})
+		items = append(items, pickItem{label: fmt.Sprintf("item %02d", i), value: fmt.Sprint(i)})
 	}
 	p := &picker{title: "pick", items: items}
 	for range 12 {

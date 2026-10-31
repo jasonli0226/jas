@@ -15,7 +15,6 @@ import (
 const (
 	waitNotice     = "wait for the reply or press Esc first"
 	compactFailed  = "compaction failed: "
-	maxCompletions = 8 // most entries the / listing shows
 	maxSuggestDist = 2 // furthest typo suggest still corrects
 	timeLayout     = "2006-01-02 15:04"
 )
@@ -58,7 +57,8 @@ an always grant on a shell command covers any arguments to the first two words
   (always on "go test ./core" also allows "go test ./...")
 keys
   Enter send or steer · Alt+Enter or Shift+Enter newline · Esc stop the run
-  Ctrl-C clear the input; twice on an empty box quits · Tab complete a / command
+  Ctrl-C clear the input; twice on an empty box quits
+  in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel`
 
 // parseCommand splits "/name arg..." at the first whitespace. ok is false
@@ -128,21 +128,72 @@ func (m *Model) commandNames() []string {
 	return names
 }
 
-// completions lists the names starting with what follows a leading / in the
-// input, while no argument has been typed.
-func (m *Model) completions() []string {
+// commandDesc is the short note the / menu shows beside each command.
+var commandDesc = map[string]string{
+	"help":     "list commands and keys",
+	"quit":     "save the session and quit",
+	"new":      "start a fresh conversation",
+	"model":    "switch model",
+	"thinking": "show or hide thinking",
+	"approve":  "set the approval level",
+	"allowed":  "list and remove always grants",
+	"session":  "session file, tokens and context use",
+	"copy":     "copy the last reply",
+	"resume":   "continue a recent session",
+	"compact":  "summarize older messages",
+}
+
+// slashMenu is the / menu for the input: open while the input is a / name
+// with no argument yet, unless Esc dismissed it at this exact text. Its
+// cursor survives only while the input stays the same.
+func (m *Model) slashMenu() *picker {
 	v := m.input.Value()
-	prefix, ok := strings.CutPrefix(v, "/")
-	if !ok || m.approval != nil || strings.IndexFunc(v, unicode.IsSpace) >= 0 {
+	if !strings.HasPrefix(v, "/") || strings.IndexFunc(v, unicode.IsSpace) >= 0 ||
+		m.approval != nil || m.picker != nil || v == m.slashHidden {
 		return nil
 	}
-	var out []string
+	var items []pickItem
 	for _, n := range m.commandNames() {
-		if strings.HasPrefix(n, prefix) && len(out) < maxCompletions {
-			out = append(out, n)
+		desc, ok := commandDesc[n]
+		if !ok {
+			desc = "run a skill"
 		}
+		items = append(items, pickItem{label: n, value: n, desc: desc})
 	}
-	return out
+	p := &picker{mark: "/", items: items, filter: v[1:]}
+	if m.slashFor == v {
+		p.cursor = min(m.slashCursor, len(p.visible())-1)
+	}
+	return p
+}
+
+// onSlashKey handles the keys the open / menu owns and reports whether it
+// took the key. Enter on a full command name submits it as typed; on a
+// partial one it completes the highlighted name, as Tab does.
+func (m *Model) onSlashKey(menu *picker, msg tea.KeyPressMsg) bool {
+	v := m.input.Value()
+	vis := menu.visible()
+	switch msg.String() {
+	case "up", "down":
+		menu.key(msg)
+		m.slashFor, m.slashCursor = v, menu.cursor
+		return true
+	case "esc":
+		m.slashHidden = v
+		return true
+	case "enter":
+		if slices.Contains(m.commandNames(), strings.TrimPrefix(v, "/")) {
+			return false
+		}
+		fallthrough
+	case "tab":
+		if len(vis) == 0 {
+			return msg.String() == "tab"
+		}
+		m.input.SetValue("/" + vis[menu.cursor].value + " ")
+		return true
+	}
+	return false
 }
 
 // command runs a slash command. Unknown or refused ones leave the input as
@@ -224,7 +275,7 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 	}
 	var items []pickItem
 	for _, n := range m.b.Models() {
-		items = append(items, pickItem{m.clean(n), n})
+		items = append(items, pickItem{label: m.clean(n), value: n})
 	}
 	m.openPicker("model", items, m.setModel)
 	return nil
@@ -273,7 +324,7 @@ func (m *Model) cmdAllowed(string) tea.Cmd {
 	}
 	items := make([]pickItem, len(grants))
 	for i, g := range grants {
-		items[i] = pickItem{m.clean(g), g}
+		items[i] = pickItem{label: m.clean(g), value: g}
 	}
 	m.openPicker("remove always grant", items, func(g string) tea.Cmd {
 		if !m.gate.Grants().Remove(g) {
@@ -313,7 +364,7 @@ func (m *Model) cmdResume(string) tea.Cmd {
 	}
 	items := make([]pickItem, len(infos))
 	for i, in := range infos {
-		items[i] = pickItem{m.clean(in.Started.Local().Format(timeLayout) + " " + in.FirstMessage), in.Path}
+		items[i] = pickItem{label: m.clean(in.Started.Local().Format(timeLayout) + " " + in.FirstMessage), value: in.Path}
 	}
 	m.openPicker("resume", items, m.resumeSession)
 	return nil
