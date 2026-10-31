@@ -88,8 +88,17 @@ jas config list                                 # value + source of every key
 ```
 
 Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
-`max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`, and
+`max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,
+`compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`, and
 per-model `models.<name>.context_window`.
+
+The chat compacts its context: once the prompt passes the window minus
+`compact_reserve_tokens` (default 16384; never below half the window), older
+messages are replaced by a summary, keeping about `compact_keep_tokens` (default
+20000) of recent messages verbatim; on small windows that amount is capped at
+half the compaction threshold. `compact_model` picks the summary model
+(default: the session's). `/compact [focus]` compacts on demand. `jas run`
+does not compact.
 
 API keys come from `auth.json` (literal, mode 0600), a `$ENV_NAME` reference
 stored there, or `JAS_API_KEY`. `jas auth list` shows names and sources,

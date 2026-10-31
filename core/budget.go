@@ -50,6 +50,12 @@ func (b *Budget) Observe(promptTokens int, messagesSent int) {
 	b.obsTokens, b.obsMsgs = promptTokens, messagesSent
 }
 
+// Rebase forgets the last observation and the elision hysteresis, so Count
+// re-estimates from bytes after history is replaced.
+func (b *Budget) Rebase() {
+	b.obsTokens, b.obsMsgs, b.lastAfter = 0, 0, 0
+}
+
 // Count estimates the prompt tokens msgs would use: the last observation plus
 // len(bytes)/4 for messages after it (all estimate before any observation).
 func (b *Budget) Count(msgs []providers.Message) int {

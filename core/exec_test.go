@@ -33,7 +33,11 @@ func (l *fakeLog) add(typ string, data any, sync bool) {
 	l.recs = append(l.recs, logRec{typ, m, sync})
 	l.mu.Unlock()
 }
-func (l *fakeLog) Append(typ string, data any) error     { l.add(typ, data, false); return nil }
+func (l *fakeLog) Append(typ string, data any) error { l.add(typ, data, false); return nil }
+func (l *fakeLog) AppendID(typ string, data any) (string, error) {
+	l.add(typ, data, false)
+	return "", nil
+}
 func (l *fakeLog) AppendSync(typ string, data any) error { l.add(typ, data, true); return nil }
 func (l *fakeLog) Sync() error                           { l.add(syncMarker, nil, true); return nil }
 func (l *fakeLog) Close() error                          { return nil }

@@ -29,6 +29,7 @@ const (
 	EvTurnEnded        = "turn_ended"
 	EvSessionResumed   = "session_resumed"
 	EvModelChanged     = "model_changed"
+	EvCompaction       = "compaction"
 )
 
 const (
@@ -111,6 +112,8 @@ func (e Event) MarshalJSON() ([]byte, error) {
 type EventLog interface {
 	// Append writes an event and returns once it is written (not fsynced).
 	Append(typ string, data any) error
+	// AppendID is Append that also returns the written event's id.
+	AppendID(typ string, data any) (id string, err error)
 	// AppendSync writes an event and fsyncs before returning.
 	AppendSync(typ string, data any) error
 	// Sync waits for every earlier append, then fsyncs.
@@ -123,7 +126,13 @@ type logReq struct {
 	data any
 	sync bool
 	noop bool // Sync: write nothing, just fsync
-	done chan error
+	done chan logRes
+}
+
+// logRes is the outcome of one logReq: the id written ("" for a noop sync).
+type logRes struct {
+	id  string
+	err error
 }
 
 type fileLog struct {
@@ -210,11 +219,13 @@ func resumeState(path string, f *os.File) (int64, string, error) {
 func (l *fileLog) run() {
 	defer l.wg.Done()
 	for r := range l.ch {
-		r.done <- l.handle(r)
+		id, err := l.handle(r)
+		r.done <- logRes{id, err}
 	}
 }
 
-func (l *fileLog) handle(r logReq) error {
+func (l *fileLog) handle(r logReq) (string, error) {
+	var id string
 	if !r.noop {
 		l.seq++
 		ev := Event{V: eventVersion, ID: fmt.Sprintf("e%06d", l.seq), Seq: l.seq,
@@ -226,7 +237,7 @@ func (l *fileLog) handle(r logReq) error {
 		line, err := json.Marshal(ev)
 		if err != nil {
 			l.seq--
-			return fmt.Errorf("encode event: %w", err)
+			return "", fmt.Errorf("encode event: %w", err)
 		}
 		line = append(line, '\n')
 		out := line
@@ -235,45 +246,56 @@ func (l *fileLog) handle(r logReq) error {
 		}
 		if _, err := l.w.Write(out); err != nil {
 			l.torn = true
-			return fmt.Errorf("write event log: %w", err)
+			return "", fmt.Errorf("write event log: %w", err)
 		}
 		l.torn = false
 		l.lastID = ev.ID
+		id = ev.ID
 		if l.tee != nil {
 			if _, err := l.tee.Write(line); err != nil {
-				return fmt.Errorf("write event tee: %w", err)
+				return id, fmt.Errorf("write event tee: %w", err)
 			}
 		}
 	}
 	if r.sync {
 		if err := l.syncFn(l.f); err != nil {
-			return fmt.Errorf("fsync event log: %w", err)
+			return id, fmt.Errorf("fsync event log: %w", err)
 		}
 	}
-	return nil
+	return id, nil
 }
 
-func (l *fileLog) submit(r logReq) error {
-	r.done = make(chan error, 1)
+func (l *fileLog) submit(r logReq) (string, error) {
+	r.done = make(chan logRes, 1)
 	l.mu.RLock()
 	if l.closed {
 		l.mu.RUnlock()
-		return ErrLogClosed
+		return "", ErrLogClosed
 	}
 	l.ch <- r
 	l.mu.RUnlock()
-	return <-r.done
+	res := <-r.done
+	return res.id, res.err
 }
 
 func (l *fileLog) Append(typ string, data any) error {
+	_, err := l.submit(logReq{typ: typ, data: data})
+	return err
+}
+
+func (l *fileLog) AppendID(typ string, data any) (string, error) {
 	return l.submit(logReq{typ: typ, data: data})
 }
 
 func (l *fileLog) AppendSync(typ string, data any) error {
-	return l.submit(logReq{typ: typ, data: data, sync: true})
+	_, err := l.submit(logReq{typ: typ, data: data, sync: true})
+	return err
 }
 
-func (l *fileLog) Sync() error { return l.submit(logReq{noop: true, sync: true}) }
+func (l *fileLog) Sync() error {
+	_, err := l.submit(logReq{noop: true, sync: true})
+	return err
+}
 
 func (l *fileLog) Close() error {
 	l.mu.Lock()
@@ -302,6 +324,14 @@ func (r *redactingLog) Append(typ string, data any) error {
 		return err
 	}
 	return r.fileLog.Append(typ, d)
+}
+
+func (r *redactingLog) AppendID(typ string, data any) (string, error) {
+	d, err := redactPayload(data, r.redact)
+	if err != nil {
+		return "", err
+	}
+	return r.fileLog.AppendID(typ, d)
 }
 
 func (r *redactingLog) AppendSync(typ string, data any) error {

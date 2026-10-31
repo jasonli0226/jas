@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
+	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/providers/fake"
 )
 
@@ -313,4 +314,115 @@ func TestChat_ApprovalClosesPicker(t *testing.T) {
 	c.pump()
 	eqStrings(t, c.m.gate.Grants().List(), []string{"shell: echo hi"})
 	assert.Eq(t, c.m.picker == nil, true)
+}
+
+// compactBackend is a test backend with a small window and a Keep small
+// enough that three exchanges have something to compact.
+func compactBackend(t *testing.T, turns ...fake.Turn) *testBackend {
+	b := newTestBackend(t, turns...)
+	b.window, b.keep = 1000, 1
+	return b
+}
+
+func TestChat_CompactCommand(t *testing.T) {
+	b := compactBackend(t,
+		fake.Turn{Text: "a1"}, fake.Turn{Text: "a2"},
+		fake.Turn{Text: "a3", Usage: providers.Usage{PromptTokens: 600}},
+		fake.Turn{Text: "## Goal\nthe summary"})
+	c := newTestChat(t, b)
+	for _, q := range []string{"q1", "q2", "q3"} {
+		c.submit(q)
+		c.pump()
+	}
+	assert.Contains(t, c.view(), " 60% ")
+	c.submit("/compact keep the API notes")
+	assert.Contains(t, c.printedText(), "compacting…")
+	assert.Eq(t, c.m.running(), true)
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(compactDoneMsg); return ok })
+	assert.Eq(t, c.m.running(), false)
+	assert.Eq(t, len(b.prov.Requests), 4)
+	assert.Contains(t, requestText(b.prov.Requests[3]), "Pay special attention to: keep the API notes")
+	out := c.printedText()
+	assert.Contains(t, out, "compacted 4 messages · ")
+	assert.Contains(t, out, " → ")
+	assert.NotContains(t, out, "· compacted earlier messages") // the command's own line is enough
+	if c.m.usage.prompt >= 600 {
+		t.Fatalf("ctx%% did not drop: prompt %d", c.m.usage.prompt)
+	}
+	assert.NotContains(t, c.view(), " 60% ")
+}
+
+func TestChat_CompactNothingYet(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.submit("/compact")
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(compactDoneMsg); return ok })
+	assert.Contains(t, c.printedText(), "nothing to compact yet")
+	assert.Eq(t, len(b.prov.Requests), 0)
+}
+
+func TestChat_CompactRefusedWhileRunning(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Block: true})
+	c := newTestChat(t, b)
+	c.submit("go")
+	c.submit("/compact")
+	assert.Contains(t, c.printedText(), "wait for the reply or press Esc first")
+	assert.NotContains(t, c.printedText(), "compacting…")
+}
+
+func TestChat_CompactEscCancels(t *testing.T) {
+	b := compactBackend(t, fake.Turn{Text: "a1"}, fake.Turn{Text: "a2"}, fake.Turn{Block: true})
+	c := newTestChat(t, b)
+	for _, q := range []string{"q1", "q2"} {
+		c.submit(q)
+		c.pump()
+	}
+	c.submit("/compact")
+	assert.Eq(t, c.m.running(), true)
+	c.key("esc")
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(compactDoneMsg); return ok })
+	assert.Eq(t, c.m.running(), false)
+	assert.Contains(t, c.printedText(), "compacting…\ninterrupted")
+	assert.NotContains(t, c.printedText(), "compaction failed")
+	assert.Eq(t, len(c.m.live.Session.Messages()), 4) // history unchanged
+}
+
+func TestChat_QuitDuringCompactWaits(t *testing.T) {
+	b := compactBackend(t, fake.Turn{Text: "a1"}, fake.Turn{Text: "a2"}, fake.Turn{Block: true})
+	c := newTestChat(t, b)
+	for _, q := range []string{"q1", "q2"} {
+		c.submit(q)
+		c.pump()
+	}
+	c.submit("/compact")
+	c.key("ctrl+c")
+	c.key("ctrl+c")
+	assert.Eq(t, c.quit, false)
+	assert.Eq(t, b.closes.Load(), 0)
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(compactDoneMsg); return ok })
+	assert.Eq(t, c.quit, true)
+	assert.Eq(t, b.closes.Load(), 1)
+}
+
+func TestChat_CompactListedAndInHelp(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/comp")
+	assert.Contains(t, c.view(), "/compact")
+	c.m.input.Reset()
+	c.submit("/help")
+	assert.Contains(t, c.printedText(), "/compact [focus]")
+}
+
+func TestChat_AutoCompactionPrintsRow(t *testing.T) {
+	b := compactBackend(t,
+		fake.Turn{Text: "a1", Usage: providers.Usage{PromptTokens: 600}},
+		fake.Turn{Text: "the summary"}, fake.Turn{Text: "a2"})
+	c := newTestChat(t, b)
+	c.submit("q1")
+	c.pump()
+	c.submit("q2") // over half the window: compacts before the request
+	c.pump()
+	assert.Eq(t, len(b.prov.Requests), 3)
+	assert.Contains(t, c.printedText(), "· compacted earlier messages (")
+	assert.NotContains(t, c.view(), " 60% ")
 }

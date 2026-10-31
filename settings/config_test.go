@@ -112,3 +112,34 @@ func TestConfig_RejectsNaNAndCredentialURLs(t *testing.T) {
 	}
 	assert.NotContains(t, err.Error(), "hunter2")
 }
+
+func TestKeys_CompactDefaults(t *testing.T) {
+	env := envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"})
+	r, err := Resolve(nil, env, File{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.CompactReserve, 16384)
+	assert.Eq(t, r.CompactKeep, 20000)
+	assert.Eq(t, r.CompactModel, "")
+
+	env = envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1",
+		"JAS_COMPACT_RESERVE_TOKENS": "8000", "JAS_COMPACT_KEEP_TOKENS": "4000", "JAS_COMPACT_MODEL": "z-ai/glm-x"})
+	r, err = Resolve(nil, env, File{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.CompactReserve, 8000)
+	assert.Eq(t, r.CompactKeep, 4000)
+	assert.Eq(t, r.CompactModel, "z-ai/glm-x")
+
+	if _, err := (File{}).Set("compact_keep_tokens", "0"); err == nil {
+		t.Fatal("compact_keep_tokens=0 should be rejected")
+	}
+	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1", "JAS_COMPACT_KEEP_TOKENS": "0"}), File{}).Build()
+	if err == nil {
+		t.Fatal("compact_keep_tokens=0 should be rejected")
+	}
+	assert.Contains(t, err.Error(), "compact_keep_tokens")
+	for _, k := range []string{"compact_reserve_tokens", "compact_keep_tokens", "compact_model"} {
+		spec, ok := LookupKey(k)
+		assert.Eq(t, ok, true)
+		assert.Eq(t, spec.Flag, false)
+	}
+}

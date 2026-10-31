@@ -38,6 +38,8 @@ type testBackend struct {
 	sessionsDir string
 	prov        *fake.Provider
 	redact      func(string) string // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
+	window      int                 // context window; 0 is testWindow
+	keep        int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
 	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
 }
 
@@ -61,11 +63,16 @@ func (b *testBackend) config(path, model string, log core.EventLog, ui core.UI, 
 	log = core.NewUILog(log, ui)
 	reg := core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...)
 	ex := &core.Executor{Reg: reg, Policy: core.ExecPolicy{Root: b.root}, Gate: gate, Log: log}
-	bud := &core.Budget{Window: testWindow}
+	bud := &core.Budget{Window: b.Window(model)}
+	keep := b.keep
+	if keep == 0 {
+		keep = core.DefaultCompactKeep
+	}
 	return core.SessionConfig{
 		Provider: b.prov, Model: model, System: core.BuildSystem(core.BasePrompt, ""),
 		Exec: ex, Log: log, UI: ui, Budget: bud,
-		Meta: map[string]any{"base_url": "http://x", "approve": "never", "root": b.root, "context_files": []string{}},
+		Compact: &core.CompactConfig{Reserve: core.DefaultCompactReserve, Keep: keep},
+		Meta:    map[string]any{"base_url": "http://x", "approve": "never", "root": b.root, "context_files": []string{}},
 	}, bud
 }
 
@@ -129,8 +136,14 @@ func (b *testBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 }
 
 func (b *testBackend) Models() []string     { return []string{"m", "m2"} }
-func (b *testBackend) Window(string) int    { return testWindow }
 func (b *testBackend) SkillNames() []string { return []string{"review"} }
+
+func (b *testBackend) Window(string) int {
+	if b.window > 0 {
+		return b.window
+	}
+	return testWindow
+}
 
 func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
 	if name != "review" {

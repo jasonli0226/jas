@@ -206,3 +206,23 @@ func TestEventLog_WriteAfterTornLineStartsNewLine(t *testing.T) {
 	assert.NoErr(t, json.Unmarshal([]byte(lines[1]), &ev))
 	assert.Eq(t, ev["n"].(float64), 2.0)
 }
+
+func TestEventLog_AppendIDReturnsWrittenID(t *testing.T) {
+	for name, redact := range map[string]func(string) string{"plain": nil, "redacting": strings.ToUpper} {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "e.jsonl")
+			l, err := OpenEventLog(p, nil, redact)
+			assert.NoErr(t, err)
+			id1, err := l.AppendID(EvUsage, map[string]any{"n": 1})
+			assert.NoErr(t, err)
+			id2, err := l.AppendID(EvUsage, map[string]any{"n": 2})
+			assert.NoErr(t, err)
+			assert.NoErr(t, l.Close())
+			assert.Eq(t, id1, "e000001")
+			assert.Eq(t, id2, "e000002")
+			evs := testutil.ReadEvents(t, p)
+			assert.Eq(t, evs[0]["id"].(string), id1)
+			assert.Eq(t, evs[1]["id"].(string), id2)
+		})
+	}
+}

@@ -127,6 +127,12 @@ func (l *uiLog) Append(typ string, data any) error {
 	return err
 }
 
+func (l *uiLog) AppendID(typ string, data any) (string, error) {
+	id, err := l.EventLog.AppendID(typ, data)
+	l.ui.Event(typ, data)
+	return id, err
+}
+
 func (l *uiLog) AppendSync(typ string, data any) error {
 	err := l.EventLog.AppendSync(typ, data)
 	l.ui.Event(typ, data)
