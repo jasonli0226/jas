@@ -153,6 +153,17 @@ func requestText(req providers.Request) string {
 	return sb.String()
 }
 
+func TestChat_BlankLineAboveInput(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t, fake.Turn{Text: "partial", Block: true}))
+	lines := strings.Split(c.view(), "\n")
+	assert.Eq(t, lines[0], "")
+	assert.Eq(t, strings.HasPrefix(lines[1], "›"), true)
+
+	c.submit("hi")
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(textMsg); return ok })
+	assert.Contains(t, c.view(), "● partial\n\n›")
+}
+
 func TestChat_SendStreamsAndPrints(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t, fake.Turn{Text: "Hello\n\nWorld"}))
 	c.submit("hi")
