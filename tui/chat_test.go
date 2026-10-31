@@ -121,6 +121,10 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 	case "esc":
 		msg = tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "up":
+		msg = tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		msg = tea.KeyPressMsg{Code: tea.KeyDown}
 	case "ctrl+c":
 		msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	default:

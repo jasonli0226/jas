@@ -63,7 +63,8 @@ type Model struct {
 	slashFor    string // input text the / menu cursor belongs to
 	slashCursor int
 	slashHidden string // input text at which Esc dismissed the / menu
-	err         error  // fatal error returned by Run
+	hist        history
+	err         error // fatal error returned by Run
 
 	lastCtrlC time.Time
 	hint      string // replaces the status line until the next key
