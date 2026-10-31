@@ -182,6 +182,8 @@ func (m *Model) View() tea.View {
 	if live := m.tr.Live(); live != "" {
 		parts = append(parts, live)
 	}
+	// A blank line keeps the input apart from the agent text above it.
+	parts = append(parts, "")
 	for _, q := range m.queued {
 		line := "↳ " + strings.Join(strings.Fields(q), " ")
 		parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
