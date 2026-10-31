@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,11 +12,33 @@ import (
 )
 
 func TestStatus_Format(t *testing.T) {
-	s := statusInfo{Model: "glm", Level: core.ShellOnly, Prompt: 5000, Window: 10000, Tokens: 12345, Root: "/x/jas"}
-	assert.Eq(t, s.Render(0), "glm · shell · 50% · 12.3k tok · jas")
+	s := statusInfo{Model: "glm", Level: core.ShellOnly, Prompt: 5000, Window: 10000, In: 10000, Out: 2345, Root: "/x/jas"}
+	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 50% · ↑10.0k ↓2.3k · jas")
 
-	s.Running, s.Queued = true, 2
-	assert.Eq(t, s.Render(0), "glm · shell · 50% · 12.3k tok · jas · working… · 2 queued")
+	s.Branch, s.Running, s.Queued = "main", true, 2
+	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 50% · ↑10.0k ↓2.3k · jas (main) · working… · 2 queued")
+}
+
+func TestStatus_ThinkingCues(t *testing.T) {
+	s := statusInfo{Model: "glm", Level: core.ShellOnly, Root: "/x/jas", Running: true, Thinking: true}
+	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 0% · ↑0 ↓0 · jas · thinking…")
+
+	s.Running, s.Thinking, s.ShowThinking = false, false, true
+	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 0% · ↑0 ↓0 · jas · thinking shown")
+}
+
+func TestStatus_CtxThresholdStyle(t *testing.T) {
+	// Window 100k with the default reserve compacts above 83,616 tokens:
+	// warn from 75% of that, hot from 90%.
+	s := statusInfo{Model: "glm", Level: core.ShellOnly, Window: 100_000, Root: "/x/jas"}
+	s.Prompt = 10_000
+	low := s.Render(0)
+	assert.NotContains(t, low, ctxWarnStyle.Render("10%"))
+	assert.NotContains(t, low, ctxHotStyle.Render("10%"))
+	s.Prompt = 70_000
+	assert.Contains(t, s.Render(0), ctxWarnStyle.Render("70%"))
+	s.Prompt = 80_000
+	assert.Contains(t, s.Render(0), ctxHotStyle.Render("80%"))
 }
 
 func TestStatus_TokenFormats(t *testing.T) {
@@ -24,16 +48,39 @@ func TestStatus_TokenFormats(t *testing.T) {
 }
 
 func TestStatus_TruncatesToWidth(t *testing.T) {
-	s := statusInfo{Model: "glm", Level: core.ShellOnly, Prompt: 5000, Window: 10000, Tokens: 12345, Root: "/x/jas"}
+	s := statusInfo{Model: "glm", Level: core.ShellOnly, Prompt: 5000, Window: 10000, In: 12345, Root: "/x/jas", Branch: "main"}
 	got := ansi.Strip(s.Render(20))
 	assert.Eq(t, len([]rune(got)) <= 20, true)
 	assert.Eq(t, strings.HasSuffix(got, "…"), true)
 }
 
-func TestStatus_SanitizesModelAndRoot(t *testing.T) {
-	s := statusInfo{Model: "glm\x1b[2J\x07", Level: core.ShellOnly, Root: "/x/j\x1bas"}
+func TestStatus_SanitizesModelRootAndBranch(t *testing.T) {
+	s := statusInfo{Model: "glm\x1b[2J\x07", Level: core.ShellOnly, Root: "/x/j\x1bas", Branch: "b\x1b"}
 	got := s.Render(0)
-	assert.NotContains(t, got, "\x1b")
+	assert.NotContains(t, got, "\x1b[2J")
 	assert.NotContains(t, got, "\x07")
-	assert.Eq(t, got, `glm\x1b[2J\x07 · shell · 0% · 0 tok · j\x1bas`)
+	assert.Eq(t, ansi.Strip(got), `glm\x1b[2J\x07 · shell · 0% · ↑0 ↓0 · j\x1bas (b\x1b)`)
+}
+
+func TestGitBranch(t *testing.T) {
+	write := func(path, body string) {
+		t.Helper()
+		assert.NoErr(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		assert.NoErr(t, os.WriteFile(path, []byte(body), 0o644))
+	}
+	repo := t.TempDir()
+	write(filepath.Join(repo, ".git", "HEAD"), "ref: refs/heads/feat/x\n")
+	assert.Eq(t, gitBranch(repo), "feat/x")
+
+	detached := t.TempDir()
+	write(filepath.Join(detached, ".git", "HEAD"), "0123456789abcdef0123456789abcdef01234567\n")
+	assert.Eq(t, gitBranch(detached), "0123456")
+
+	// A linked worktree's .git is a file pointing at its git dir.
+	wt, gitdir := t.TempDir(), t.TempDir()
+	write(filepath.Join(gitdir, "HEAD"), "ref: refs/heads/wt\n")
+	write(filepath.Join(wt, ".git"), "gitdir: "+gitdir+"\n")
+	assert.Eq(t, gitBranch(wt), "wt")
+
+	assert.Eq(t, gitBranch(t.TempDir()), "")
 }
