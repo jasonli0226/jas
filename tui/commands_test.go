@@ -382,7 +382,8 @@ func TestChat_CompactEscCancels(t *testing.T) {
 	c.key("esc")
 	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(compactDoneMsg); return ok })
 	assert.Eq(t, c.m.running(), false)
-	assert.Contains(t, c.printedText(), "compaction failed: ")
+	assert.Contains(t, c.printedText(), "compacting…\ninterrupted")
+	assert.NotContains(t, c.printedText(), "compaction failed")
 	assert.Eq(t, len(c.m.live.Session.Messages()), 4) // history unchanged
 }
 

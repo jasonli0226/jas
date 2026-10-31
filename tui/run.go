@@ -171,6 +171,8 @@ func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
 			msg.res.Messages, formatTokens(msg.res.TokensBefore), formatTokens(msg.res.TokensAfter)))
 	case errors.Is(msg.err, core.ErrNothingToCompact):
 		line = dimStyle.Render("nothing to compact yet")
+	case errors.Is(msg.err, context.Canceled): // Esc or quit
+		line = dimStyle.Render("interrupted")
 	default:
 		reason := strings.TrimPrefix(msg.err.Error(), compactFailed)
 		line = errStyle.Render(compactFailed + m.clean(reason))
