@@ -460,3 +460,35 @@ func TestChat_AutoCompactionPrintsRow(t *testing.T) {
 	assert.Contains(t, c.printedText(), "· compacted earlier messages (")
 	assert.NotContains(t, c.view(), " 60% ")
 }
+
+func TestChat_NameCommandSetsAndShowsTitle(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "ok"})
+	c := newTestChat(t, b)
+	c.submit("/name")
+	assert.Contains(t, c.printedText(), "no title; /name <title> sets one")
+	c.submit("/name  fix   login ")
+	assert.Eq(t, c.m.live.Session.Title(), "fix login")
+	assert.Contains(t, c.printedText(), "session named fix login")
+	assert.Contains(t, c.view(), "· fix login")
+	c.submit("/name")
+	assert.Contains(t, c.printedText(), "title: fix login")
+}
+
+func TestChat_ResumePickerShowsTitle(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "ok"})
+	c := newTestChat(t, b)
+	c.submit("go")
+	c.pump()
+	c.submit("/name login bug")
+	c.submit("/new")
+	c.submit("/resume")
+	assert.Contains(t, c.view(), " login bug")
+	c.key("enter")
+	assert.Eq(t, c.m.live.Session.Title(), "login bug")
+}
+
+func TestChat_NameOptionTitlesFirstSession(t *testing.T) {
+	c := newTestChatOpts(t, newTestBackend(t), Options{Name: "ci job"})
+	assert.Eq(t, c.m.live.Session.Title(), "ci job")
+	assert.Contains(t, c.view(), "· ci job")
+}

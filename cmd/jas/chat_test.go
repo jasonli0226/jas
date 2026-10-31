@@ -73,6 +73,19 @@ func TestChatCmd_PositionalArgIsUsageError(t *testing.T) {
 	assert.Contains(t, err.Error(), `jas run "task"`)
 }
 
+func TestChatCmd_NameFlag(t *testing.T) {
+	ca, err := parseChat([]string{"--name", "login bug"})
+	assert.NoErr(t, err)
+	assert.Eq(t, ca.name, "login bug")
+	_, ok := ca.flags["name"]
+	assert.Eq(t, ok, false)
+	_, err = parseChat([]string{"--name", "  "})
+	var ee *core.ExitError
+	if !errors.As(err, &ee) || ee.Code != core.ExitUsage {
+		t.Fatalf("want usage error for a blank --name, got %v", err)
+	}
+}
+
 func TestChatCmd_HelpPrintsUsage(t *testing.T) {
 	errOut := captureStderr(t, func() {
 		assert.Eq(t, dispatch(context.Background(), []string{"--help"}), core.ExitOK)

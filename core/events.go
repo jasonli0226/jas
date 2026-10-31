@@ -30,6 +30,7 @@ const (
 	EvSessionResumed   = "session_resumed"
 	EvModelChanged     = "model_changed"
 	EvCompaction       = "compaction"
+	EvSessionTitled    = "session_titled"
 )
 
 const (

@@ -30,8 +30,9 @@ const sessionListLimit = 20
 var isTerminal = term.IsTerminal
 
 type chatArgs struct {
-	cont  bool // --continue: resume this project's newest session
-	trust bool // --trust-project
+	cont  bool   // --continue: resume this project's newest session
+	name  string // --name: title for the session
+	trust bool   // --trust-project
 	flags map[string]string
 }
 
@@ -62,7 +63,7 @@ func chatCmd(ctx context.Context, args []string) error {
 	e.warnUnknownWindow(e.cfg.Model)
 	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e}, tui.Options{
 		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows",
-		Continue: ca.cont, Now: time.Now, Redact: e.red.Redact,
+		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact,
 	}, os.Stdin, os.Stdout))
 }
 
@@ -79,13 +80,25 @@ func interrupted() error {
 	return &core.ExitError{Code: core.ExitInterrupted, Reason: "interrupted"}
 }
 
-// parseChat reads the chat flags: the setting flags plus --continue and
-// --trust-project. A task argument belongs to `jas run`.
+// parseName normalizes a --name value; passing it blank is a usage error.
+func parseName(fs *flag.FlagSet, name string) (string, error) {
+	passed := false
+	fs.Visit(func(f *flag.Flag) { passed = passed || f.Name == "name" })
+	name = core.NormalizeTitle(name)
+	if passed && name == "" {
+		return "", usageErr("--name needs a non-empty title")
+	}
+	return name, nil
+}
+
+// parseChat reads the chat flags: the setting flags plus --continue, --name
+// and --trust-project. A task argument belongs to `jas run`.
 func parseChat(args []string) (chatArgs, error) {
 	fs := flag.NewFlagSet("jas", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var ca chatArgs
 	fs.BoolVar(&ca.cont, "continue", false, "resume this project's newest session")
+	fs.StringVar(&ca.name, "name", "", "title for the session")
 	fs.BoolVar(&ca.trust, "trust-project", false, "load the project context file without asking")
 	for _, k := range settings.Keys {
 		if k.Flag {
@@ -100,9 +113,13 @@ func parseChat(args []string) (chatArgs, error) {
 	if fs.NArg() > 0 {
 		return ca, usageErr(`unexpected argument %q; to run one task use jas run "task"`, fs.Arg(0))
 	}
+	var err error
+	if ca.name, err = parseName(fs, ca.name); err != nil {
+		return ca, err
+	}
 	ca.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "continue" && f.Name != "trust-project" {
+		if f.Name != "continue" && f.Name != "trust-project" && f.Name != "name" {
 			ca.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})

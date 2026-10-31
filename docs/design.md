@@ -213,6 +213,7 @@ newer than it reads, rather than misread it.
 | `elided` | count, tokens_before, tokens_after | each elision pass |
 | `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each user message; `turns` counts the model requests within it |
 | `model_changed` | model | when SetModel is called |
+| `session_titled` | title (one line, ≤80 runes; "" clears) | when SetTitle is called (`/name`, `jas --name`); the latest wins. `session_started` may also carry `title` (`jas run --name`) |
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage | when history is compacted (chat only) |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash |
 

@@ -27,7 +27,8 @@ type Options struct {
 	Model    string
 	Root     string // project folder shown in the status line
 	Windows  bool
-	Continue bool // resume the newest session for this project at start
+	Continue bool   // resume the newest session for this project at start
+	Name     string // title for the first session (--name); "" leaves it as is
 	Now      func() time.Time
 	Redact   func(string) string // masks secrets in text the chat prints; nil is identity
 }
@@ -231,10 +232,18 @@ func (m *Model) statusLine() string {
 	}
 	return statusInfo{
 		Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
-		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch,
+		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch, Title: m.title(),
 		Running: m.running(), Queued: len(m.queued),
 		Thinking: m.tr.thinking, ShowThinking: m.tr.ShowThinking,
 	}.Render(m.width)
+}
+
+// title is the open session's title, "" before one opens or when unset.
+func (m *Model) title() string {
+	if m.live == nil {
+		return ""
+	}
+	return m.live.Session.Title()
 }
 
 // Printed returns every block handed to tea.Println, in order (test hook).
