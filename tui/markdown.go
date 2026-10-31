@@ -133,10 +133,21 @@ func renderBlock(raw string) string {
 	return strings.Join(out, "\n")
 }
 
+// inline styles code spans, and bold only outside them, so "**" inside a
+// code span (Python's **kwargs) stays literal.
 func inline(s string) string {
-	s = codeSpanRe.ReplaceAllStringFunc(s, func(m string) string {
-		return codeSpanStyle.Render(m[1 : len(m)-1])
-	})
+	var b strings.Builder
+	last := 0
+	for _, m := range codeSpanRe.FindAllStringSubmatchIndex(s, -1) {
+		b.WriteString(bold(s[last:m[0]]))
+		b.WriteString(codeSpanStyle.Render(s[m[2]:m[3]]))
+		last = m[1]
+	}
+	b.WriteString(bold(s[last:]))
+	return b.String()
+}
+
+func bold(s string) string {
 	return boldRe.ReplaceAllStringFunc(s, func(m string) string {
 		return boldStyle.Render(m[2 : len(m)-2])
 	})

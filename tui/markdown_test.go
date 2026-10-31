@@ -53,6 +53,12 @@ func TestMarkdown_InlineCode(t *testing.T) {
 	assert.Contains(t, out, codeSpanStyle.Render("go test"))
 }
 
+func TestMarkdown_InlineCodeKeepsAsterisks(t *testing.T) {
+	out := renderBlock("use `**kwargs` and `**opts` here, **bold** too")
+	assert.Eq(t, ansi.Strip(out), "use **kwargs and **opts here, bold too")
+	assert.Contains(t, out, codeSpanStyle.Render("**kwargs"))
+}
+
 func TestMarkdown_HighlightKeywordsAndCalls(t *testing.T) {
 	out := highlight(`func f(x) { return "s" }`)
 	assert.Contains(t, out, keywordStyle.Render("func"))

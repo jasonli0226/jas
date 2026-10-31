@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image/color"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/internal/assert"
 )
@@ -183,6 +184,18 @@ func TestToolRow_StatusBand(t *testing.T) {
 	for _, status := range []string{"error", "denied", "cancelled"} {
 		row := toolRow("shell", map[string]any{"command": "x"}, status, "", 30)
 		assert.Contains(t, row, bgSeq(toolErrBg))
+	}
+}
+
+func TestBands_DistinctOnANSI16(t *testing.T) {
+	ansi16 := func(c color.Color) color.Color { return colorprofile.ANSI.Convert(c) }
+	seen := map[color.Color]string{}
+	for name, c := range map[string]color.Color{"user": userBg, "ok": toolOkBg, "err": toolErrBg, "other": toolOtherBg} {
+		got := ansi16(c)
+		if prev, dup := seen[got]; dup {
+			t.Fatalf("%s and %s bands both map to %v on 16-colour terminals", prev, name, got)
+		}
+		seen[got] = name
 	}
 }
 

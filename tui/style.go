@@ -4,7 +4,9 @@ import "charm.land/lipgloss/v2"
 
 // Palette: hex approximations of pi's dark theme. Styles are plain lipgloss
 // values; the terminal profile downgrades colours when the blocks are
-// finally printed, and NO_COLOR drops them, leaving the role markers.
+// finally printed, and NO_COLOR drops them, leaving the role markers. The
+// band colours are picked to stay distinct on 16-colour terminals (blue,
+// green, red, black).
 var (
 	textFg      = lipgloss.Color("#dcdee3")
 	mutedFg     = lipgloss.Color("#9fa3ae")
@@ -13,8 +15,8 @@ var (
 	greenFg     = lipgloss.Color("#6fdcb2")
 	orangeFg    = lipgloss.Color("#e5b56b")
 	violetFg    = lipgloss.Color("#c98fe0")
-	userBg      = lipgloss.Color("#26304f")
-	toolOkBg    = lipgloss.Color("#1d3f33")
+	userBg      = lipgloss.Color("#1f2d5c")
+	toolOkBg    = lipgloss.Color("#1e4a2a")
 	toolErrBg   = lipgloss.Color("#4d2b22")
 	toolOtherBg = lipgloss.Color("#34363c")
 )
