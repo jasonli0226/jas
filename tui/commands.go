@@ -193,7 +193,7 @@ func (m *Model) notice(lines ...string) tea.Cmd {
 	for i, l := range lines {
 		out[i] = m.clean(l)
 	}
-	return m.print(dimStyle.Render(strings.Join(out, "\n")))
+	return m.print(m.tr.Notice(dimStyle.Render(strings.Join(out, "\n")))...)
 }
 
 func (m *Model) openPicker(title string, items []pickItem, onPick func(string) tea.Cmd) {

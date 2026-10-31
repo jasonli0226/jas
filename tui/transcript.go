@@ -21,12 +21,28 @@ type Transcript struct {
 	thinking  bool
 	thinkFrom time.Time
 	calls     map[string]map[string]any // call_id -> args from tool_started
+	last      role                      // group of the last printed block
+	marked    bool                      // the agent marker went out this turn
 }
+
+// role groups printed blocks; a blank line separates consecutive groups so
+// user, agent and tool blocks stay apart in scrollback.
+type role int
+
+const (
+	roleNone role = iota
+	roleUser
+	roleAgent
+	roleTool
+	roleNotice
+)
+
+const agentMarker = "● "
 
 // User renders the user's prompt; later lines are indented under the marker.
 func (t *Transcript) User(text string) []string {
 	lines := strings.Split(strings.TrimRight(cleanText(text), "\n"), "\n")
-	return []string{userStyle.Render("› " + strings.Join(lines, "\n  "))}
+	return append(t.enter(roleUser), userStyle.Render("› "+strings.Join(lines, "\n"+hangIndent)))
 }
 
 // Text feeds assistant text. The first text after reasoning closes the
@@ -34,7 +50,7 @@ func (t *Transcript) User(text string) []string {
 func (t *Transcript) Text(delta string, now time.Time) []string {
 	out := t.endThinking(now)
 	for _, raw := range t.text.Feed(cleanText(delta)) {
-		out = append(out, renderBlock(raw))
+		out = append(out, t.agentBlock(raw)...)
 	}
 	return out
 }
@@ -49,6 +65,7 @@ func (t *Transcript) Reasoning(delta string, now time.Time) []string {
 	}
 	var out []string
 	for _, raw := range t.reasoning.Feed(cleanText(delta)) {
+		out = append(out, t.enter(roleAgent)...)
 		out = append(out, dimStyle.Render(raw))
 	}
 	return out
@@ -75,19 +92,27 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		output, _ := data["output"].(string)
 		args := t.calls[id]
 		delete(t.calls, id)
+		out = append(out, t.enter(roleTool)...)
 		return append(out, toolRow(tool, args, status, output, t.Width))
 	case "compaction":
 		row := fmt.Sprintf("· compacted earlier messages (%s → %s tok)",
 			formatTokens(intField(data, "tokens_before")), formatTokens(intField(data, "tokens_after")))
-		return append(t.settle(now), dimStyle.Render(row))
+		out := append(t.settle(now), t.enter(roleNotice)...)
+		return append(out, dimStyle.Render(row))
 	}
 	return nil
+}
+
+// Notice prints jas-owned notice blocks as their own group.
+func (t *Transcript) Notice(blocks ...string) []string {
+	return append(t.enter(roleNotice), blocks...)
 }
 
 // Flush ends a run: it prints the partial block and any pending thinking line.
 func (t *Transcript) Flush(now time.Time) []string { return t.settle(now) }
 
-// Live is the rendered partial block for the live region.
+// Live is the rendered partial block for the live region, with the gap and
+// chrome it will have once printed so the text does not shift on handoff.
 func (t *Transcript) Live() string {
 	var parts []string
 	if t.thinking && t.ShowThinking {
@@ -96,9 +121,55 @@ func (t *Transcript) Live() string {
 		}
 	}
 	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
-		parts = append(parts, renderBlock(p))
+		parts = append(parts, hang(renderBlock(p), t.nextAgentPrefix()))
+	}
+	if len(parts) > 0 && t.last != roleNone && t.last != roleAgent {
+		parts = append([]string{""}, parts...)
 	}
 	return strings.Join(parts, "\n")
+}
+
+// enter switches the printed group to r, returning the blank separator line
+// when the group changes after something was already printed.
+func (t *Transcript) enter(r role) []string {
+	if t.last == r {
+		return nil
+	}
+	prev := t.last
+	t.last, t.marked = r, false
+	if prev == roleNone {
+		return nil
+	}
+	return []string{""}
+}
+
+// agentBlock renders a finished assistant block: the turn's first block gets
+// the agent marker, the rest hang under it.
+func (t *Transcript) agentBlock(raw string) []string {
+	out := t.enter(roleAgent)
+	prefix := t.nextAgentPrefix()
+	t.marked = true
+	return append(out, hang(renderBlock(raw), prefix))
+}
+
+func (t *Transcript) nextAgentPrefix() string {
+	if t.last == roleAgent && t.marked {
+		return hangIndent
+	}
+	return assistantStyle.Render(agentMarker)
+}
+
+// hang prefixes the first line of block with first and indents the rest.
+func hang(block, first string) string {
+	lines := strings.Split(block, "\n")
+	for i := range lines {
+		if i == 0 {
+			lines[i] = first + lines[i]
+		} else {
+			lines[i] = hangIndent + lines[i]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // settle closes thinking and prints the partial text block, preserving order
@@ -106,7 +177,7 @@ func (t *Transcript) Live() string {
 func (t *Transcript) settle(now time.Time) []string {
 	out := t.endThinking(now)
 	if raw, ok := t.text.Flush(); ok {
-		out = append(out, renderBlock(raw))
+		out = append(out, t.agentBlock(raw)...)
 	}
 	return out
 }
@@ -116,7 +187,7 @@ func (t *Transcript) endThinking(now time.Time) []string {
 		return nil
 	}
 	t.thinking = false
-	var out []string
+	out := t.enter(roleAgent)
 	if raw, ok := t.reasoning.Flush(); ok && t.ShowThinking {
 		out = append(out, dimStyle.Render(raw))
 	}

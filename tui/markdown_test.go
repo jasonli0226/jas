@@ -25,7 +25,7 @@ func TestMarkdown_SplitsBlocksAcrossDeltas(t *testing.T) {
 		got = append(got, tr.Text(d, t0)...)
 	}
 	assert.Eq(t, len(got), 1)
-	assert.Eq(t, ansi.Strip(got[0]), "para one")
+	assert.Eq(t, ansi.Strip(got[0]), "● para one")
 	assert.Contains(t, ansi.Strip(tr.Live()), "para two")
 }
 
@@ -64,5 +64,7 @@ func TestMarkdown_HighlightUsesDistinctColours(t *testing.T) {
 func TestMarkdown_StripsControlChars(t *testing.T) {
 	var tr Transcript
 	got := tr.Text("a\x1b[2Jb\n\n", t0)
-	assert.Eq(t, got[0], "a[2Jb")
+	// The agent marker is jas-styled; the model's ESC must not survive.
+	assert.NotContains(t, got[0], "\x1b[2J")
+	assert.Eq(t, ansi.Strip(got[0]), "● a[2Jb")
 }

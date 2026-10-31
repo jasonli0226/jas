@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/internal/assert"
 )
@@ -30,14 +31,14 @@ func TestTranscript_ThinkingHiddenByDefault(t *testing.T) {
 	var tr Transcript
 	assert.Eq(t, len(tr.Reasoning("plan", t0)), 0)
 	got := tr.Text("Hi\n\n", t0.Add(3*time.Second))
-	eqStrings(t, plain(got), []string{"· thought for 3s", "Hi"})
+	eqStrings(t, plain(got), []string{"· thought for 3s", "● Hi"})
 }
 
 func TestTranscript_ThinkingShownWhenEnabled(t *testing.T) {
 	tr := Transcript{ShowThinking: true}
 	got := tr.Reasoning("plan\n\n", t0)
 	got = append(got, tr.Text("Hi\n\n", t0.Add(500*time.Millisecond))...)
-	eqStrings(t, plain(got), []string{"plan", "· thought for 1s", "Hi"})
+	eqStrings(t, plain(got), []string{"plan", "· thought for 1s", "● Hi"})
 }
 
 func TestTranscript_ToolEventsPrintRowInOrder(t *testing.T) {
@@ -46,10 +47,10 @@ func TestTranscript_ToolEventsPrintRowInOrder(t *testing.T) {
 	started := map[string]any{"call_id": "c1", "tool": "read", "mutating": false,
 		"args": map[string]any{"path": "a.go"}}
 	got := plain(tr.Event("tool_started", started, t0))
-	eqStrings(t, got, []string{"before"})
+	eqStrings(t, got, []string{"● before"})
 	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
 		"status": "ok", "output": "x\ny\n"}, t0))
-	eqStrings(t, got, []string{"▸ read a.go (2 lines)"})
+	eqStrings(t, got, []string{"", "▸ read a.go (2 lines)"})
 }
 
 func TestTranscript_FlushPrintsPartialAndThought(t *testing.T) {
@@ -57,7 +58,7 @@ func TestTranscript_FlushPrintsPartialAndThought(t *testing.T) {
 	tr.Reasoning("r", t0)
 	tr.Text("tail", t0)
 	// text already closed thinking; Flush prints only the partial block.
-	eqStrings(t, plain(tr.Flush(t0)), []string{"tail"})
+	eqStrings(t, plain(tr.Flush(t0)), []string{"● tail"})
 	tr.Reasoning("r", t0)
 	eqStrings(t, plain(tr.Flush(t0.Add(2*time.Second))), []string{"· thought for 2s"})
 }
@@ -66,6 +67,45 @@ func TestTranscript_User(t *testing.T) {
 	var tr Transcript
 	eqStrings(t, plain(tr.User("hi")), []string{"› hi"})
 	eqStrings(t, plain(tr.User("a\nb")), []string{"› a\n  b"})
+}
+
+func TestTranscript_UserChrome(t *testing.T) {
+	var tr Transcript
+	got := plain(tr.User("hi"))
+	assert.Eq(t, strings.HasPrefix(got[0], "› hi"), true)
+	assert.Eq(t, userStyle.GetBold(), true)
+	assert.Eq(t, userStyle.GetForeground(), lipgloss.Color("6"))
+	assert.Eq(t, assistantStyle.GetForeground() != userStyle.GetForeground(), true)
+}
+
+func TestTranscript_AssistantChrome(t *testing.T) {
+	var tr Transcript
+	got := plain(tr.Text("Hello\nthere\n\nWorld\n\n", t0))
+	eqStrings(t, got, []string{"● Hello\n  there", "  World"})
+
+	// A tool row ends the agent turn; the next text is a new turn.
+	tr.Event("tool_started", map[string]any{"call_id": "c", "args": map[string]any{}}, t0)
+	tr.Event("tool_result", map[string]any{"call_id": "c", "tool": "ls", "status": "ok"}, t0)
+	got = plain(tr.Text("Again\n\n", t0))
+	eqStrings(t, got, []string{"", "● Again"})
+}
+
+func TestTranscript_AssistantLiveMatchesPrinted(t *testing.T) {
+	var tr Transcript
+	tr.User("hi")
+	tr.Text("par", t0)
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n● par")
+	tr.Text("t\n\nnext", t0)
+	assert.Eq(t, ansi.Strip(tr.Live()), "  next")
+}
+
+func TestTranscript_TurnGap(t *testing.T) {
+	var tr Transcript
+	got := tr.User("hi")
+	got = append(got, tr.Text("Hello", t0)...)
+	got = append(got, tr.Flush(t0)...)
+	got = append(got, tr.User("more")...)
+	eqStrings(t, plain(got), []string{"› hi", "", "● Hello", "", "› more"})
 }
 
 func TestToolRow_Formats(t *testing.T) {
