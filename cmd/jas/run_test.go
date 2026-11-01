@@ -176,3 +176,16 @@ func TestCLI_RunNameTitlesSession(t *testing.T) {
 	assert.Eq(t, m["type"], any("session_started"))
 	assert.Eq(t, m["title"], any("nightly lint"))
 }
+
+func TestCLI_RunPipedOutputHasNoDiff(t *testing.T) {
+	dir := t.TempDir()
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "write", Args: `{"path":"new.txt","content":"one\ntwo\n"}`}}},
+		{Text: "done"},
+	})
+	out, errOut, code := runJasIn(t, dir, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=test"}, "run", "--approve=never", "write a file")
+	assert.Eq(t, code, 0)
+	if strings.Contains(out, " + ") {
+		t.Fatalf("piped stdout has a diff row: %q (stderr %q)", out, errOut)
+	}
+}

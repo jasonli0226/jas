@@ -28,13 +28,17 @@ func (quietUI) Reasoning(string)  {}
 func (quietUI) Event(string, any) {}
 
 // NewPrinter streams text to w, one "→ tool(args)" line per tool_started and
-// "✗ tool: output" for failed results.
-func NewPrinter(w io.Writer) UI { return &printer{w: w, atLineStart: true} }
+// "✗ tool: output" for failed results. With diffs, an ok result that carries a
+// diff also prints its plain rows under the tool line.
+func NewPrinter(w io.Writer, diffs bool) UI {
+	return &printer{w: w, atLineStart: true, diffs: diffs}
+}
 
 type printer struct {
 	mu          sync.Mutex
 	w           io.Writer
 	atLineStart bool
+	diffs       bool
 }
 
 // Reasoning is not shown in one-shot output.
@@ -62,6 +66,8 @@ func (p *printer) Event(typ string, data any) {
 	case EvToolResult:
 		if st, _ := m["status"].(string); st == statusError || st == statusDenied {
 			line = fmt.Sprintf("✗ %v: %s", m["tool"], firstLine(fmt.Sprint(m["output"])))
+		} else if st == statusOK && p.diffs {
+			line = strings.Join(FormatDiffPlain(DiffFromPayload(m["diff"])), "\n")
 		}
 	}
 	if line == "" {

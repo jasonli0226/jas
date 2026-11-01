@@ -69,7 +69,7 @@ Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
 `jas auth add|list|rm|rotate`, `jas --version`. Run flags: `--json`,
 `--model`, `--provider`, `--base-url`, `--approve`, `--max-turns`,
 `--trust-project`, `--name` (session title). The chat takes the same flags
-except `--json`, plus `--continue`; it needs a terminal, so scripts use `jas run`. There is deliberately no `--api-key` flag (argv leaks via
+except `--json`, plus `--continue`; it needs a terminal, so scripts use `jas run`. `jas run` prints diffs only on a terminal. There is deliberately no `--api-key` flag (argv leaks via
 shell history and `ps`).
 
 ## Chat
@@ -87,6 +87,8 @@ model, approval level, context use and token counts.
   command and key.
 - **Up/Down** from the first or last line of the input recall earlier input.
 - Each tool call shows a running row while it runs, then one result row.
+- Edits and writes show a diff (line numbers, `+`/`-`) in the approval prompt
+  and under the tool row.
 - **`jas --continue`** or **`/resume`** reopens a saved session and reprints
   its conversation; Up/Down history comes back with it.
 - **`/name <title>`** (or `jas --name`) names the session. The `/resume`
