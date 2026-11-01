@@ -17,6 +17,10 @@ const (
 	tabWidth     = 4
 )
 
+// MaxDiffSource caps the old plus new text a diff is computed from; a larger
+// change shows no diff.
+const MaxDiffSource = 4 << 20
+
 // Change is what a mutating tool changed (or would change), as raw text.
 type Change struct {
 	Path     string
@@ -57,16 +61,22 @@ type diffOp struct {
 	i, j int
 }
 
-// ComputeDiff diffs c.Old against c.New. Lines are redacted (PEM private-key
-// blocks line by line, then redact on each line) and escaped before diffing,
-// so no secret or control sequence reaches Text. It returns nil when nothing
-// visible changed. redact may be nil.
+// ComputeDiff diffs c.Old against c.New. Lines are aligned raw, then only
+// the lines kept in hunks are redacted (a line inside a PEM private-key block
+// becomes a marker, the others go through redact) and escaped, so no secret
+// or control sequence reaches Text. redact may be nil.
+//
+// It returns nil when no line changed, which includes changes that are
+// invisible line by line (CRLF only, a trailing newline only), and when
+// old and new together exceed MaxDiffSource.
 func ComputeDiff(c Change, redact func(string) string) *Diff {
-	if c.Old == c.New {
+	if c.Old == c.New || len(c.Old)+len(c.New) > MaxDiffSource {
 		return nil
 	}
-	a, b := prepLines(c.Old, redact), prepLines(c.New, redact)
-	hunks := groupHunks(alignLines(a, b), a, b)
+	a, b := splitLines(c.Old), splitLines(c.New)
+	old := shownSide{lines: a, key: privateKeyLines(a), redact: redact}
+	upd := shownSide{lines: b, key: privateKeyLines(b), redact: redact}
+	hunks := groupHunks(alignLines(a, b), old, upd)
 	if len(hunks) == 0 {
 		return nil
 	}
@@ -135,16 +145,26 @@ func FormatDiffPlain(d *Diff) []string {
 	return rows
 }
 
-// prepLines splits s into display lines, then redacts and escapes each one.
-func prepLines(s string, redact func(string) string) []string {
-	lines := maskPrivateKeyLines(splitLines(s))
-	for i, l := range lines {
-		if redact != nil {
-			l = redact(l)
-		}
-		lines[i] = sanitizeLine(l)
+// shownSide is one side's raw lines, prepared for display only when a hunk
+// keeps them.
+type shownSide struct {
+	lines  []string
+	key    []bool // line i lies in a PEM private-key block
+	redact func(string) string
+}
+
+// text is line i redacted and escaped. All non-PEM redaction rules are
+// single-line, so redacting one line at a time is enough; a future
+// multi-line rule must be handled here, like the PEM block mask.
+func (s shownSide) text(i int) string {
+	if s.key[i] {
+		return mark("private_key")
 	}
-	return lines
+	l := s.lines[i]
+	if s.redact != nil {
+		l = s.redact(l)
+	}
+	return sanitizeLine(l)
 }
 
 // splitLines splits on \n, drops one trailing \r per line, and does not count
@@ -163,26 +183,30 @@ func splitLines(s string) []string {
 	return parts
 }
 
-// maskPrivateKeyLines replaces every line of a PEM private-key block, from
-// BEGIN to END (or to the end of text), with the private_key marker, keeping
-// the line count so numbering stays right.
-func maskPrivateKeyLines(lines []string) []string {
+// privateKeyLines marks every line of a PEM private-key block, from BEGIN
+// to END (or to the end of text), so each shows as one marker line and the
+// numbering stays right.
+func privateKeyLines(lines []string) []bool {
+	key := make([]bool, len(lines))
 	in := false
 	for i, l := range lines {
 		rest := l
 		if !in {
+			if !strings.Contains(l, "PRIVATE KEY-----") {
+				continue
+			}
 			loc := pemBeginRe.FindStringIndex(l)
 			if loc == nil {
 				continue
 			}
 			in, rest = true, l[loc[1]:]
 		}
-		lines[i] = mark("private_key")
+		key[i] = true
 		if pemEndRe.MatchString(rest) {
 			in = false
 		}
 	}
-	return lines
+	return key
 }
 
 // sanitizeLine escapes control and format runes as Sanitize does, but keeps
@@ -278,7 +302,7 @@ func lcsOps(a, b []string, off int) []diffOp {
 
 // groupHunks keeps each change with diffContext lines around it, merging
 // hunks whose context touches or overlaps.
-func groupHunks(ops []diffOp, a, b []string) [][]DiffLine {
+func groupHunks(ops []diffOp, a, b shownSide) [][]DiffLine {
 	var hunks [][]DiffLine
 	start, end := -1, -1 // current hunk range [start,end) in ops
 	flush := func() {
@@ -302,15 +326,21 @@ func groupHunks(ops []diffOp, a, b []string) [][]DiffLine {
 	return hunks
 }
 
-func toLines(ops []diffOp, a, b []string) []DiffLine {
+// toLines prepares the lines of one hunk. A context line shows its new text,
+// masked when it lies in a private-key block on either side.
+func toLines(ops []diffOp, a, b shownSide) []DiffLine {
 	out := make([]DiffLine, len(ops))
 	for k, op := range ops {
 		l := DiffLine{Kind: string(op.kind)}
-		if op.i >= 0 {
-			l.Old, l.Text = op.i+1, a[op.i]
-		}
-		if op.j >= 0 {
-			l.New, l.Text = op.j+1, b[op.j]
+		switch {
+		case op.j < 0:
+			l.Old, l.Text = op.i+1, a.text(op.i)
+		case op.i < 0:
+			l.New, l.Text = op.j+1, b.text(op.j)
+		case a.key[op.i]:
+			l.Old, l.New, l.Text = op.i+1, op.j+1, mark("private_key")
+		default:
+			l.Old, l.New, l.Text = op.i+1, op.j+1, b.text(op.j)
 		}
 		out[k] = l
 	}

@@ -344,6 +344,7 @@ func TestEdit_ResultCarriesChange(t *testing.T) {
 	assert.Eq(t, res.Change.Old, "a\nb\nc\n")
 	assert.Eq(t, res.Change.New, "a\nB\nc\n")
 	assert.Eq(t, res.Change.HideRemoved, false)
+	assert.Eq(t, res.Change.ScreenOnly, true)
 }
 
 func TestWrite_NewFileChange(t *testing.T) {
@@ -407,4 +408,16 @@ func TestWrite_PreviewDoesNotWrite(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(p.Root, "sub")); !os.IsNotExist(err) {
 		t.Fatalf("preview created files: %v", err)
 	}
+}
+
+func TestWrite_OverCapOldFileNoChange(t *testing.T) {
+	p := policy(t)
+	write(t, p, "big.txt", strings.Repeat("a\n", core.MaxDiffSource/2+1))
+	res := call(t, Write{}, p, `{"path":"big.txt","content":"small\n"}`)
+	assert.Eq(t, res.IsError, false)
+	if res.Change != nil {
+		t.Fatal("want no change for an old file over the cap")
+	}
+	got, _ := os.ReadFile(filepath.Join(p.Root, "big.txt"))
+	assert.Eq(t, string(got), "small\n")
 }

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jasonli0226/jas/core"
@@ -245,5 +246,71 @@ func TestDiffFromPayload(t *testing.T) {
 	}
 	if core.DiffFromPayload(nil) != nil || core.DiffFromPayload("x") != nil || core.DiffFromPayload(map[string]any{"hunks": 3}) != nil {
 		t.Fatal("absent or malformed payload must give nil")
+	}
+}
+
+// shownContext is core's diffContext: context lines around each change.
+const shownContext = 3
+
+func TestComputeDiff_LargeFileRedactsOnlyShownLines(t *testing.T) {
+	const n = 100_000
+	calls := 0
+	redact := func(s string) string { calls++; return s }
+	start := time.Now()
+	d := core.ComputeDiff(core.Change{
+		Old: numbered(n, nil),
+		New: numbered(n, map[int]string{n / 2: "changed"}),
+	}, redact)
+	if el := time.Since(start); el > 2*time.Second {
+		t.Fatalf("one-line edit in a %d-line file took %v", n, el)
+	}
+	ls := allLines(d)
+	assert.Eq(t, len(ls), 2*shownContext+2)
+	assert.Eq(t, calls <= len(ls), true)
+	for _, l := range ls {
+		if l.Kind == "+" {
+			assert.Eq(t, l.New, n/2)
+			assert.Eq(t, l.Text, "changed")
+		}
+	}
+}
+
+func TestComputeDiff_OverSourceCapIsNil(t *testing.T) {
+	big := strings.Repeat("a\n", core.MaxDiffSource/2)
+	if d := core.ComputeDiff(core.Change{Old: big, New: big + "b\n"}, nil); d != nil {
+		t.Fatal("want nil over the source cap")
+	}
+}
+
+func TestComputeDiff_PrivateKeyPartlyInHunkMasked(t *testing.T) {
+	var key []string
+	key = append(key, "-----BEGIN RSA PRIVATE KEY-----")
+	for i := 0; i < 10; i++ {
+		key = append(key, fmt.Sprintf("SECRETBODY%02d", i))
+	}
+	key = append(key, "-----END RSA PRIVATE KEY-----")
+	old := "a\nb\n" + strings.Join(key, "\n") + "\nc\nd\n"
+	// Change the line after END: the hunk's context reaches into the key
+	// body but not its BEGIN line.
+	d := core.ComputeDiff(core.Change{Old: old, New: strings.Replace(old, "\nc\n", "\nC\n", 1)}, nil)
+	ls := allLines(d)
+	masked := 0
+	for _, l := range ls {
+		assert.NotContains(t, l.Text, "SECRETBODY")
+		assert.NotContains(t, l.Text, "PRIVATE KEY")
+		if l.Text == "[REDACTED:private_key]" {
+			masked++
+		}
+	}
+	assert.Eq(t, masked, shownContext)
+	assert.Eq(t, ls[len(ls)-2].Text, "C")
+	assert.Eq(t, ls[len(ls)-2].New, 2+len(key)+1)
+}
+
+func TestComputeDiff_ContextMaskedWhenKeyOnOldSide(t *testing.T) {
+	old := "-----BEGIN PRIVATE KEY-----\nSECRETBODY\n-----END PRIVATE KEY-----\n"
+	d := core.ComputeDiff(core.Change{Old: old, New: "SECRETBODY\n"}, nil)
+	for _, l := range allLines(d) {
+		assert.NotContains(t, l.Text, "SECRETBODY")
 	}
 }

@@ -171,13 +171,19 @@ Transcript (after the change lands):
 
 ### Safety
 
-- **Redaction** runs on the whole old and new text *before* diffing, not
-  per line or per word span. The existing per-string redaction
-  (`walkRedact`, `core/events.go`) would see one line at a time, so a
-  private-key body would leak and a token split by word highlighting would
-  slip past its rule. Private-key blocks are masked line by line (each line
-  of the block becomes a marker line) so line numbers stay correct. The
-  approval-prompt diff gets the same treatment.
+- **Redaction** happens where the diff is computed, never per word span: a
+  token split by word highlighting would slip past its rule. Private-key
+  blocks are found on the whole old and new text and masked line by line
+  (each line of the block becomes a marker line) so line numbers stay
+  correct and a shown line inside a block is masked even when the block's
+  `BEGIN` line is outside the hunk. Lines are aligned raw, and only the
+  lines a hunk keeps are redacted and escaped (final review: redacting a
+  whole large file for a one-line edit was too slow); the other redaction
+  rules are single-line, so this is equivalent. The approval-prompt diff
+  gets the same treatment.
+- **Size**: no diff when old plus new exceed 4 MB (`core.MaxDiffSource`); a
+  `write` over an existing file larger than that does not read it for a
+  diff. No diff either when either side holds a NUL byte (binary).
 - **Escaping**: every rendered diff line (approval and transcript) goes
   through `core.Sanitize`-equivalent escaping, so control, ESC and bidi
   runes in a file cannot rewrite the prompt or the screen.

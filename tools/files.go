@@ -275,11 +275,13 @@ func (Write) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 			return fail("write %s: not a regular file", a.Path)
 		}
 		mode = info.Mode().Perm()
-		// An unreadable old file (too big, ctx ending) just means no diff.
-		if old, err := readFileCtx(ctx, full); err == nil {
-			ch.Old, ch.HideRemoved = string(old), true
-		} else {
-			ch = nil
+		// The old file is read only for the diff: one over the cap, or one
+		// that fails to read (ctx ending is caught below), just means no diff.
+		ch = nil
+		if info.Size() <= core.MaxDiffSource {
+			if old, err := readFileCtx(ctx, full); err == nil {
+				ch = &core.Change{Path: a.Path, Old: string(old), New: *a.Content, HideRemoved: true}
+			}
 		}
 	} else if !os.IsNotExist(err) {
 		return fail("write %s: %v", a.Path, err)
