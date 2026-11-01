@@ -310,8 +310,15 @@ func (t *Transcript) skillRead(tool string, args map[string]any) (string, bool) 
 	if tool != "read" || p == "" {
 		return "", false
 	}
-	name, ok := t.Skills[filepath.Clean(p)]
-	return name, ok
+	// Clean both sides: on Windows Clean also turns / into \, so a raw
+	// key would never match.
+	p = filepath.Clean(p)
+	for loc, name := range t.Skills {
+		if filepath.Clean(loc) == p {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // SkillUser renders a /skill invocation: the skill marker, then the prompt
