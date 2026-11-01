@@ -138,3 +138,18 @@ func (l *uiLog) AppendSync(typ string, data any) error {
 	l.ui.Event(typ, data)
 	return err
 }
+
+// screenAppender is a log that can show the UI a different payload from the
+// one it logs. Implemented by uiLog only.
+type screenAppender interface {
+	// AppendScreen logs logData and shows screenData to the UI.
+	AppendScreen(typ string, logData, screenData any) error
+}
+
+var _ screenAppender = (*uiLog)(nil)
+
+func (l *uiLog) AppendScreen(typ string, logData, screenData any) error {
+	err := l.EventLog.Append(typ, logData)
+	l.ui.Event(typ, screenData)
+	return err
+}

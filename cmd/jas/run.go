@@ -69,7 +69,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Gate: &core.Approver{
 			Level: e.level, In: e.stdin, Out: os.Stderr, Interactive: e.interactive,
 		},
-		Log: log, Filter: red.Filter,
+		Log: log, Filter: red.Filter, Redact: red.Redact,
 	}
 	e.warnUnknownWindow(e.cfg.Model)
 	meta := e.sessionMeta(e.cfg.Model)

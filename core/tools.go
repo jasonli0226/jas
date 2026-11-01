@@ -96,12 +96,14 @@ const (
 
 // Gate decides whether a mutating call may run.
 type Gate interface {
-	Allow(ctx context.Context, t Tool, args json.RawMessage) (Decision, error)
+	// preview, when non-nil, returns the diff the call would make; a gate
+	// calls it only when it is about to ask.
+	Allow(ctx context.Context, t Tool, args json.RawMessage, preview func() *Diff) (Decision, error)
 }
 
 // AllowAll grants everything (slice 1).
 type AllowAll struct{}
 
-func (AllowAll) Allow(context.Context, Tool, json.RawMessage) (Decision, error) {
+func (AllowAll) Allow(context.Context, Tool, json.RawMessage, func() *Diff) (Decision, error) {
 	return Granted, nil
 }

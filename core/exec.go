@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
@@ -32,6 +33,7 @@ type Executor struct {
 	Gate   Gate // nil means AllowAll
 	Log    EventLog
 	Filter func(Result) Result // redaction hook; nil means identity
+	Redact func(string) string // applied to diff text before diffing; nil is identity
 }
 
 type slot struct {
@@ -201,7 +203,7 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	if gate == nil {
 		gate = AllowAll{}
 	}
-	d, err := gate.Allow(ctx, s.tool, s.call.Input)
+	d, err := gate.Allow(ctx, s.tool, s.call.Input, r.preview(ctx, s))
 	if err != nil {
 		if ctx.Err() != nil {
 			s.settle(Result{Output: cancelledOutput, IsError: true}, statusCancelled)
@@ -235,6 +237,22 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	}
 	r.execute(ctx, s)
 	r.emitResult(s)
+}
+
+// preview returns the gate's preview of s: the diff its tool would make, or
+// nil when the tool cannot preview, the preview fails, or nothing changes.
+func (r *run) preview(ctx context.Context, s *slot) func() *Diff {
+	return func() *Diff {
+		p, ok := s.tool.(Previewer)
+		if !ok {
+			return nil
+		}
+		change, err := p.Preview(ctx, r.e.Policy, s.call.Input)
+		if err != nil || change == nil {
+			return nil
+		}
+		return ComputeDiff(*change, r.e.Redact)
+	}
 }
 
 // execute calls the tool, converting errors and panics to error results.
@@ -282,10 +300,40 @@ func (r *run) emitResult(s *slot) {
 	if s.status != statusCancelled && s.status != statusDenied && r.e.Filter != nil {
 		s.res = r.e.Filter(s.res)
 	}
-	r.noteLogErr(r.e.Log.Append(EvToolResult, map[string]any{
+	logged := map[string]any{
 		"call_id": s.call.ToolUseID, "tool": s.call.Name,
 		"status": s.status, "output": s.res.Output,
-	}))
+	}
+	shown := r.withDiff(s, logged)
+	sa, split := r.e.Log.(screenAppender)
+	if shown == nil || !split {
+		r.noteLogErr(r.e.Log.Append(EvToolResult, logged))
+		return
+	}
+	r.noteLogErr(sa.AppendScreen(EvToolResult, logged, shown))
+}
+
+// withDiff adds the diff of a successful change to logged and returns the
+// screen payload, or nil when there is no diff. The log keeps only added
+// lines of a change marked HideRemoved (a write over an existing file): the
+// old content was never read by the model and may hold secrets that pattern
+// redaction misses, so it goes to the screen only.
+func (r *run) withDiff(s *slot, logged map[string]any) map[string]any {
+	if s.status != statusOK || s.res.Change == nil {
+		return nil
+	}
+	d := ComputeDiff(*s.res.Change, r.e.Redact)
+	if d == nil {
+		return nil
+	}
+	shown := maps.Clone(logged)
+	shown["diff"] = d
+	if s.res.Change.HideRemoved {
+		logged["diff"] = d.AddedOnly()
+	} else {
+		logged["diff"] = d
+	}
+	return shown
 }
 
 func rawOrEmpty(raw json.RawMessage) json.RawMessage {

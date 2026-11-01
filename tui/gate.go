@@ -17,6 +17,7 @@ type (
 	// on reply, which is buffered so the send never blocks.
 	approvalMsg struct {
 		prompt string
+		diff   *core.Diff // nil: nothing to show
 		reply  chan<- string
 	}
 	// noticeMsg is a dim line for scrollback.
@@ -83,7 +84,7 @@ func (g *Gate) Grants() *core.Grants {
 
 // Allow implements core.Gate. It returns on ctx done even while another
 // call's prompt is open.
-func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage) (core.Decision, error) {
+func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, preview func() *core.Diff) (core.Decision, error) {
 	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
 		return core.Granted, nil
 	}
@@ -97,9 +98,14 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage) (co
 	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
 		return core.Granted, nil
 	}
+	var diff *core.Diff
+	if preview != nil {
+		diff = preview()
+	}
 	reply := make(chan string, 1)
 	g.send(approvalMsg{
 		prompt: g.redact(fmt.Sprintf("approve %s: %s? [y/N/always]", t.Name(), core.SummarizeCall(t.Name(), args))),
+		diff:   diff,
 		reply:  reply,
 	})
 	select {
