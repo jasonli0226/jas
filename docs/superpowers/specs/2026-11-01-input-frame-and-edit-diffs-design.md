@@ -100,7 +100,8 @@ Transcript (after the change lands):
 - **Context**: 3 unchanged lines around each change (hunk), like `git diff`.
   Separate hunks are joined by a dim `⋮` row.
 - **Colour (style B)**:
-  - removed line background `#3f1d1d`, added line background `#1c3a24`,
+  - removed line background `#4a1414` (tuned from the swatch's `#3f1d1d`,
+    which degraded to black on 16 colours), added line background `#1c3a24`,
     filling the full terminal width;
   - changed words within a paired `-`/`+` line on a brighter background:
     removed `#7a2a2a`, added `#2a6b3c`;
