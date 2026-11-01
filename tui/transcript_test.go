@@ -328,6 +328,13 @@ func TestTranscript_SkillReadShowsSkillRow(t *testing.T) {
 	eqStrings(t, got, []string{"◆ skill review loaded"})
 }
 
+func TestTranscript_SkillReadMatchesUncleanSkillPath(t *testing.T) {
+	tr := Transcript{Skills: map[string]string{"/skills//review/./SKILL.md": "review"}}
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "read",
+		"args": map[string]any{"path": "/skills/review/SKILL.md"}}, t0)
+	eqStrings(t, plain([]string{tr.Live()}), []string{"◆ skill review running"})
+}
+
 func TestTranscript_SkillReadFailedKeepsReason(t *testing.T) {
 	tr := Transcript{Skills: testSkills}
 	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "read",
