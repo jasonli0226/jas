@@ -202,6 +202,7 @@ func (m *Model) View() tea.View {
 	if p := m.prompt(); p != "" {
 		parts = append(parts, p)
 	}
+	parts = append(parts, m.rule())
 	if m.picker != nil {
 		parts = append(parts, m.picker.view(m.width))
 	} else {
@@ -210,7 +211,7 @@ func (m *Model) View() tea.View {
 			parts = append(parts, menu.rows(m.width))
 		}
 	}
-	parts = append(parts, m.statusLine())
+	parts = append(parts, m.rule(), m.statusLine())
 	// The zero KeyboardEnhancements still requests basic key disambiguation
 	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
 	// apart from Enter on terminals that support it.
@@ -224,6 +225,11 @@ func (m *Model) prompt() string {
 		return ""
 	}
 	return boldStyle.Render(ansi.Wrap(m.approval.prompt, m.width, ""))
+}
+
+// rule is the dim horizontal line framing the input above and below.
+func (m *Model) rule() string {
+	return dimStyle.Render(strings.Repeat("─", m.width))
 }
 
 func (m *Model) statusLine() string {

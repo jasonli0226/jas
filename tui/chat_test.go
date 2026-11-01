@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -161,11 +162,12 @@ func TestChat_BlankLineAboveInput(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t, fake.Turn{Text: "partial", Block: true}))
 	lines := strings.Split(c.view(), "\n")
 	assert.Eq(t, lines[0], "")
-	assert.Eq(t, strings.HasPrefix(lines[1], "›"), true)
+	assert.Eq(t, strings.HasPrefix(lines[1], "─"), true)
+	assert.Eq(t, strings.HasPrefix(lines[2], "›"), true)
 
 	c.submit("hi")
 	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(textMsg); return ok })
-	assert.Contains(t, c.view(), "● partial\n\n›")
+	assert.Contains(t, c.view(), "● partial\n\n"+strings.Repeat("─", defaultWidth)+"\n›")
 }
 
 func TestChat_SendStreamsAndPrints(t *testing.T) {
@@ -574,4 +576,24 @@ func TestChat_StreamingNoBlankFlash(t *testing.T) {
 	assert.Contains(t, c.view(), "  World")
 	c.m.Update(printedMsg{})
 	assert.NotContains(t, c.view(), "World")
+}
+
+func TestChat_InputFramedByRules(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	lines := strings.Split(c.view(), "\n")
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "› ") })
+	rule := strings.Repeat("─", defaultWidth)
+	assert.Eq(t, strings.TrimRight(lines[i-1], " "), rule)
+	assert.Eq(t, strings.TrimRight(lines[i+1], " "), rule)
+	assert.Contains(t, lines[i+2], "· ") // status line under the bottom rule
+}
+
+func TestChat_SlashMenuInsideRules(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/")
+	lines := strings.Split(c.view(), "\n")
+	rule := strings.Repeat("─", defaultWidth)
+	last := len(lines) - 1 // status line
+	assert.Eq(t, strings.TrimRight(lines[last-1], " "), rule)
+	assert.Contains(t, strings.Join(lines[:last-1], "\n"), "help")
 }
