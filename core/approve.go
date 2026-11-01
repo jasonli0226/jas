@@ -80,7 +80,7 @@ func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage, prev
 	if !a.Interactive {
 		return Unavailable, nil
 	}
-	prompt := diffBlock(preview) + fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeCall(t.Name(), args))
+	prompt := diffBlock(t.Name(), preview) + fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeCall(t.Name(), args))
 
 	type answer struct {
 		line string
@@ -125,14 +125,20 @@ func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage, prev
 	}
 }
 
-// diffBlock is the would-be diff as plain rows, one per line, or "" when
-// there is no preview or nothing visible changes.
-func diffBlock(preview func() *Diff) string {
+// diffBlock is the would-be diff as plain rows under a "<tool> <path>"
+// header, one per line, or "" when there is no preview or nothing visible
+// changes.
+func diffBlock(tool string, preview func() *Diff) string {
 	if preview == nil {
 		return ""
 	}
+	d := preview()
+	if d == nil {
+		return ""
+	}
 	var b strings.Builder
-	for _, row := range FormatDiffPlain(preview()) {
+	b.WriteString(Sanitize(tool) + " " + Sanitize(d.Path) + "\n")
+	for _, row := range FormatDiffPlain(d) {
 		b.WriteString(row + "\n")
 	}
 	return b.String()

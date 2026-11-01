@@ -168,4 +168,5 @@ func TestApprover_PrintsDiffBeforeQuestion(t *testing.T) {
 	if minus < 0 || plus < 0 || q < 0 || minus > q || plus > q {
 		t.Fatalf("want diff rows before the question, got %q", s)
 	}
+	assert.Eq(t, strings.HasPrefix(s, "edit a.txt\n"), true)
 }

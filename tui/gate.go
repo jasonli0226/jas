@@ -17,6 +17,7 @@ type (
 	// on reply, which is buffered so the send never blocks.
 	approvalMsg struct {
 		prompt string
+		header string     // "<tool> <path>" above the diff
 		diff   *core.Diff // nil: nothing to show
 		reply  chan<- string
 	}
@@ -98,13 +99,20 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, pre
 	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
 		return core.Granted, nil
 	}
-	var diff *core.Diff
+	var (
+		diff   *core.Diff
+		header string
+	)
 	if preview != nil {
 		diff = preview()
+	}
+	if diff != nil {
+		header = g.redact(core.Sanitize(t.Name()) + " " + core.Sanitize(diff.Path))
 	}
 	reply := make(chan string, 1)
 	g.send(approvalMsg{
 		prompt: g.redact(fmt.Sprintf("approve %s: %s? [y/N/always]", t.Name(), core.SummarizeCall(t.Name(), args))),
+		header: header,
 		diff:   diff,
 		reply:  reply,
 	})

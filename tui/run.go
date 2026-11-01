@@ -205,8 +205,9 @@ func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
 }
 
 // onApproval opens the approval prompt, closing any open picker so Enter
-// answers the prompt. One that arrives with no run to answer for is refused
-// at once.
+// answers the prompt. A diff prints first, after the model's pending text
+// and under a "<tool> <path>" header, in the tool group. One that arrives
+// with no run to answer for is refused at once.
 func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 	if m.run == nil {
 		msg.reply <- ""
@@ -214,7 +215,9 @@ func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 	}
 	var cmd tea.Cmd
 	if msg.diff != nil {
-		cmd = m.print(renderDiff(msg.diff, m.width, 0)...)
+		out := append(m.tr.Settle(m.o.Now()), m.tr.ToolGroup()...)
+		out = append(out, cutRow(msg.header, m.width))
+		cmd = m.print(append(out, renderDiff(msg.diff, m.width, 0)...)...)
 	}
 	m.approval = &msg
 	m.picker, m.onPick = nil, nil

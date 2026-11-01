@@ -600,15 +600,27 @@ func TestChat_SlashMenuInsideRules(t *testing.T) {
 }
 
 func TestChat_ApprovalPrintsDiffAboveQuestion(t *testing.T) {
-	b := newTestBackend(t, fake.Turn{Calls: []fake.Call{{Name: "edit",
+	b := newTestBackend(t, fake.Turn{Text: "I'll fix d.", Calls: []fake.Call{{Name: "edit",
 		Args: `{"path":"f.txt","old_string":"d","new_string":"D"}`}}}, fake.Turn{Text: "ok"})
 	assert.NoErr(t, os.WriteFile(filepath.Join(b.root, "f.txt"), []byte("a\nb\nc\nd\ne\n"), 0o644))
 	c := newTestChatOpts(t, b, Options{Level: core.AllMutating})
 	c.submit("edit it")
 	c.pumpUntilApproval()
-	assert.Contains(t, c.printedText(), "     4 - d")
-	assert.Contains(t, c.printedText(), "     4 + D")
-	assert.Contains(t, c.view(), "[y/N/always]")
+	printed := plain(c.m.Printed())
+	at := func(s string) int {
+		t.Helper()
+		i := slices.Index(printed, s)
+		if i < 0 {
+			t.Fatalf("%q not printed in %q", s, printed)
+		}
+		return i
+	}
+	user, agent, header := at("› edit it"), at("● I'll fix d."), at("edit f.txt")
+	del, add := at("     4 - d"), at("     4 + D")
+	assert.Eq(t, user < agent && agent < header && header < del && del < add, true)
+	assert.Eq(t, printed[header-1], "") // the tool group's gap
 	v := c.view()
-	assert.Eq(t, strings.Index(v, "     4 - d") < strings.Index(v, "[y/N/always]"), true)
+	assert.Contains(t, v, "[y/N/always]")
+	assert.NotContains(t, v, "I'll fix d.")
+	assert.NotContains(t, v, "     4 - d")
 }

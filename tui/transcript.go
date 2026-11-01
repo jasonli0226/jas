@@ -262,6 +262,13 @@ func hang(block, first string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// Settle prints what settle holds back, for output that must land after
+// the model's text but before its next tool row (an approval diff).
+func (t *Transcript) Settle(now time.Time) []string { return t.settle(now) }
+
+// ToolGroup enters the tool group, returning its blank separator if any.
+func (t *Transcript) ToolGroup() []string { return t.enter(roleTool) }
+
 // settle closes thinking and prints the partial text block, preserving order
 // before a tool row or at the end of a run.
 func (t *Transcript) settle(now time.Time) []string {

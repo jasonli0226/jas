@@ -185,6 +185,7 @@ func TestGate_ApprovalCarriesDiff(t *testing.T) {
 	if a.diff == nil {
 		t.Fatal("approvalMsg has no diff")
 	}
+	assert.Eq(t, a.header, "edit a")
 	a.reply <- "n"
 	assert.Eq(t, (<-ch).d, core.Denied)
 	assert.Eq(t, calls, 1)
