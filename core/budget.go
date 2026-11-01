@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -19,6 +20,10 @@ const (
 	maxStubArg     = 80
 	elideHeadroom  = 0.1 // fraction of Window that must accumulate between passes
 	unknownToolTag = "?"
+
+	// skillFileName marks a read as loading a skill (agentskills.io).
+	skillFileName   = "SKILL.md"
+	skillRereadHint = "skill instructions: read the file again before following the skill"
 )
 
 // ElideStats describes one elision pass.
@@ -184,6 +189,11 @@ func elideStub(use providers.ContentBlock, text string) string {
 	}
 	if arg == "" {
 		return fmt.Sprintf("%s%s %d lines]", elidedPrefix, tool, lines)
+	}
+	if p, _ := args["path"].(string); tool == "read" && filepath.Base(p) == skillFileName {
+		// The model tends to carry on from its memory of a skill; tell it
+		// the instructions are gone so it reads them again.
+		return fmt.Sprintf("%s%s %s %d lines; %s]", elidedPrefix, tool, arg, lines, skillRereadHint)
 	}
 	return fmt.Sprintf("%s%s %s %d lines]", elidedPrefix, tool, arg, lines)
 }

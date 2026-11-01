@@ -60,6 +60,18 @@ func results(msgs []providers.Message) []string {
 	return out
 }
 
+func TestBudget_SkillStubAsksForReread(t *testing.T) {
+	b := &core.Budget{Window: 1000, ElideAt: 0.6, Keep: 6}
+	msgs := toolTurns(10, 100)
+	msgs[1].Content[0].Input = json.RawMessage(`{"path":"/s/review/SKILL.md"}`)
+	got, st := b.MaybeElide(msgs)
+	if st == nil {
+		t.Fatal("expected elision")
+	}
+	assert.Eq(t, results(got)[0], "[elided: read /s/review/SKILL.md 100 lines; skill instructions: read the file again before following the skill]")
+	assert.Eq(t, results(got)[1], "[elided: read f1.go 100 lines]")
+}
+
 func TestBudget_NoElideBelowThreshold(t *testing.T) {
 	b := &core.Budget{Window: 1000000, ElideAt: 0.6, Keep: 6}
 	msgs := toolTurns(10, 10)
