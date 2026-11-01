@@ -130,6 +130,9 @@ API keys come from `auth.json` (literal, mode 0600), a `$ENV_NAME` reference
 stored there, or `JAS_API_KEY`. `jas auth list` shows names and sources,
 never values.
 
+Which providers work, and how to set each up (OpenRouter, ollama, local
+servers, OpenAI, Microsoft Foundry), is in [docs/providers.md](docs/providers.md).
+
 A local model through ollama needs no key:
 
 ```sh

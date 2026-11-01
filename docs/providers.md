@@ -1,0 +1,143 @@
+# Providers
+
+jas talks to models through one adapter: any endpoint that speaks the
+OpenAI **Chat Completions** API with streaming (`POST <base_url>/chat/completions`,
+server-sent events, OpenAI-style `tools`). Anything that serves that API can
+be used, whether it is listed here or not.
+
+## How a provider is chosen
+
+Three settings decide where requests go. Each one takes a flag, a `JAS_*`
+env var or a `jas config set` value (see the README's Configuration section).
+
+| Setting | What it does |
+|---|---|
+| `provider` | `openrouter`, `ollama` or `custom` (the default when unset). Picks the preset `base_url` and the name the API key is stored under. |
+| `base_url` | The API root; jas appends `/chat/completions`. Overrides the preset. |
+| `model` | Sent as-is in the request's `model` field. |
+
+The key comes from `JAS_API_KEY`, or from `jas auth add <provider>` (stored
+in `~/.jas/auth.json`, or as a `$ENV_NAME` reference with `--env`). jas sends
+it as `Authorization: Bearer <key>`. Only `openrouter` requires a key; the
+others run without one when none is set.
+
+jas sizes its context from a built-in catalog of model ids. A model it does
+not know gets 128000 tokens and a warning; set the real window with
+`jas config set models.<model>.context_window <tokens>`.
+
+## Support at a glance
+
+**Tested** means the repo has recorded streaming fixtures or live tests for
+it. **Should work** means the endpoint is OpenAI-compatible but nothing in the
+repo checks it yet.
+
+| Provider | `provider` | `base_url` | Key | Status |
+|---|---|---|---|---|
+| OpenRouter | `openrouter` | preset `https://openrouter.ai/api/v1` | required | Tested (GLM fixture and live tests) |
+| ollama | `ollama` | preset `http://localhost:11434/v1` | none | Should work (fixture missing, #29) |
+| vLLM | `custom` | `http://localhost:8000/v1` | optional | Should work |
+| LM Studio | `custom` | `http://localhost:1234/v1` | none | Should work |
+| llama.cpp server | `custom` | `http://localhost:8080/v1` | optional | Should work |
+| OpenAI | `custom` | `https://api.openai.com/v1` | required | Should work |
+| Microsoft Foundry / Azure OpenAI | `custom` | `https://<resource>.openai.azure.com/openai/v1` | required | Should work, with known gaps (below) |
+| Anthropic API (native) | — | — | — | Not supported; use Claude through OpenRouter |
+
+The local servers' URLs are their usual defaults; use whatever host and port
+yours listens on.
+
+## Recipes
+
+### OpenRouter
+
+```sh
+jas config set provider openrouter
+jas auth add openrouter                 # or: --env OPENROUTER_API_KEY
+jas config set model z-ai/glm-5.3
+```
+
+Claude, GPT, Gemini and other hosted models are reachable here by their
+OpenRouter ids.
+
+### ollama
+
+```sh
+jas config set provider ollama
+jas config set model qwen2.5-coder
+```
+
+The model must support tool calling. Set its context window if jas warns
+that it is unknown; ollama's own default context is often smaller than the
+model's maximum.
+
+### vLLM, LM Studio, llama.cpp and other local servers
+
+```sh
+jas config set provider custom
+jas config set base_url http://localhost:8000/v1
+jas config set model <model id the server reports>
+jas config set models.<model id>.context_window 32768
+```
+
+If the server wants a key, store it with `jas auth add custom`. Tool calling
+must be enabled on the server (vLLM, for example, needs its tool-call parser
+flags).
+
+### OpenAI
+
+```sh
+jas config set provider custom
+jas config set base_url https://api.openai.com/v1
+jas auth add custom                     # or: --env OPENAI_API_KEY
+jas config set model <model id>
+```
+
+### Microsoft Foundry / Azure OpenAI
+
+Use the Azure OpenAI **v1** endpoint. It needs no `api-version`, and it
+accepts the resource key as a Bearer token, which is what jas sends.
+
+```sh
+jas config set provider custom
+jas config set base_url https://<resource>.openai.azure.com/openai/v1
+jas auth add custom                     # the resource's key
+jas config set model <deployment name>
+jas config set models.<deployment name>.context_window <tokens>
+```
+
+- `model` is your **deployment name**, not the model's name. Deployment
+  names are your own, so jas cannot look up the window; set it.
+- `https://<resource>.services.ai.azure.com/openai/v1` is the same route.
+  OpenAI models and the other models Azure sells on this route (DeepSeek,
+  Grok, MAI) all work the same way.
+- The older `/openai/deployments/<name>/chat/completions?api-version=...`
+  URLs do not work: jas cannot add a query string, and those URLs want an
+  `api-key` header.
+- Claude in Foundry uses Anthropic's Messages API (`/anthropic`), so it does
+  not work.
+
+Known gaps, until jas has a dedicated `foundry` provider:
+
+- **gpt-5.6 deployments fail.** On Chat Completions they reject requests
+  that include tools unless `reasoning_effort` is `"none"`. jas always sends
+  tools and cannot set `reasoning_effort` yet.
+- **Filtered answers look finished.** When Azure's content filter cuts a
+  reply short, jas treats the partial reply as complete.
+- **Rate-limit waits.** Azure sends its wait hint in `retry-after-ms`; jas
+  reads only `Retry-After` and falls back to its own 1/2/4 s backoff.
+- **Untested.** No fixture or live test covers Foundry yet.
+
+The full findings, with sources and open questions, are in
+[research/microsoft-foundry-provider.md](research/microsoft-foundry-provider.md).
+
+## What makes an endpoint work
+
+An endpoint works with jas if it:
+
+- serves `POST /chat/completions` under `base_url`, with no required query
+  parameters;
+- accepts `Authorization: Bearer <key>`, or no key at all;
+- streams with `stream: true` as OpenAI-style server-sent events, ending in
+  `data: [DONE]`;
+- supports `tools` and returns tool calls as streamed `tool_calls` deltas.
+
+If any of these is missing, the provider needs its own adapter.
