@@ -269,7 +269,7 @@ func (Write) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 		return writePlan{}, &res, nil
 	}
 	mode := newFileMode
-	ch := &core.Change{Path: a.Path, New: *a.Content}
+	ch := diffChange(&core.Change{Path: a.Path, New: *a.Content})
 	if info, err := os.Stat(full); err == nil {
 		if !info.Mode().IsRegular() {
 			return fail("write %s: not a regular file", a.Path)
@@ -280,7 +280,7 @@ func (Write) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 		ch = nil
 		if info.Size() <= core.MaxDiffSource {
 			if old, err := readFileCtx(ctx, full); err == nil {
-				ch = &core.Change{Path: a.Path, Old: string(old), New: *a.Content, HideRemoved: true}
+				ch = diffChange(&core.Change{Path: a.Path, Old: string(old), New: *a.Content, HideRemoved: true})
 			}
 		}
 	} else if !os.IsNotExist(err) {
@@ -438,5 +438,14 @@ func (e Edit) Preview(ctx context.Context, p core.ExecPolicy, args json.RawMessa
 // change is the edit's diff source. It is screen-only: the diff's context
 // lines are file content the model never sent.
 func (pl editPlan) change() *core.Change {
-	return &core.Change{Path: pl.path, Old: pl.old, New: pl.updated, ScreenOnly: true}
+	return diffChange(&core.Change{Path: pl.path, Old: pl.old, New: pl.updated, ScreenOnly: true})
+}
+
+// diffChange returns ch, or nil when either side is binary (holds a NUL
+// byte): such a file shows no diff.
+func diffChange(ch *core.Change) *core.Change {
+	if strings.ContainsRune(ch.Old, 0) || strings.ContainsRune(ch.New, 0) {
+		return nil
+	}
+	return ch
 }

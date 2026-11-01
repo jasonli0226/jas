@@ -421,3 +421,28 @@ func TestWrite_OverCapOldFileNoChange(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(p.Root, "big.txt"))
 	assert.Eq(t, string(got), "small\n")
 }
+
+func TestWriteEdit_BinaryNoChange(t *testing.T) {
+	p := policy(t)
+	res := call(t, Write{}, p, `{"path":"n.bin","content":"a\u0000b\n"}`)
+	assert.Eq(t, res.IsError, false)
+	if res.Change != nil {
+		t.Fatal("write: want no change for new content with NUL")
+	}
+	write(t, p, "o.bin", "x\x00y\nz\n")
+	res = call(t, Write{}, p, `{"path":"o.bin","content":"text\n"}`)
+	if res.Change != nil {
+		t.Fatal("write: want no change for old content with NUL")
+	}
+	write(t, p, "e.bin", "x\x00y\nz\n")
+	res = call(t, Edit{}, p, `{"path":"e.bin","old_string":"z","new_string":"Z"}`)
+	assert.Eq(t, res.IsError, false)
+	if res.Change != nil {
+		t.Fatal("edit: want no change for content with NUL")
+	}
+	ch, err := Edit{}.Preview(context.Background(), p, json.RawMessage(`{"path":"e.bin","old_string":"Z","new_string":"z"}`))
+	assert.NoErr(t, err)
+	if ch != nil {
+		t.Fatal("edit preview: want no change for content with NUL")
+	}
+}
