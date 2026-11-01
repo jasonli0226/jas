@@ -317,7 +317,8 @@ func (r *run) emitResult(s *slot) {
 // screen payload, or nil when there is no diff. The log keeps only added
 // lines of a change marked HideRemoved (a write over an existing file): the
 // old content was never read by the model and may hold secrets that pattern
-// redaction misses, so it goes to the screen only.
+// redaction misses, so it goes to the screen only. A ScreenOnly change (an
+// edit) logs no diff at all.
 func (r *run) withDiff(s *slot, logged map[string]any) map[string]any {
 	if s.status != statusOK || s.res.Change == nil {
 		return nil
@@ -328,9 +329,11 @@ func (r *run) withDiff(s *slot, logged map[string]any) map[string]any {
 	}
 	shown := maps.Clone(logged)
 	shown["diff"] = d
-	if s.res.Change.HideRemoved {
+	switch {
+	case s.res.Change.ScreenOnly: // the log gets no diff
+	case s.res.Change.HideRemoved:
 		logged["diff"] = d.AddedOnly()
-	} else {
+	default:
 		logged["diff"] = d
 	}
 	return shown

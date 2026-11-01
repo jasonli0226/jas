@@ -125,14 +125,35 @@ func (r *diffRig) run(t *testing.T, tool string, args any) []providers.ContentBl
 	return out
 }
 
-func TestExec_EditResultEventHasDiff(t *testing.T) {
+func TestExec_EditDiffScreenOnly(t *testing.T) {
 	r := newDiffRig(t, nil)
+	screen := &recLog{}
+	r.ex.Log = core.NewUILog(r.log, screen)
 	r.file(t, "a.txt", "one\ntwo\nthree\n")
 	out := r.run(t, "edit", map[string]string{"path": "a.txt", "old_string": "two", "new_string": "TWO"})
-	rows := diffRows(t, r.log.result(t))
-	assert.Eq(t, countKind(rows, "-"), 1)
-	assert.Eq(t, countKind(rows, "+"), 1)
 	assert.Eq(t, out[0].Text, "edited a.txt")
+
+	raw, _ := json.Marshal(r.log.result(t))
+	assert.NotContains(t, string(raw), `"diff"`)
+
+	shown := diffRows(t, screen.result(t))
+	assert.Eq(t, countKind(shown, "-"), 1)
+	assert.Eq(t, countKind(shown, "+"), 1)
+}
+
+func TestExec_EditNoDiffWithoutScreen(t *testing.T) {
+	r := newDiffRig(t, nil)
+	r.file(t, "a.txt", "one\ntwo\n")
+	r.run(t, "edit", map[string]string{"path": "a.txt", "old_string": "two", "new_string": "TWO"})
+	_, has := r.log.result(t)["diff"]
+	assert.Eq(t, has, false)
+}
+
+func TestExec_WriteNewFileLogsDiff(t *testing.T) {
+	r := newDiffRig(t, nil)
+	r.run(t, "write", map[string]string{"path": "n.txt", "content": "fresh\n"})
+	rows := diffRows(t, r.log.result(t))
+	assert.Eq(t, countKind(rows, "+"), 1)
 }
 
 func TestExec_WriteOverwriteLogDropsRemovedScreenKeeps(t *testing.T) {

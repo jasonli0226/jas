@@ -24,6 +24,9 @@ type Change struct {
 	// HideRemoved: removed lines are screen-only (a write over an existing
 	// file, whose old content the model may never have read).
 	HideRemoved bool
+	// ScreenOnly: the whole diff is screen-only, never logged (an edit, whose
+	// context lines are file content the model never sent).
+	ScreenOnly bool
 }
 
 // DiffLine is one display row of a diff.

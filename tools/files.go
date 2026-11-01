@@ -417,7 +417,7 @@ func (e Edit) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage)
 	}
 	return core.Result{
 		Output: "edited " + pl.path,
-		Change: &core.Change{Path: pl.path, Old: pl.old, New: pl.updated},
+		Change: pl.change(),
 	}, nil
 }
 
@@ -430,5 +430,11 @@ func (e Edit) Preview(ctx context.Context, p core.ExecPolicy, args json.RawMessa
 	if res != nil {
 		return nil, errors.New(res.Output)
 	}
-	return &core.Change{Path: pl.path, Old: pl.old, New: pl.updated}, nil
+	return pl.change(), nil
+}
+
+// change is the edit's diff source. It is screen-only: the diff's context
+// lines are file content the model never sent.
+func (pl editPlan) change() *core.Change {
+	return &core.Change{Path: pl.path, Old: pl.old, New: pl.updated, ScreenOnly: true}
 }

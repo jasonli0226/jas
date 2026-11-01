@@ -155,9 +155,12 @@ Transcript (after the change lands):
   `diff` field, but for a `write` over an existing file it keeps **only the
   added lines**; the old file's removed lines are screen-only, because they
   can hold content the model never read (for example a `.env`) that pattern
-  redaction would miss. For `edit`, the removed text is `old_string`, which
-  is already logged in `tool_started.args`, so the logged diff keeps both
-  sides. A `write` to a new file has only added lines anyway.
+  redaction would miss. A `write` to a new file has only added lines anyway.
+- **`edit` diffs are screen-only** (user decision, final review): an edit's
+  `tool_result` logs no `diff` at all. Its diff includes the surrounding
+  context lines (and, when they merge, whole stretches of the file) that the
+  model never sent, so it has the same exposure as a write's removed lines;
+  what the model did send is already logged in `tool_started.args`.
 - This means the screen copy must reach the TUI without passing through the
   log (today `core.NewUILog` writes an event to the log and then to the UI
   with the same payload). How to split it is the builder's call; the log
