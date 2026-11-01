@@ -81,3 +81,14 @@ func TestRenderDiff_NilAndEmpty(t *testing.T) {
 	assert.Eq(t, len(renderDiff(nil, 40, 0)), 0)
 	assert.Eq(t, len(renderDiff(&core.Diff{}, 40, 0)), 0)
 }
+
+func TestRenderDiff_WideRunesPadToCells(t *testing.T) {
+	d := &core.Diff{Hunks: [][]core.DiffLine{{
+		{Kind: "-", Old: 1, Text: "hello"},
+		{Kind: "+", New: 1, Text: "你好世界", Spans: [][2]int{{1, 3}}},
+	}}}
+	for _, r := range renderDiff(d, 20, 0) {
+		assert.Eq(t, ansi.StringWidth(ansi.Strip(r)) <= 20, true)
+		assert.Eq(t, ansi.StringWidth(ansi.Strip(r)), 20) // the band fills the row
+	}
+}

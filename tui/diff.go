@@ -56,7 +56,7 @@ func cutRow(s string, width int) string {
 }
 
 // diffRow renders one line as "%6d k text": the number faint, a removed or
-// added line on its band (padded to width), changed words on the brighter one.
+// added line on its band (padded to width in cells), changed words on the brighter one.
 func diffRow(l core.DiffLine, width int) string {
 	num := l.New
 	if l.Kind == "-" {
@@ -83,7 +83,7 @@ func diffRow(l core.DiffLine, width int) string {
 		}
 		b.WriteString(st.Render(string(seg.text)))
 	}
-	if pad := width - len(row); l.Kind != " " && pad > 0 {
+	if pad := width - ansi.StringWidth(string(row)); l.Kind != " " && pad > 0 {
 		b.WriteString(line.Render(strings.Repeat(" ", pad)))
 	}
 	return b.String()
