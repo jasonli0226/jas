@@ -41,16 +41,25 @@ type testBackend struct {
 	window      int                 // context window; 0 is testWindow
 	keep        int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
 	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
+	opens       atomic.Int32        // sessions handed out as a Live
 }
 
 const testWindow = 100000
 
 func newTestBackend(t *testing.T, turns ...fake.Turn) *testBackend {
 	t.Helper()
-	return &testBackend{
+	b := &testBackend{
 		t: t, root: t.TempDir(), sessionsDir: t.TempDir(),
 		prov: &fake.Provider{Turns: turns},
 	}
+	// Runs before the temp dirs are removed: an event log left open there
+	// fails the removal on Windows.
+	t.Cleanup(func() {
+		if opens, closes := b.opens.Load(), b.closes.Load(); opens != closes {
+			t.Errorf("%d sessions opened, %d closed", opens, closes)
+		}
+	})
+	return b
 }
 
 func (b *testBackend) config(path, model string, log core.EventLog, ui core.UI, gate core.Gate) (core.SessionConfig, *core.Budget) {
@@ -77,6 +86,7 @@ func (b *testBackend) config(path, model string, log core.EventLog, ui core.UI, 
 }
 
 func (b *testBackend) live(path, model string, log core.EventLog, s *core.Session, bud *core.Budget) *Live {
+	b.opens.Add(1)
 	return &Live{
 		Session: s, ID: filepath.Base(filepath.Dir(path)), Path: path, Model: model, Budget: bud,
 		Close: func(status string, code int) error {

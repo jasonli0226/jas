@@ -28,6 +28,7 @@ type testChat struct {
 	msgs chan tea.Msg
 	now  time.Time
 	quit bool
+	shut bool // shutdown ran; it runs once, as after the program exits
 }
 
 func newTestChat(t *testing.T, b *testBackend) *testChat {
@@ -46,6 +47,12 @@ func newTestChatOpts(t *testing.T, b *testBackend, o Options) *testChat {
 			c.m.run.cancel()
 			c.pump()
 		}
+		// Close the session as cmd/jas does after the program exits.
+		if !c.shut {
+			if err := c.shutdown(); err != nil {
+				t.Errorf("shutdown: %v", err)
+			}
+		}
 	})
 	return c
 }
@@ -59,6 +66,11 @@ func newUnopenedChat(t *testing.T, b *testBackend, o Options) (*testChat, tea.Cm
 	c.m = New(b, o)
 	c.m.send = func(msg tea.Msg) { c.msgs <- msg }
 	return c, c.m.Init()
+}
+
+func (c *testChat) shutdown() error {
+	c.shut = true
+	return c.m.shutdown()
 }
 
 func ctrlC() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl} }
@@ -405,7 +417,7 @@ func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {
 	c.run(init)
 	assert.Eq(t, c.quit, true)
 	assert.Eq(t, b.closes.Load(), 1)
-	assert.NoErr(t, c.m.shutdown())
+	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, b.closes.Load(), 1)
 }
 
@@ -413,14 +425,14 @@ func TestChat_ShutdownClosesSessionWhoseMessageWasLost(t *testing.T) {
 	b := newTestBackend(t)
 	c, init := newUnopenedChat(t, b, Options{})
 	init() // the session opens but the program is gone before sessionMsg
-	assert.NoErr(t, c.m.shutdown())
+	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, b.closes.Load(), 1)
 }
 
 func TestChat_ShutdownClaimsOpenThatNeverRan(t *testing.T) {
 	b := newTestBackend(t)
 	c, init := newUnopenedChat(t, b, Options{})
-	assert.NoErr(t, c.m.shutdown())
+	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, init(), tea.Msg(nil)) // the late command opens nothing
 	assert.Eq(t, b.closes.Load(), 0)
 	infos, err := b.Sessions("")
@@ -435,7 +447,7 @@ func TestChat_ShutdownWaitsForQuitClose(t *testing.T) {
 	_, closeCmd := c.m.Update(ctrlC()) // the close command, not yet run
 	assert.Eq(t, closeCmd != nil, true)
 	assert.Eq(t, b.closes.Load(), 0)
-	assert.NoErr(t, c.m.shutdown()) // closes it rather than returning early
+	assert.NoErr(t, c.shutdown()) // closes it rather than returning early
 	assert.Eq(t, b.closes.Load(), 1)
 	c.run(closeCmd) // the late command does not close again
 	assert.Eq(t, b.closes.Load(), 1)
