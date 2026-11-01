@@ -33,7 +33,7 @@ type Executor struct {
 	Gate   Gate // nil means AllowAll
 	Log    EventLog
 	Filter func(Result) Result // redaction hook; nil means identity
-	Redact func(string) string // applied to diff text before diffing; nil is identity
+	Redact func(string) string // applied to each shown diff line; nil is identity
 }
 
 type slot struct {
