@@ -330,3 +330,81 @@ func TestCopyCtx_StopsBetweenChunks(t *testing.T) {
 		t.Fatalf("read %d bytes after cancel, want at most one chunk (%d)", src.n, ioChunk)
 	}
 }
+
+func TestEdit_ResultCarriesChange(t *testing.T) {
+	p := policy(t)
+	write(t, p, "f.txt", "a\nb\nc\n")
+	res := call(t, Edit{}, p, `{"path":"f.txt","old_string":"b","new_string":"B"}`)
+	assert.Eq(t, res.IsError, false)
+	assert.Eq(t, res.Output, "edited f.txt")
+	if res.Change == nil {
+		t.Fatal("no change")
+	}
+	assert.Eq(t, res.Change.Path, "f.txt")
+	assert.Eq(t, res.Change.Old, "a\nb\nc\n")
+	assert.Eq(t, res.Change.New, "a\nB\nc\n")
+	assert.Eq(t, res.Change.HideRemoved, false)
+}
+
+func TestWrite_NewFileChange(t *testing.T) {
+	p := policy(t)
+	res := call(t, Write{}, p, `{"path":"n.txt","content":"hi\n"}`)
+	if res.Change == nil {
+		t.Fatal("no change")
+	}
+	assert.Eq(t, res.Change.Old, "")
+	assert.Eq(t, res.Change.New, "hi\n")
+	assert.Eq(t, res.Change.HideRemoved, false)
+}
+
+func TestWrite_OverwriteChangeHidesRemoved(t *testing.T) {
+	p := policy(t)
+	write(t, p, "o.txt", "old\n")
+	res := call(t, Write{}, p, `{"path":"o.txt","content":"new\n"}`)
+	assert.Eq(t, res.Output, "wrote o.txt (4 bytes)")
+	if res.Change == nil {
+		t.Fatal("no change")
+	}
+	assert.Eq(t, res.Change.Old, "old\n")
+	assert.Eq(t, res.Change.New, "new\n")
+	assert.Eq(t, res.Change.HideRemoved, true)
+}
+
+func TestEdit_PreviewDoesNotWrite(t *testing.T) {
+	p := policy(t)
+	write(t, p, "f.txt", "a\nb\n")
+	args := json.RawMessage(`{"path":"f.txt","old_string":"b","new_string":"B"}`)
+	ch, err := Edit{}.Preview(context.Background(), p, args)
+	assert.NoErr(t, err)
+	if ch == nil {
+		t.Fatal("no change")
+	}
+	got, _ := os.ReadFile(filepath.Join(p.Root, "f.txt"))
+	assert.Eq(t, string(got), "a\nb\n")
+	res := call(t, Edit{}, p, string(args))
+	assert.Eq(t, *ch, *res.Change)
+}
+
+func TestEdit_PreviewNotFoundIsError(t *testing.T) {
+	p := policy(t)
+	write(t, p, "f.txt", "a\n")
+	ch, err := Edit{}.Preview(context.Background(), p, json.RawMessage(`{"path":"f.txt","old_string":"zzz","new_string":"y"}`))
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if ch != nil {
+		t.Fatal("want nil change")
+	}
+}
+
+func TestWrite_PreviewDoesNotWrite(t *testing.T) {
+	p := policy(t)
+	ch, err := Write{}.Preview(context.Background(), p, json.RawMessage(`{"path":"sub/n.txt","content":"x\n"}`))
+	assert.NoErr(t, err)
+	if ch == nil || ch.New != "x\n" {
+		t.Fatalf("change = %+v", ch)
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "sub")); !os.IsNotExist(err) {
+		t.Fatalf("preview created files: %v", err)
+	}
+}

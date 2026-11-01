@@ -21,6 +21,14 @@ const (
 type Result struct {
 	Output  string
 	IsError bool
+	Change  *Change // display only: never sent to the model or logged as output
+}
+
+// Previewer is implemented by mutating tools that can say what a call would
+// change without changing anything. A nil Change with a nil error means
+// nothing to show.
+type Previewer interface {
+	Preview(ctx context.Context, p ExecPolicy, args json.RawMessage) (*Change, error)
 }
 
 // ExecPolicy is the per-run tool environment. It travels explicitly because
