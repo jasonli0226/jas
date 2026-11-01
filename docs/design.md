@@ -209,7 +209,7 @@ newer than it reads, rather than misread it.
 | `usage` | prompt_tokens, completion_tokens, cached_tokens | after each provider response |
 | `tool_started` | tool, call_id, args, mutating | before exec (fsynced first if mutating) |
 | `approval` | call_id, tool, decision (granted\|denied\|unavailable) | when the Approver is consulted |
-| `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted\|not_run), output | after exec |
+| `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted\|not_run), output; optional `diff` after an ok `write` (`path`, `hunks` of `{k,o,n,t,s}`, `truncated`; a `write` over an existing file logs added lines only; an `edit` logs no `diff`: its full diff, like a write's, is screen-only); replay ignores `diff` | after exec |
 | `elided` | count, tokens_before, tokens_after | each elision pass |
 | `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each user message; `turns` counts the model requests within it |
 | `model_changed` | model | when SetModel is called |

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -234,46 +235,93 @@ func (Write) Schema() json.RawMessage {
 		`"required":["path","content"]}`)
 }
 
-func (Write) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+// writePlan is the validated, not yet applied, result of a write call.
+type writePlan struct {
+	path    string // as given by the model
+	full    string
+	mode    fs.FileMode
+	content string
+	change  *core.Change
+}
+
+// plan reads and validates a write call without changing anything. A non-nil
+// result is the error to return to the model; a non-nil error is a cancellation.
+func (Write) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (writePlan, *core.Result, error) {
+	fail := func(format string, a ...any) (writePlan, *core.Result, error) {
+		res, _ := errResult(format, a...)
+		return writePlan{}, &res, nil
+	}
 	var a struct {
 		Path    string  `json:"path"`
 		Content *string `json:"content"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return errResult("invalid arguments: %v", err)
+		return fail("invalid arguments: %v", err)
 	}
 	if a.Content == nil {
-		return errResult("invalid arguments: content is required")
+		return fail("invalid arguments: content is required")
 	}
 	full, err := p.Resolve(a.Path)
 	if err != nil {
-		return errResult("%v", err)
+		return fail("%v", err)
 	}
 	if res, refused := refuseRedacted(p, full, *a.Content); refused {
-		return res, nil
+		return writePlan{}, &res, nil
 	}
 	mode := newFileMode
+	ch := diffChange(&core.Change{Path: a.Path, New: *a.Content})
 	if info, err := os.Stat(full); err == nil {
 		if !info.Mode().IsRegular() {
-			return errResult("write %s: not a regular file", a.Path)
+			return fail("write %s: not a regular file", a.Path)
 		}
 		mode = info.Mode().Perm()
+		// The old file is read only for the diff: one over the cap, or one
+		// that fails to read (ctx ending is caught below), just means no diff.
+		ch = nil
+		if info.Size() <= core.MaxDiffSource {
+			if old, err := readFileCtx(ctx, full); err == nil {
+				ch = diffChange(&core.Change{Path: a.Path, Old: string(old), New: *a.Content, HideRemoved: true})
+			}
+		}
 	} else if !os.IsNotExist(err) {
-		return errResult("write %s: %v", a.Path, err)
+		return fail("write %s: %v", a.Path, err)
 	}
 	if ok, cerr := cancelled(ctx, "write"); ok {
-		return core.Result{}, cerr
+		return writePlan{}, nil, cerr
 	}
-	if err := os.MkdirAll(filepath.Dir(full), newDirMode); err != nil {
-		return errResult("write %s: %v", a.Path, err)
+	return writePlan{path: a.Path, full: full, mode: mode, content: *a.Content, change: ch}, nil, nil
+}
+
+func (w Write) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+	pl, res, err := w.plan(ctx, p, args)
+	if err != nil {
+		return core.Result{}, err
 	}
-	if err := atomicWrite(ctx, full, []byte(*a.Content), mode); err != nil {
+	if res != nil {
+		return *res, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(pl.full), newDirMode); err != nil {
+		return errResult("write %s: %v", pl.path, err)
+	}
+	if err := atomicWrite(ctx, pl.full, []byte(pl.content), pl.mode); err != nil {
 		if ok, cerr := cancelled(ctx, "write"); ok {
 			return core.Result{}, cerr
 		}
-		return errResult("write %s: %v", a.Path, err)
+		return errResult("write %s: %v", pl.path, err)
 	}
-	return core.Result{Output: fmt.Sprintf("wrote %s (%d bytes)", a.Path, len(*a.Content))}, nil
+	return core.Result{Output: fmt.Sprintf("wrote %s (%d bytes)", pl.path, len(pl.content)), Change: pl.change}, nil
+}
+
+// Preview reports what Call would change, without writing.
+func (w Write) Preview(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (*core.Change, error) {
+	pl, res, err := w.plan(ctx, p, args)
+	if err != nil {
+		return nil, err
+	}
+	if res != nil {
+		return nil, errors.New(res.Output)
+	}
+	return pl.change, nil
 }
 
 // Edit replaces one exact occurrence of a string in a file.
@@ -292,56 +340,112 @@ func (Edit) Schema() json.RawMessage {
 		`"required":["path","old_string","new_string"]}`)
 }
 
-func (Edit) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+// editPlan is the validated, not yet applied, result of an edit call.
+type editPlan struct {
+	path    string // as given by the model
+	full    string
+	mode    fs.FileMode
+	old     string
+	updated string
+}
+
+// plan reads and validates an edit call without changing anything. A non-nil
+// result is the error to return to the model; a non-nil error is a cancellation.
+func (Edit) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (editPlan, *core.Result, error) {
+	fail := func(format string, a ...any) (editPlan, *core.Result, error) {
+		res, _ := errResult(format, a...)
+		return editPlan{}, &res, nil
+	}
 	var a struct {
 		Path      string  `json:"path"`
 		OldString string  `json:"old_string"`
 		NewString *string `json:"new_string"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return errResult("invalid arguments: %v", err)
+		return fail("invalid arguments: %v", err)
 	}
 	if a.OldString == "" {
-		return errResult("old_string must not be empty")
+		return fail("old_string must not be empty")
 	}
 	if a.NewString == nil {
-		return errResult("invalid arguments: new_string is required")
+		return fail("invalid arguments: new_string is required")
 	}
 	full, err := p.Resolve(a.Path)
 	if err != nil {
-		return errResult("%v", err)
+		return fail("%v", err)
 	}
 	if res, refused := refuseRedacted(p, full, a.OldString, *a.NewString); refused {
-		return res, nil
+		return editPlan{}, &res, nil
 	}
 	info, err := os.Stat(full)
 	if err != nil {
-		return errResult("edit %s: %v", a.Path, err)
+		return fail("edit %s: %v", a.Path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return errResult("edit %s: not a regular file", a.Path)
+		return fail("edit %s: not a regular file", a.Path)
 	}
 	data, err := readFileCtx(ctx, full)
 	if err != nil {
 		if ok, cerr := cancelled(ctx, "edit"); ok {
-			return core.Result{}, cerr
+			return editPlan{}, nil, cerr
 		}
-		return errResult("edit %s: %v", a.Path, err)
+		return fail("edit %s: %v", a.Path, err)
 	}
 	content := string(data)
 	switch n := strings.Count(content, a.OldString); n {
 	case 0:
-		return errResult("old_string not found in %s", a.Path)
+		return fail("old_string not found in %s", a.Path)
 	case 1:
 	default:
-		return errResult("old_string matches %d times in %s; include more surrounding context", n, a.Path)
+		return fail("old_string matches %d times in %s; include more surrounding context", n, a.Path)
 	}
 	updated := strings.Replace(content, a.OldString, *a.NewString, 1)
-	if err := atomicWrite(ctx, full, []byte(updated), info.Mode().Perm()); err != nil {
+	return editPlan{path: a.Path, full: full, mode: info.Mode().Perm(), old: content, updated: updated}, nil, nil
+}
+
+func (e Edit) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+	pl, res, err := e.plan(ctx, p, args)
+	if err != nil {
+		return core.Result{}, err
+	}
+	if res != nil {
+		return *res, nil
+	}
+	if err := atomicWrite(ctx, pl.full, []byte(pl.updated), pl.mode); err != nil {
 		if ok, cerr := cancelled(ctx, "edit"); ok {
 			return core.Result{}, cerr
 		}
-		return errResult("edit %s: %v", a.Path, err)
+		return errResult("edit %s: %v", pl.path, err)
 	}
-	return core.Result{Output: "edited " + a.Path}, nil
+	return core.Result{
+		Output: "edited " + pl.path,
+		Change: pl.change(),
+	}, nil
+}
+
+// Preview reports what Call would change, without writing.
+func (e Edit) Preview(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (*core.Change, error) {
+	pl, res, err := e.plan(ctx, p, args)
+	if err != nil {
+		return nil, err
+	}
+	if res != nil {
+		return nil, errors.New(res.Output)
+	}
+	return pl.change(), nil
+}
+
+// change is the edit's diff source. It is screen-only: the diff's context
+// lines are file content the model never sent.
+func (pl editPlan) change() *core.Change {
+	return diffChange(&core.Change{Path: pl.path, Old: pl.old, New: pl.updated, ScreenOnly: true})
+}
+
+// diffChange returns ch, or nil when either side is binary (holds a NUL
+// byte): such a file shows no diff.
+func diffChange(ch *core.Change) *core.Change {
+	if strings.ContainsRune(ch.Old, 0) || strings.ContainsRune(ch.New, 0) {
+		return nil
+	}
+	return ch
 }

@@ -40,7 +40,7 @@ func TestApprover_LadderTable(t *testing.T) {
 		for name, want := range c.gated {
 			// Not interactive: a gated call is Unavailable, an ungated one Granted.
 			a := &core.Approver{Level: c.level}
-			d, err := a.Allow(context.Background(), toolByName(t, name), json.RawMessage(`{}`))
+			d, err := a.Allow(context.Background(), toolByName(t, name), json.RawMessage(`{}`), nil)
 			assert.NoErr(t, err)
 			got := d == core.Unavailable
 			if got != want || (!want && d != core.Granted) {
@@ -69,7 +69,7 @@ func TestApprover_YesNo(t *testing.T) {
 	} {
 		var out bytes.Buffer
 		a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader(in), Out: &out, Interactive: true}
-		d, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"command":"ls -la\nrm x"}`))
+		d, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"command":"ls -la\nrm x"}`), nil)
 		assert.NoErr(t, err)
 		assert.Eq(t, d, want)
 		assert.Contains(t, out.String(), "approve shell: ls -la rm x? [y/N] ")
@@ -78,7 +78,7 @@ func TestApprover_YesNo(t *testing.T) {
 
 func TestApprover_NoTTY(t *testing.T) {
 	a := &core.Approver{Level: core.ShellOnly, Interactive: false}
-	d, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"command":"x"}`))
+	d, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"command":"x"}`), nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, d, core.Unavailable)
 }
@@ -87,7 +87,7 @@ func TestApprover_SummaryTruncated(t *testing.T) {
 	var out bytes.Buffer
 	a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
 	args, _ := json.Marshal(map[string]string{"command": strings.Repeat("a", 2500)})
-	_, err := a.Allow(context.Background(), toolByName(t, "shell"), args)
+	_, err := a.Allow(context.Background(), toolByName(t, "shell"), args, nil)
 	assert.NoErr(t, err)
 	assert.Contains(t, out.String(), strings.Repeat("a", 2000)+" …[+500 more chars]? [y/N] ")
 }
@@ -96,7 +96,7 @@ func TestApprover_SanitizesControlChars(t *testing.T) {
 	var out bytes.Buffer
 	a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
 	args, _ := json.Marshal(map[string]string{"command": "a\x1b[2Kb\bc\x00d\u202ee"})
-	_, err := a.Allow(context.Background(), toolByName(t, "shell"), args)
+	_, err := a.Allow(context.Background(), toolByName(t, "shell"), args, nil)
 	assert.NoErr(t, err)
 	for _, bad := range []string{"\x1b", "\b", "\x00", "\u202e"} {
 		assert.NotContains(t, out.String(), bad)
@@ -107,7 +107,7 @@ func TestApprover_SanitizesControlChars(t *testing.T) {
 func TestApprover_EmptySummaryFallsBackToArgs(t *testing.T) {
 	var out bytes.Buffer
 	a := &core.Approver{Level: core.ShellOnly, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
-	_, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"cmd":"rm -rf /"}`))
+	_, err := a.Allow(context.Background(), toolByName(t, "shell"), json.RawMessage(`{"cmd":"rm -rf /"}`), nil)
 	assert.NoErr(t, err)
 	assert.Contains(t, out.String(), `approve shell: {"cmd":"rm -rf /"}? [y/N] `)
 }
@@ -119,7 +119,7 @@ func TestApprover_CtrlCWhilePrompting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := a.Allow(ctx, toolByName(t, "shell"), json.RawMessage(`{"command":"x"}`))
+		_, err := a.Allow(ctx, toolByName(t, "shell"), json.RawMessage(`{"command":"x"}`), nil)
 		done <- err
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -153,4 +153,20 @@ func TestRun_DeniedContinues(t *testing.T) {
 	b, err := json.Marshal(r.prov.Requests[1])
 	assert.NoErr(t, err)
 	assert.Contains(t, string(b), "denied")
+}
+
+func TestApprover_PrintsDiffBeforeQuestion(t *testing.T) {
+	var out bytes.Buffer
+	a := &core.Approver{Level: core.AllMutating, In: strings.NewReader("n\n"), Out: &out, Interactive: true}
+	preview := func() *core.Diff {
+		return core.ComputeDiff(core.Change{Path: "a.txt", Old: "old\n", New: "new\n"}, nil)
+	}
+	_, err := a.Allow(context.Background(), toolByName(t, "edit"), json.RawMessage(`{"path":"a.txt"}`), preview)
+	assert.NoErr(t, err)
+	s := out.String()
+	minus, plus, q := strings.Index(s, "- old"), strings.Index(s, "+ new"), strings.Index(s, "approve edit:")
+	if minus < 0 || plus < 0 || q < 0 || minus > q || plus > q {
+		t.Fatalf("want diff rows before the question, got %q", s)
+	}
+	assert.Eq(t, strings.HasPrefix(s, "edit a.txt\n"), true)
 }

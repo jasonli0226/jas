@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/providers"
 )
@@ -200,6 +201,23 @@ func TestBands_DistinctOnANSI16(t *testing.T) {
 	}
 }
 
+func TestDiffBgs_RedAndGreenOnANSI16(t *testing.T) {
+	// On 16 colours a removed line stays red and an added line green, so the
+	// two still read apart; the word bands keep the line's hue or near it.
+	for name, c := range map[string]color.Color{"del": diffDelBg, "del word": diffDelWordBg} {
+		if got := colorprofile.ANSI.Convert(c); got != color.Color(ansi.Red) {
+			t.Fatalf("%s band is %v on 16 colours, want red", name, got)
+		}
+	}
+	assert.Eq(t, colorprofile.ANSI.Convert(diffAddBg), color.Color(ansi.Green))
+	for name, c := range map[string]color.Color{"del": diffDelBg, "add": diffAddBg, "del word": diffDelWordBg, "add word": diffAddWordBg} {
+		// 256 colours: off the grey ramp (232-255), so the hue survives.
+		if idx := colorprofile.ANSI256.Convert(c).(ansi.IndexedColor); idx >= 232 {
+			t.Fatalf("%s band lands on grey %d on 256 colours", name, idx)
+		}
+	}
+}
+
 func TestToolRow_TruncatesToWidth(t *testing.T) {
 	row := ansi.Strip(toolRow("shell", map[string]any{"command": "go test ./... -race -count=1"}, "ok", "", 20))
 	assert.Eq(t, len([]rune(row)), 20)
@@ -335,4 +353,36 @@ func TestTranscript_SkillUserMarksTheInvocation(t *testing.T) {
 	var tr Transcript
 	eqStrings(t, plain(tr.SkillUser("review", "/skill:review fix it")),
 		[]string{"◆ skill review", "› /skill:review fix it"})
+}
+
+func diffPayload(t *testing.T, d *core.Diff) any {
+	t.Helper()
+	b, err := json.Marshal(d)
+	assert.NoErr(t, err)
+	var v any
+	assert.NoErr(t, json.Unmarshal(b, &v))
+	return v
+}
+
+func TestTranscript_EditResultShowsDiff(t *testing.T) {
+	var tr Transcript
+	tr.Width = 40
+	tr.Event("tool_started", map[string]any{"call_id": "c", "tool": "edit", "args": map[string]any{"path": "f.go"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{
+		"call_id": "c", "tool": "edit", "status": "ok", "output": "edited f.go",
+		"diff": diffPayload(t, middleDiff()),
+	}, t0))
+	assert.Eq(t, len(got), 9)
+	assert.Eq(t, strings.TrimRight(got[0], " "), "▸ edit f.go ok")
+	assert.Eq(t, strings.TrimRight(got[4], " "), "     4 - d")
+}
+
+func TestTranscript_ErrorResultNoDiff(t *testing.T) {
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c", "tool": "edit", "args": map[string]any{"path": "f.go"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{
+		"call_id": "c", "tool": "edit", "status": "error", "output": "boom",
+		"diff": diffPayload(t, middleDiff()),
+	}, t0))
+	assert.Eq(t, len(got), 1)
 }

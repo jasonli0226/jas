@@ -28,13 +28,17 @@ func (quietUI) Reasoning(string)  {}
 func (quietUI) Event(string, any) {}
 
 // NewPrinter streams text to w, one "→ tool(args)" line per tool_started and
-// "✗ tool: output" for failed results.
-func NewPrinter(w io.Writer) UI { return &printer{w: w, atLineStart: true} }
+// "✗ tool: output" for failed results. With diffs, an ok result that carries a
+// diff also prints its plain rows under the tool line.
+func NewPrinter(w io.Writer, diffs bool) UI {
+	return &printer{w: w, atLineStart: true, diffs: diffs}
+}
 
 type printer struct {
 	mu          sync.Mutex
 	w           io.Writer
 	atLineStart bool
+	diffs       bool
 }
 
 // Reasoning is not shown in one-shot output.
@@ -62,6 +66,8 @@ func (p *printer) Event(typ string, data any) {
 	case EvToolResult:
 		if st, _ := m["status"].(string); st == statusError || st == statusDenied {
 			line = fmt.Sprintf("✗ %v: %s", m["tool"], firstLine(fmt.Sprint(m["output"])))
+		} else if st == statusOK && p.diffs {
+			line = strings.Join(FormatDiffPlain(DiffFromPayload(m["diff"])), "\n")
 		}
 	}
 	if line == "" {
@@ -136,5 +142,20 @@ func (l *uiLog) AppendID(typ string, data any) (string, error) {
 func (l *uiLog) AppendSync(typ string, data any) error {
 	err := l.EventLog.AppendSync(typ, data)
 	l.ui.Event(typ, data)
+	return err
+}
+
+// screenAppender is a log that can show the UI a different payload from the
+// one it logs. Implemented by uiLog only.
+type screenAppender interface {
+	// AppendScreen logs logData and shows screenData to the UI.
+	AppendScreen(typ string, logData, screenData any) error
+}
+
+var _ screenAppender = (*uiLog)(nil)
+
+func (l *uiLog) AppendScreen(typ string, logData, screenData any) error {
+	err := l.EventLog.Append(typ, logData)
+	l.ui.Event(typ, screenData)
 	return err
 }

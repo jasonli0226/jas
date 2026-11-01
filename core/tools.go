@@ -21,6 +21,14 @@ const (
 type Result struct {
 	Output  string
 	IsError bool
+	Change  *Change // display only: never sent to the model or logged as output
+}
+
+// Previewer is implemented by mutating tools that can say what a call would
+// change without changing anything. A nil Change with a nil error means
+// nothing to show.
+type Previewer interface {
+	Preview(ctx context.Context, p ExecPolicy, args json.RawMessage) (*Change, error)
 }
 
 // ExecPolicy is the per-run tool environment. It travels explicitly because
@@ -88,12 +96,14 @@ const (
 
 // Gate decides whether a mutating call may run.
 type Gate interface {
-	Allow(ctx context.Context, t Tool, args json.RawMessage) (Decision, error)
+	// preview, when non-nil, returns the diff the call would make; a gate
+	// calls it only when it is about to ask.
+	Allow(ctx context.Context, t Tool, args json.RawMessage, preview func() *Diff) (Decision, error)
 }
 
 // AllowAll grants everything (slice 1).
 type AllowAll struct{}
 
-func (AllowAll) Allow(context.Context, Tool, json.RawMessage) (Decision, error) {
+func (AllowAll) Allow(context.Context, Tool, json.RawMessage, func() *Diff) (Decision, error) {
 	return Granted, nil
 }

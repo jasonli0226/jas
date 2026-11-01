@@ -19,6 +19,14 @@ var (
 	toolOkBg    = lipgloss.Color("#1e4a2a")
 	toolErrBg   = lipgloss.Color("#4d2b22")
 	toolOtherBg = lipgloss.Color("#34363c")
+
+	// Edit diffs: a removed or added line, and its changed words on top.
+	// The removed band is a touch more saturated than the swatch's #3f1d1d,
+	// which lands on black on 16 colours; this one stays red there.
+	diffDelBg     = lipgloss.Color("#4a1414")
+	diffAddBg     = lipgloss.Color("#1c3a24")
+	diffDelWordBg = lipgloss.Color("#7a2a2a")
+	diffAddWordBg = lipgloss.Color("#2a6b3c")
 )
 
 var (

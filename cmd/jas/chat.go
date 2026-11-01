@@ -184,7 +184,7 @@ func (b *chatBackend) config(model string, log core.EventLog, ui core.UI, gate c
 	log = core.NewUILog(log, ui)
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
-		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter,
+		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
 	}
 	return core.SessionConfig{
 		Provider: e.provider, Model: model, System: e.pc.system,

@@ -43,7 +43,7 @@ type allowResult struct {
 func allowAsync(ctx context.Context, g *Gate, tl core.Tool, args json.RawMessage) chan allowResult {
 	ch := make(chan allowResult, 1)
 	go func() {
-		d, err := g.Allow(ctx, tl, args)
+		d, err := g.Allow(ctx, tl, args, nil)
 		ch <- allowResult{d, err}
 	}()
 	return ch
@@ -77,7 +77,7 @@ func TestGate_AlwaysStopsRepeatPrompts(t *testing.T) {
 	assert.Eq(t, (<-msgs).(noticeMsg).s, "always: shell: go test (covers any arguments)")
 	eqStrings(t, g.Grants().List(), []string{"shell: go test"})
 
-	d, err := g.Allow(context.Background(), shell, shellArgs("go test ./core"))
+	d, err := g.Allow(context.Background(), shell, shellArgs("go test ./core"), nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, d, core.Granted)
 	assert.Eq(t, len(msgs), 0)
@@ -112,7 +112,7 @@ func TestGate_Replies(t *testing.T) {
 
 func TestGate_UngatedNeverPrompts(t *testing.T) {
 	g, msgs := newRecordingGate(core.ShellOnly)
-	d, err := g.Allow(context.Background(), toolNamed(t, "write"), json.RawMessage(`{"path":"a","content":"x"}`))
+	d, err := g.Allow(context.Background(), toolNamed(t, "write"), json.RawMessage(`{"path":"a","content":"x"}`), nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, d, core.Granted)
 	assert.Eq(t, len(msgs), 0)
@@ -158,4 +158,35 @@ func TestGate_ResetClearsGrantsAndSetsLevel(t *testing.T) {
 	assert.Eq(t, len(g.Grants().List()), 0)
 	g.SetLevel(core.Never)
 	assert.Eq(t, g.Level(), core.Never)
+}
+
+func TestGate_ApprovalCarriesDiff(t *testing.T) {
+	calls := 0
+	preview := func() *core.Diff {
+		calls++
+		return core.ComputeDiff(core.Change{Path: "a", Old: "x\n", New: "y\n"}, nil)
+	}
+	edit, args := toolNamed(t, "edit"), json.RawMessage(`{"path":"a"}`)
+
+	g, msgs := newRecordingGate(core.Never)
+	d, err := g.Allow(context.Background(), edit, args, preview)
+	assert.NoErr(t, err)
+	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, calls, 0)
+	assert.Eq(t, len(msgs), 0)
+
+	g, msgs = newRecordingGate(core.AllMutating)
+	ch := make(chan allowResult, 1)
+	go func() {
+		d, err := g.Allow(context.Background(), edit, args, preview)
+		ch <- allowResult{d, err}
+	}()
+	a := nextApproval(t, msgs)
+	if a.diff == nil {
+		t.Fatal("approvalMsg has no diff")
+	}
+	assert.Eq(t, a.header, "edit a")
+	a.reply <- "n"
+	assert.Eq(t, (<-ch).d, core.Denied)
+	assert.Eq(t, calls, 1)
 }

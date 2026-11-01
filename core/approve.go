@@ -73,14 +73,14 @@ func Gated(level Level, t Tool) bool {
 }
 
 // Allow implements Gate.
-func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage) (Decision, error) {
+func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage, preview func() *Diff) (Decision, error) {
 	if !Gated(a.Level, t) {
 		return Granted, nil
 	}
 	if !a.Interactive {
 		return Unavailable, nil
 	}
-	prompt := fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeCall(t.Name(), args))
+	prompt := diffBlock(t.Name(), preview) + fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeCall(t.Name(), args))
 
 	type answer struct {
 		line string
@@ -123,6 +123,25 @@ func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage) (Dec
 		}
 		return Denied, nil
 	}
+}
+
+// diffBlock is the would-be diff as plain rows under a "<tool> <path>"
+// header, one per line, or "" when there is no preview or nothing visible
+// changes.
+func diffBlock(tool string, preview func() *Diff) string {
+	if preview == nil {
+		return ""
+	}
+	d := preview()
+	if d == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(Sanitize(tool) + " " + Sanitize(d.Path) + "\n")
+	for _, row := range FormatDiffPlain(d) {
+		b.WriteString(row + "\n")
+	}
+	return b.String()
 }
 
 // SummarizeCall is the one-line, length-capped description shown in the prompt:

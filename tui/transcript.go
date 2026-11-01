@@ -14,6 +14,9 @@ import (
 	"github.com/jasonli0226/jas/providers"
 )
 
+// transcriptDiffLines caps the diff rows a tool result prints.
+const transcriptDiffLines = 30
+
 // Transcript turns streamed text and agent events into finished, styled
 // blocks to print into scrollback. It is pure: no I/O, no Bubble Tea types.
 type Transcript struct {
@@ -120,7 +123,11 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		delete(t.calls, id)
 		t.running = slices.DeleteFunc(t.running, func(c startedCall) bool { return c.id == id })
 		out = append(out, t.enter(roleTool)...)
-		return append(out, t.row(tool, args, status, output))
+		out = append(out, t.row(tool, args, status, output))
+		if d := diffFromEvent(data); d != nil && status == "ok" {
+			out = append(out, renderDiff(d, t.Width, transcriptDiffLines)...)
+		}
+		return out
 	case "compaction":
 		row := fmt.Sprintf("· compacted earlier messages (%s → %s tok)",
 			formatTokens(intField(data, "tokens_before")), formatTokens(intField(data, "tokens_after")))
@@ -254,6 +261,13 @@ func hang(block, first string, width int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// Settle prints what settle holds back, for output that must land after
+// the model's text but before its next tool row (an approval diff).
+func (t *Transcript) Settle(now time.Time) []string { return t.settle(now) }
+
+// ToolGroup enters the tool group, returning its blank separator if any.
+func (t *Transcript) ToolGroup() []string { return t.enter(roleTool) }
 
 // settle closes thinking and prints the partial text block, preserving order
 // before a tool row or at the end of a run.

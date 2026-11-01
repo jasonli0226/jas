@@ -3,8 +3,10 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -161,11 +163,12 @@ func TestChat_BlankLineAboveInput(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t, fake.Turn{Text: "partial", Block: true}))
 	lines := strings.Split(c.view(), "\n")
 	assert.Eq(t, lines[0], "")
-	assert.Eq(t, strings.HasPrefix(lines[1], "›"), true)
+	assert.Eq(t, strings.HasPrefix(lines[1], "─"), true)
+	assert.Eq(t, strings.HasPrefix(lines[2], "›"), true)
 
 	c.submit("hi")
 	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(textMsg); return ok })
-	assert.Contains(t, c.view(), "● partial\n\n›")
+	assert.Contains(t, c.view(), "● partial\n\n"+strings.Repeat("─", defaultWidth)+"\n›")
 }
 
 func TestChat_SendStreamsAndPrints(t *testing.T) {
@@ -574,4 +577,50 @@ func TestChat_StreamingNoBlankFlash(t *testing.T) {
 	assert.Contains(t, c.view(), "  World")
 	c.m.Update(printedMsg{})
 	assert.NotContains(t, c.view(), "World")
+}
+
+func TestChat_InputFramedByRules(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	lines := strings.Split(c.view(), "\n")
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "› ") })
+	rule := strings.Repeat("─", defaultWidth)
+	assert.Eq(t, strings.TrimRight(lines[i-1], " "), rule)
+	assert.Eq(t, strings.TrimRight(lines[i+1], " "), rule)
+	assert.Contains(t, lines[i+2], "· ") // status line under the bottom rule
+}
+
+func TestChat_SlashMenuInsideRules(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/")
+	lines := strings.Split(c.view(), "\n")
+	rule := strings.Repeat("─", defaultWidth)
+	last := len(lines) - 1 // status line
+	assert.Eq(t, strings.TrimRight(lines[last-1], " "), rule)
+	assert.Contains(t, strings.Join(lines[:last-1], "\n"), "help")
+}
+
+func TestChat_ApprovalPrintsDiffAboveQuestion(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "I'll fix d.", Calls: []fake.Call{{Name: "edit",
+		Args: `{"path":"f.txt","old_string":"d","new_string":"D"}`}}}, fake.Turn{Text: "ok"})
+	assert.NoErr(t, os.WriteFile(filepath.Join(b.root, "f.txt"), []byte("a\nb\nc\nd\ne\n"), 0o644))
+	c := newTestChatOpts(t, b, Options{Level: core.AllMutating})
+	c.submit("edit it")
+	c.pumpUntilApproval()
+	printed := plain(c.m.Printed())
+	at := func(s string) int {
+		t.Helper()
+		i := slices.Index(printed, s)
+		if i < 0 {
+			t.Fatalf("%q not printed in %q", s, printed)
+		}
+		return i
+	}
+	user, agent, header := at("› edit it"), at("● I'll fix d."), at("edit f.txt")
+	del, add := at("     4 - d"), at("     4 + D")
+	assert.Eq(t, user < agent && agent < header && header < del && del < add, true)
+	assert.Eq(t, printed[header-1], "") // the tool group's gap
+	v := c.view()
+	assert.Contains(t, v, "[y/N/always]")
+	assert.NotContains(t, v, "I'll fix d.")
+	assert.NotContains(t, v, "     4 - d")
 }

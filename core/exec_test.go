@@ -96,7 +96,7 @@ func newExec(log EventLog, gate Gate, tools ...Tool) *Executor {
 
 type gateFunc func(Tool) (Decision, error)
 
-func (g gateFunc) Allow(_ context.Context, t Tool, _ json.RawMessage) (Decision, error) {
+func (g gateFunc) Allow(_ context.Context, t Tool, _ json.RawMessage, _ func() *Diff) (Decision, error) {
 	return g(t)
 }
 
@@ -410,7 +410,7 @@ func TestExec_LogFailureNotMaskedByCancel(t *testing.T) {
 
 type ctxGate struct{ entered chan struct{} }
 
-func (g ctxGate) Allow(ctx context.Context, _ Tool, _ json.RawMessage) (Decision, error) {
+func (g ctxGate) Allow(ctx context.Context, _ Tool, _ json.RawMessage, _ func() *Diff) (Decision, error) {
 	close(g.entered)
 	<-ctx.Done()
 	return "", ctx.Err()

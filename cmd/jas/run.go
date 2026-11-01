@@ -48,7 +48,7 @@ func runCmd(ctx context.Context, args []string) error {
 
 	path := filepath.Join(e.home, sessionsDir, core.NewSessionID(time.Now()), eventsFile)
 	var tee io.Writer
-	var ui core.UI = core.NewPrinter(os.Stdout)
+	var ui core.UI = core.NewPrinter(os.Stdout, isTerminal(int(os.Stdout.Fd())))
 	if ra.json {
 		tee, ui = os.Stdout, core.NewQuietUI()
 	}
@@ -69,7 +69,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Gate: &core.Approver{
 			Level: e.level, In: e.stdin, Out: os.Stderr, Interactive: e.interactive,
 		},
-		Log: log, Filter: red.Filter,
+		Log: log, Filter: red.Filter, Redact: red.Redact,
 	}
 	e.warnUnknownWindow(e.cfg.Model)
 	meta := e.sessionMeta(e.cfg.Model)
