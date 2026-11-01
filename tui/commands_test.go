@@ -287,7 +287,7 @@ func TestChat_QuitDuringNewClosesBoth(t *testing.T) {
 	c.run(open)
 	assert.Eq(t, c.quit, true)
 	assert.Eq(t, b.closes.Load(), 2)
-	assert.NoErr(t, c.m.shutdown())
+	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, b.closes.Load(), 2)
 }
 
@@ -295,7 +295,7 @@ func TestChat_ShutdownWithNewThatNeverRan(t *testing.T) {
 	b := newTestBackend(t)
 	c := newTestChat(t, b)
 	open := c.pendingNew()
-	assert.NoErr(t, c.m.shutdown())
+	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, b.closes.Load(), 1) // the current session
 	assert.Eq(t, open(), tea.Msg(nil))
 	assert.Eq(t, b.closes.Load(), 1)
@@ -305,8 +305,8 @@ func TestChat_ShutdownWithNewWhoseMessageWasLost(t *testing.T) {
 	b := newTestBackend(t)
 	c := newTestChat(t, b)
 	open := c.pendingNew()
-	open()                          // closes the old session, opens the new one
-	assert.NoErr(t, c.m.shutdown()) // closes the new one
+	open()                        // closes the old session, opens the new one
+	assert.NoErr(t, c.shutdown()) // closes the new one
 	assert.Eq(t, b.closes.Load(), 2)
 }
 
