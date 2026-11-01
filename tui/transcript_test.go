@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/providers"
 )
@@ -200,6 +201,13 @@ func TestBands_DistinctOnANSI16(t *testing.T) {
 	}
 }
 
+func TestDiffBgs_DistinctOnANSI16(t *testing.T) {
+	// The mandated truecolor values land on black/green on 16 colours, the
+	// same as the other and ok bands; only the two diff bands must differ.
+	del, add := colorprofile.ANSI.Convert(diffDelBg), colorprofile.ANSI.Convert(diffAddBg)
+	assert.Eq(t, del != add, true)
+}
+
 func TestToolRow_TruncatesToWidth(t *testing.T) {
 	row := ansi.Strip(toolRow("shell", map[string]any{"command": "go test ./... -race -count=1"}, "ok", "", 20))
 	assert.Eq(t, len([]rune(row)), 20)
@@ -335,4 +343,36 @@ func TestTranscript_SkillUserMarksTheInvocation(t *testing.T) {
 	var tr Transcript
 	eqStrings(t, plain(tr.SkillUser("review", "/skill:review fix it")),
 		[]string{"◆ skill review", "› /skill:review fix it"})
+}
+
+func diffPayload(t *testing.T, d *core.Diff) any {
+	t.Helper()
+	b, err := json.Marshal(d)
+	assert.NoErr(t, err)
+	var v any
+	assert.NoErr(t, json.Unmarshal(b, &v))
+	return v
+}
+
+func TestTranscript_EditResultShowsDiff(t *testing.T) {
+	var tr Transcript
+	tr.Width = 40
+	tr.Event("tool_started", map[string]any{"call_id": "c", "tool": "edit", "args": map[string]any{"path": "f.go"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{
+		"call_id": "c", "tool": "edit", "status": "ok", "output": "edited f.go",
+		"diff": diffPayload(t, middleDiff()),
+	}, t0))
+	assert.Eq(t, len(got), 9)
+	assert.Eq(t, strings.TrimRight(got[0], " "), "▸ edit f.go ok")
+	assert.Eq(t, strings.TrimRight(got[4], " "), "     4 - d")
+}
+
+func TestTranscript_ErrorResultNoDiff(t *testing.T) {
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c", "tool": "edit", "args": map[string]any{"path": "f.go"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{
+		"call_id": "c", "tool": "edit", "status": "error", "output": "boom",
+		"diff": diffPayload(t, middleDiff()),
+	}, t0))
+	assert.Eq(t, len(got), 1)
 }

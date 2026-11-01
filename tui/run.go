@@ -207,13 +207,18 @@ func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
 // onApproval opens the approval prompt, closing any open picker so Enter
 // answers the prompt. One that arrives with no run to answer for is refused
 // at once.
-func (m *Model) onApproval(msg approvalMsg) {
+func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 	if m.run == nil {
 		msg.reply <- ""
-		return
+		return nil
+	}
+	var cmd tea.Cmd
+	if msg.diff != nil {
+		cmd = m.print(renderDiff(msg.diff, m.width, 0)...)
 	}
 	m.approval = &msg
 	m.picker, m.onPick = nil, nil
+	return cmd
 }
 
 // answerApproval sends the input to the open prompt and closes it. Free text

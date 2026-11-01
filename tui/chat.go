@@ -173,7 +173,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.onCompactDone(msg)
 		}
 	case approvalMsg:
-		m.onApproval(msg)
+		return m, m.onApproval(msg)
 	case noticeMsg:
 		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:

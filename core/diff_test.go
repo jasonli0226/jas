@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -230,4 +231,19 @@ func TestFormatDiffPlain(t *testing.T) {
 	got := strings.Join(rows, "\n")
 	assert.Contains(t, got, "\n  ⋮\n")
 	assert.Eq(t, rows[len(rows)-1], "  … diff truncated")
+}
+
+func TestDiffFromPayload(t *testing.T) {
+	d := middleEdit()
+	b, err := json.Marshal(d)
+	assert.NoErr(t, err)
+	var v any
+	assert.NoErr(t, json.Unmarshal(b, &v))
+	got := core.DiffFromPayload(v)
+	if !reflect.DeepEqual(got, d) {
+		t.Fatalf("got %+v, want %+v", got, d)
+	}
+	if core.DiffFromPayload(nil) != nil || core.DiffFromPayload("x") != nil || core.DiffFromPayload(map[string]any{"hunks": 3}) != nil {
+		t.Fatal("absent or malformed payload must give nil")
+	}
 }

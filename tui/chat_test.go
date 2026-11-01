@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -596,4 +597,18 @@ func TestChat_SlashMenuInsideRules(t *testing.T) {
 	last := len(lines) - 1 // status line
 	assert.Eq(t, strings.TrimRight(lines[last-1], " "), rule)
 	assert.Contains(t, strings.Join(lines[:last-1], "\n"), "help")
+}
+
+func TestChat_ApprovalPrintsDiffAboveQuestion(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Calls: []fake.Call{{Name: "edit",
+		Args: `{"path":"f.txt","old_string":"d","new_string":"D"}`}}}, fake.Turn{Text: "ok"})
+	assert.NoErr(t, os.WriteFile(filepath.Join(b.root, "f.txt"), []byte("a\nb\nc\nd\ne\n"), 0o644))
+	c := newTestChatOpts(t, b, Options{Level: core.AllMutating})
+	c.submit("edit it")
+	c.pumpUntilApproval()
+	assert.Contains(t, c.printedText(), "     4 - d")
+	assert.Contains(t, c.printedText(), "     4 + D")
+	assert.Contains(t, c.view(), "[y/N/always]")
+	v := c.view()
+	assert.Eq(t, strings.Index(v, "     4 - d") < strings.Index(v, "[y/N/always]"), true)
 }

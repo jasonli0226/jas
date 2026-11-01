@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -403,4 +404,22 @@ func cutLine(l DiffLine, n int) DiffLine {
 	}
 	l.Spans = spans
 	return l
+}
+
+// DiffFromPayload decodes a diff carried in an event payload. After the
+// redacting UI's JSON round trip it is a map, not a *Diff. It returns nil
+// when v is absent or malformed.
+func DiffFromPayload(v any) *Diff {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var d Diff
+	if err := json.Unmarshal(b, &d); err != nil || d.Path == "" && d.Hunks == nil {
+		return nil
+	}
+	return &d
 }
