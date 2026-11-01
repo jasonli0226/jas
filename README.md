@@ -69,8 +69,9 @@ Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
 `jas auth add|list|rm|rotate`, `jas --version`. Run flags: `--json`,
 `--model`, `--provider`, `--base-url`, `--approve`, `--max-turns`,
 `--trust-project`, `--name` (session title). The chat takes the same flags
-except `--json`, plus `--continue`; it needs a terminal, so scripts use `jas run`. `jas run` prints diffs only on a terminal. There is deliberately no `--api-key` flag (argv leaks via
-shell history and `ps`).
+except `--json`, plus `--continue`; it needs a terminal, so scripts use
+`jas run`. `jas run` prints diffs only on a terminal. There is deliberately
+no `--api-key` flag (argv leaks via shell history and `ps`).
 
 ## Chat
 
