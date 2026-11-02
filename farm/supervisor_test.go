@@ -621,3 +621,102 @@ func (s *syncWriter) Write(b []byte) (int, error) {
 	defer s.mu.Unlock()
 	return s.w.Write(b)
 }
+
+func TestSupervisor_RetryRedeliversBoard(t *testing.T) {
+	plan := Plan{Task: "t", Parts: []Part{coder("a", "a/**"), coder("b", "b/**", "a")}}
+	cfg := testCfg()
+	cfg.Board.MaxRounds = 1
+	r := newSup(t, plan, cfg, func(part string, attempt int) []fake.Turn {
+		if part == "a" {
+			return []fake.Turn{
+				call("board_post", `{"topic":"interface","fields":{"name":"Store","shape":"Get"}}`),
+				final("a done"),
+			}
+		}
+		if attempt == 1 {
+			return []fake.Turn{call("ls", `{"path":"."}`), {Err: errors.New("boom")}}
+		}
+		return []fake.Turn{call("ls", `{"path":"."}`), final("b done")}
+	})
+	r.sup.Ask = func(string, []string) (string, bool) { return "retry", true }
+	out := r.run(t, context.Background())
+	sortedEq(t, out.Done, "a", "b")
+	for attempt, prov := range r.provs["b"] {
+		req := prov.Requests[1]
+		last := req.Messages[len(req.Messages)-1]
+		var saw bool
+		for _, c := range last.Content {
+			saw = saw || strings.Contains(c.Text, "Store")
+		}
+		if !saw {
+			t.Fatalf("attempt %d of b did not receive the interface post", attempt+1)
+		}
+	}
+}
+
+func TestSupervisor_WorkerPostLoggedAndPartEndedTotals(t *testing.T) {
+	plan := Plan{Task: "t", Parts: []Part{coder("a", "a/**")}}
+	r := newSup(t, plan, testCfg(), func(string, int) []fake.Turn {
+		return []fake.Turn{
+			call("board_post", `{"topic":"interface","fields":{"name":"Store","shape":"Get"}}`),
+			writeCall("a/x.go", "package a\n"),
+			final("a done"),
+		}
+	})
+	r.run(t, context.Background())
+	var iface map[string]any
+	for _, e := range r.events(t, EvBoardPosted) {
+		if e["topic"] == TopicInterface {
+			iface = e
+		}
+	}
+	if iface == nil || iface["part"] != "a" || iface["seq"] == nil || iface["name"] != "Store" {
+		t.Fatalf("board_posted %v", iface)
+	}
+	if _, dup := iface["fields"]; dup {
+		t.Fatal("board_posted must not repeat the post text")
+	}
+	ended := r.events(t, EvPartEnded)
+	if len(ended) != 1 {
+		t.Fatalf("part_ended %v", ended)
+	}
+	if tok, _ := ended[0]["tokens"].(float64); tok <= 0 {
+		t.Fatalf("part_ended tokens %v", ended[0])
+	}
+	if ds, _ := ended[0]["diffstat"].(string); !strings.Contains(ds, "1 file changed") {
+		t.Fatalf("part_ended diffstat %v", ended[0])
+	}
+}
+
+// commitCanceller cancels the hard context when jas commits, as a second
+// Ctrl-C landing during finishDone would.
+type commitCanceller struct {
+	GitRunner
+	cancel context.CancelFunc
+}
+
+func (g commitCanceller) Run(ctx context.Context, dir string, args ...string) (string, error) {
+	if gitSubcommand(args) == "commit" {
+		g.cancel()
+		return "", context.Canceled
+	}
+	return g.GitRunner.Run(ctx, dir, args...)
+}
+
+func TestSupervisor_HardCancelDuringCommitPauses(t *testing.T) {
+	plan := Plan{Task: "t", Parts: []Part{coder("a", "a/**")}}
+	r := newSup(t, plan, testCfg(), func(string, int) []fake.Turn {
+		return []fake.Turn{writeCall("a/x.go", "package a\n"), final("a done")}
+	})
+	hard, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.sup.Hard = hard
+	r.sup.WT.Git = commitCanceller{GitRunner: r.sup.WT.Git, cancel: cancel}
+	out := r.run(t, context.Background())
+	if ps := r.part("a"); ps.Status != StatusPaused || ps.FailureReason != "" {
+		t.Fatalf("a %+v", ps)
+	}
+	if !out.Interrupted || len(out.Failed) != 0 {
+		t.Fatalf("outcome %+v", out)
+	}
+}

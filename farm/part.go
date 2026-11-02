@@ -123,6 +123,9 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 	w.pol = WorkerPolicy(s.Policy, w.role, w.path)
 	w.pool = s.Pools.Part(id, w.role.Budget)
 	w.rec = s.register(w, sid, logPath)
+	if attempt > 1 { // a fresh session has seen none of the board
+		s.Board.ResetDelivery(id)
+	}
 	ws := WorkerSession{
 		Part: w.part, Role: w.role, Root: w.path, System: WorkerPrompt(s.Plan, w.part, w.role, s.baseSHA),
 		SessionID: sid, Log: log, Pool: w.pool, Inject: s.inject(w.part),
@@ -178,23 +181,32 @@ func (s *Supervisor) finishDone(w *worker, final string) attemptEnd {
 	ctx := s.hard()
 	msg := fmt.Sprintf("farm %s part %s: %s", s.FarmID, id, firstLine(w.part.Goal))
 	if _, err := s.WT.Commit(ctx, w.path, id, msg); err != nil {
-		return failed(id, ReasonError, core.ExitFailure, err.Error())
+		return s.finishFailed(id, err)
 	}
 	viol, err := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
 	if err != nil {
-		return failed(id, ReasonError, core.ExitFailure, err.Error())
+		return s.finishFailed(id, err)
 	}
 	if len(viol) > 0 {
 		return failed(id, ReasonWriteLimit, core.ExitFailure, "wrote outside its limit: "+strings.Join(viol, ", "))
 	}
 	stat, err := s.Git.Run(ctx, w.path, "diff", "--shortstat", w.start, "HEAD")
 	if err != nil {
-		return failed(id, ReasonError, core.ExitFailure, err.Error())
+		return s.finishFailed(id, err)
 	}
 	stat = strings.TrimSpace(stat)
 	s.setPart(id, func(ps *PartState) { ps.Diffstat = stat })
 	s.postDone(id, final, stat)
 	return attemptEnd{id: id, kind: endDone}
+}
+
+// finishFailed is a git failure while finishing a done part: an interrupt
+// when the hard context ended (the part pauses, worktree kept), else error.
+func (s *Supervisor) finishFailed(id string, err error) attemptEnd {
+	if s.hard().Err() != nil {
+		return attemptEnd{id: id, kind: endStopped, exitCode: core.ExitInterrupted, detail: "interrupted"}
+	}
+	return failed(id, ReasonError, core.ExitFailure, err.Error())
 }
 
 // postDone auto-posts the part's done entry. A rejected post (a config with
@@ -205,12 +217,20 @@ func (s *Supervisor) postDone(id, final, stat string) {
 	if summary == "" {
 		summary = "done"
 	}
-	p, err := s.Board.PostFrom(id, supervisorRole, TopicDone, map[string]any{"summary": summary, "diffstat": stat}, "", "")
-	if err != nil {
+	_, err := s.Board.PostFrom(id, supervisorRole, TopicDone, map[string]any{"summary": summary, "diffstat": stat}, "", "")
+	if err != nil { // a stored post is logged by the board hook (see init)
 		s.event(EvBoardPosted, map[string]any{"part": id, "topic": TopicDone, "error": err.Error()})
-		return
 	}
-	s.event(EvBoardPosted, map[string]any{"part": id, "topic": TopicDone, "seq": p.Seq})
+}
+
+// boardPosted logs a stored post to farm.jsonl without repeating its text
+// (board.jsonl has it): part, topic, seq, plus the name of an interface.
+func (s *Supervisor) boardPosted(p Post) {
+	ev := map[string]any{"part": p.Part, "topic": p.Topic, "seq": p.Seq}
+	if name, ok := p.Fields["name"].(string); ok && p.Topic == TopicInterface {
+		ev["name"] = name
+	}
+	s.event(EvBoardPosted, ev)
 }
 
 // inject delivers relevant board posts at each tool-results boundary.

@@ -76,6 +76,24 @@ type Board struct {
 	posts     []Post
 	delivered map[string]map[int]bool // part → seqs delivered
 	rounds    map[string]int          // part → deliveries so far
+	onPost    func(Post)              // called after each stored post
+}
+
+// SetOnPost registers fn to hear about every stored post, outside the
+// board's lock. The supervisor uses it to log board_posted.
+func (b *Board) SetOnPost(fn func(Post)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onPost = fn
+}
+
+// ResetDelivery forgets what was delivered to part and its round count, so
+// a retried part (a fresh session with no history) receives the board again.
+func (b *Board) ResetDelivery(part string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.delivered, part)
+	delete(b.rounds, part)
 }
 
 // OpenBoard opens (creating if needed) board.jsonl and reloads earlier posts.
@@ -112,6 +130,19 @@ func (b *Board) PostFrom(part, role, topic string, fields map[string]any, sessio
 		return Post{}, err
 	}
 	norm = b.redactFields(norm)
+	p, hook, err := b.store(part, topic, norm, sessionID, eventID)
+	if err != nil {
+		return Post{}, err
+	}
+	if hook != nil {
+		hook(p)
+	}
+	return p, nil
+}
+
+// store appends a validated, redacted post under the lock and returns the
+// post hook to call once the lock is released.
+func (b *Board) store(part, topic string, norm map[string]any, sessionID, eventID string) (Post, func(Post), error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	p := Post{Seq: len(b.posts) + 1, Part: part, Topic: topic, Fields: norm,
@@ -119,14 +150,14 @@ func (b *Board) PostFrom(part, role, topic string, fields map[string]any, sessio
 	if len(b.posts) > 0 {
 		p.Seq = b.posts[len(b.posts)-1].Seq + 1
 	}
-	err = b.log.Append(EvBoardPost, map[string]any{
+	err := b.log.Append(EvBoardPost, map[string]any{
 		"part": part, "topic": topic, "fields": norm, "session_id": sessionID, "event_id": eventID,
 	})
 	if err != nil {
-		return Post{}, fmt.Errorf("write board: %w", err)
+		return Post{}, nil, fmt.Errorf("write board: %w", err)
 	}
 	b.posts = append(b.posts, p)
-	return p, nil
+	return p, b.onPost, nil
 }
 
 // validate checks the role, topic, field names, types, required fields and

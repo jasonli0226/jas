@@ -171,6 +171,7 @@ func (s *Supervisor) init(ctx context.Context) error {
 	if dir, err := sessions.Dir(s.Main); err == nil {
 		s.recDir = dir
 	}
+	s.Board.SetOnPost(s.boardPosted)
 	s.Manifest.Update(func(m *Manifest) {
 		if m.Parts == nil {
 			m.Parts = map[string]*PartState{}
@@ -236,6 +237,7 @@ func (s *Supervisor) handle(st *sched, e attemptEnd, abort context.CancelFunc) {
 		if e.kind == endFailed {
 			ps.FailureReason = e.reason
 		}
+		ended["tokens"], ended["diffstat"] = ps.Tokens, ps.Diffstat
 	})
 	s.event(EvPartEnded, ended)
 	if e.kind == endFailed {

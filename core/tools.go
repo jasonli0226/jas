@@ -37,8 +37,12 @@ type Previewer interface {
 // ExecPolicy is the per-run tool environment. It travels explicitly because
 // farm tasks share one process (no os.Chdir).
 type ExecPolicy struct {
-	Root         string
-	MaxOutput    int
+	Root      string
+	MaxOutput int
+	// Env lists extra environment variable names shell children inherit,
+	// or KEY=VALUE pairs that set a variable. Pairs must come only from
+	// trusted code (the farm supervisor), never from project config: a value
+	// could set PATH or LD_PRELOAD.
 	Env          []string
 	Deny         []string
 	RedactSkip   []string // config redact_skip_paths (Task 11)
