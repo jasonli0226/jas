@@ -93,6 +93,10 @@ model, approval level, context use and token counts.
 - **`/`** opens a command menu, filtered as you type, with every command and
   `/skill:<name>`; Up/Down move, Tab or Enter completes. `/help` lists every
   command and key.
+- **`/model`** lists every configured model (qualified when several providers
+  are set) — Enter switches the session, **Ctrl+S** also stores the choice as
+  the config default. A model on another provider is refused; `/new` starts a
+  session on it.
 - **Up/Down** from the first or last line of the input recall earlier input.
 - Each tool call shows a running row while it runs, then one result row.
 - Edits and writes show a diff (line numbers, `+`/`-`) in the approval prompt
@@ -163,7 +167,7 @@ pi, Claude Code and opencode work as they are. jas scans, in order:
 | Scope | Directories |
 |---|---|
 | project | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
-| user | `~/.agents/skills/`, `~/.claude/skills/` |
+| user | `~/.agents/skills/`, `~/.claude/skills/`, `~/.config/jas/skills/` (Windows/macOS: `%AppData%`/`~/Library/Application Support` under `jas/skills`) |
 
 Skills may sit in nested folders (e.g. `~/.agents/skills/team/review/SKILL.md`):
 a folder with a `SKILL.md` is a skill and is not searched further; hidden
@@ -177,8 +181,13 @@ skill directories (the deny floor still applies there); `write`, `edit` and
 `SKILL.md` shows as a `◆ skill <name>` row, and `/skill:<name>` prints the
 same marker above your message.
 
+jas installs its own manual as the user skill `jas` under
+`~/.config/jas/skills/` (refreshed from the binary at every start; delete or
+shadow it freely — a same-named skill in `~/.agents/skills/` wins).
+
 - On a name clash the first skill found wins, in the table's order: project
-  before user, `.agents` before `.claude`. A warning names both. The same
+  before user, `.agents` before `.claude`, jas's config dir last. A warning
+  names both. The same
   folder reached twice (e.g. through a symlink) loads once, silently.
 - Project skills are project-authored instructions, like `AGENTS.md`, so they
   share its trust prompt; adding or editing one asks again. Until the project

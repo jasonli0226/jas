@@ -91,9 +91,13 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
 	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
-	userHome, _ := os.UserHomeDir() // no home: user skills are skipped
+	userHome, _ := os.UserHomeDir()     // no home: user skills are skipped
+	userConfig, _ := os.UserConfigDir() // no config dir: manual skills are skipped
+	if err := syncManualSkills(); err != nil {
+		warn("manual skills: " + err.Error())
+	}
 	projectSkills, pw := skills.Discover(skills.ProjectSources(root), policy.Denied)
-	userSkills, uw := skills.Discover(skills.UserSources(userHome), policy.Denied)
+	userSkills, uw := skills.Discover(skills.UserSources(userHome, userConfig), policy.Denied)
 	for _, w := range append(pw, uw...) {
 		warn(w)
 	}

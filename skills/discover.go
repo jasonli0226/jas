@@ -277,14 +277,20 @@ func ProjectSources(root string) []Source {
 	}
 }
 
-// UserSources lists the user skills directories under home, in the same
-// order; an empty home lists none.
-func UserSources(home string) []Source {
-	if home == "" {
-		return nil
+// UserSources lists the user skills directories, in the same order: the
+// cross-agent shared locations under home, then jas's own under the user
+// config dir (its built-in manual), last so a same-named shared skill
+// overrides it. An empty home or config dir contributes nothing.
+func UserSources(home, config string) []Source {
+	var out []Source
+	if home != "" {
+		out = append(out,
+			Source{Dir: filepath.Join(home, ".agents", "skills"), Scope: User},
+			Source{Dir: filepath.Join(home, ".claude", "skills"), Scope: User},
+		)
 	}
-	return []Source{
-		{Dir: filepath.Join(home, ".agents", "skills"), Scope: User},
-		{Dir: filepath.Join(home, ".claude", "skills"), Scope: User},
+	if config != "" {
+		out = append(out, Source{Dir: filepath.Join(config, "jas", "skills"), Scope: User})
 	}
+	return out
 }

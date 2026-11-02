@@ -913,7 +913,7 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 |---|---|---|---|
 | Runtime | Node/TypeScript | single static Go binary | no runtime to install; goroutines fit the farm |
 | Config storage | `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`, packages) | `~/.jas/config.json` | same model |
-| Setting config | TUI: `/model` saves the default, `pi config` toggles resources | `jas config set/get/unset/list`, first-run onboarding | scriptable, works without a TUI (v1 has none) |
+| Setting config | TUI: `/model` saves the default, `pi config` toggles resources | `jas config set/get/unset/list`, first-run onboarding; `/model` picker Ctrl+S stores the default | config is scriptable, no TUI needed; the inline picker adds the shortcut |
 | Keys | `auth.json` via `/login` (incl. OAuth); env vars as fallback; `--api-key` flag | `auth.json` (0600) or `$ENV` reference via `jas auth`; `JAS_API_KEY` fallback; **no `--api-key` flag** | argv leaks to shell history and `ps` |
 | Model catalog | `models-store.json` with context window, costs, thinking levels | compiled-in catalog + `models.<name>.context_window` override (v1); `models.json` (v2) | needed for the v1 context budget |
 | Override order | CLI flag > settings > env fallback | CLI flag > `JAS_*` env > project (v2) > global > defaults | env sits above stored config so CI can override without touching `~/.jas/` |

@@ -126,10 +126,12 @@ func TestSources_ProjectConfinedThenUser(t *testing.T) {
 	assert.Eq(t, len(got), 2)
 	assert.Eq(t, got[0], Source{Dir: filepath.Join(root, ".agents", "skills"), Scope: Project, Confine: root})
 	assert.Eq(t, got[1], Source{Dir: filepath.Join(root, ".claude", "skills"), Scope: Project, Confine: root})
-	user := UserSources("/h")
+	user := UserSources("/h", "/c")
 	assert.Eq(t, user[0], Source{Dir: filepath.Join("/h", ".agents", "skills"), Scope: User})
 	assert.Eq(t, user[1], Source{Dir: filepath.Join("/h", ".claude", "skills"), Scope: User})
-	assert.Eq(t, len(UserSources("")), 0)
+	assert.Eq(t, user[2], Source{Dir: filepath.Join("/c", "jas", "skills"), Scope: User})
+	assert.Eq(t, len(UserSources("", "")), 0)
+	assert.Eq(t, len(UserSources("/h", "")), 2)
 }
 
 func TestDiscover_NestedFolders(t *testing.T) {
