@@ -313,7 +313,14 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 // session-log append runs in a Cmd: the log forwards model_changed to the
 // chat's own message queue, and posting a message from inside Update would
 // block on the program's unbuffered Send and hang it.
+//
+// A model on another provider is refused: the provider and its key are
+// wired at session start, so half-migrating a live session would send the
+// new model's id to the old endpoint. /new picks up the new provider.
 func (m *Model) setModel(name string) tea.Cmd {
+	if prov := m.b.ProviderOf(name); prov != "" && m.live.Provider != "" && prov != m.live.Provider {
+		return m.notice(fmt.Sprintf("%s runs on %s — /new for a %s session", m.clean(name), prov, prov))
+	}
 	m.model, m.live.Model = name, name
 	if w := m.b.Window(name); w > 0 { // a zero window would make every request too big
 		m.window = w

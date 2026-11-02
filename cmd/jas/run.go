@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -146,12 +147,12 @@ func homeDenyPattern(home string) string {
 	return filepath.ToSlash(home) + "/**"
 }
 
-// newRedactor builds the process-wide secret redactor: the resolved API key
-// (from any source) plus the built-in patterns.
-func newRedactor(key string) *core.Redactor {
+// newRedactor builds the process-wide secret redactor: the resolved API
+// keys, from every source, plus the built-in patterns.
+func newRedactor(keys ...string) *core.Redactor {
 	r := &core.Redactor{}
-	if key != "" {
-		r.Exact = []string{key}
+	if exact := slices.DeleteFunc(keys, func(s string) bool { return s == "" }); len(exact) > 0 {
+		r.Exact = slices.Compact(exact)
 	}
 	return r
 }

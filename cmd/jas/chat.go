@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
@@ -133,21 +134,46 @@ type chatBackend struct{ e *env }
 
 var _ tui.Backend = (*chatBackend)(nil)
 
+// providerFor resolves a model reference to its provider (name and
+// endpoint) and the bare model id. A qualified ref ("vllm/qwen3") picks the
+// named provider; a bare id stays on the default one from settings.
+func (b *chatBackend) providerFor(model string) (name, baseURL, bare string, err error) {
+	name, baseURL, bare, err = b.e.file.ResolveModel(model, b.e.cfg.Provider, b.e.cfg.BaseURL)
+	return name, baseURL, bare, err
+}
+
+// provider builds the Chat Completions client for a resolved provider.
+func (b *chatBackend) provider(name, baseURL string) (providers.Provider, error) {
+	key, _, err := settings.ResolveKey(name, os.Getenv, b.e.auth)
+	if err != nil {
+		return nil, err
+	}
+	return &providers.OpenAI{BaseURL: baseURL, APIKey: key, IdleTimeout: sseIdleTimeout}, nil
+}
+
 // NewSession starts a session in a new directory under <home>/sessions.
 func (b *chatBackend) NewSession(model string, ui core.UI, gate core.Gate) (*tui.Live, error) {
+	provName, baseURL, bare, err := b.providerFor(model)
+	if err != nil {
+		return nil, err
+	}
+	prov, err := b.provider(provName, baseURL)
+	if err != nil {
+		return nil, err
+	}
 	path := filepath.Join(b.e.home, sessionsDir, core.NewSessionID(time.Now()), eventsFile)
 	log, err := core.OpenEventLog(path, nil, b.e.red.Redact)
 	if err != nil {
 		return nil, err
 	}
 	rec := b.record(path)
-	c := b.config(model, log, ui, gate)
+	c := b.configProv(prov, provName, baseURL, bare, log, ui, gate)
 	rec.attach(&c, b.e.root)
 	s, err := core.NewSession(c)
 	if err != nil {
 		return nil, errors.Join(err, rec.close(), log.Close())
 	}
-	return b.live(path, model, log, s, c.Budget, rec), nil
+	return b.live(provName, path, model, log, s, c.Budget, rec), nil
 }
 
 // Resume reopens a saved session. The log is opened first: its lock tells
@@ -166,8 +192,16 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 		return nil, nil, errors.Join(err, log.Close())
 	}
 	model, notice := core.ResumeModel(st, b.e.cfg.BaseURL, b.e.cfg.Model)
+	provName, baseURL, bare, err := b.providerFor(model)
+	if err != nil {
+		return nil, nil, errors.Join(err, log.Close())
+	}
+	prov, err := b.provider(provName, baseURL) // resume picks the recorded model's provider
+	if err != nil {
+		return nil, nil, errors.Join(err, log.Close())
+	}
 	rec := b.record(path)
-	c := b.config(model, log, ui, gate)
+	c := b.configProv(prov, provName, baseURL, bare, log, ui, gate)
 	rec.attach(&c, b.e.root)
 	s, err := core.ResumeSession(c, st)
 	if err != nil {
@@ -177,13 +211,14 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 	if notice != "" {
 		notices = append(notices, notice)
 	}
-	return b.live(path, model, log, s, c.Budget, rec), notices, nil
+	return b.live(provName, path, model, log, s, c.Budget, rec), notices, nil
 }
 
-// config is the session setup shared by NewSession and Resume. The system
-// prompt always comes from the current trust decision, never from the file.
-// Compaction is on in the chat only; jas run leaves it off.
-func (b *chatBackend) config(model string, log core.EventLog, ui core.UI, gate core.Gate) core.SessionConfig {
+// configProv is the session setup shared by NewSession and Resume, for the
+// provider the model resolves to. The system prompt always comes from the
+// current trust decision, never from the file. Compaction is on in the chat
+// only; jas run leaves it off.
+func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, model string, log core.EventLog, ui core.UI, gate core.Gate) core.SessionConfig {
 	e := b.e
 	ui = core.NewRedactingUI(ui, e.red.Redact)
 	log = core.NewUILog(log, ui)
@@ -191,18 +226,20 @@ func (b *chatBackend) config(model string, log core.EventLog, ui core.UI, gate c
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
 	}
+	meta := e.sessionMeta(model)
+	meta["base_url"] = baseURL
 	return core.SessionConfig{
-		Provider: e.provider, Model: model, System: e.pc.system,
+		Provider: prov, Model: model, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
-		Budget: e.budget(model), Meta: e.sessionMeta(model),
+		Budget: e.budget(model), Meta: meta,
 		Compact:   &core.CompactConfig{Reserve: e.cfg.CompactReserve, Keep: e.cfg.CompactKeep, Model: e.cfg.CompactModel},
 		MaxOutput: e.cfg.MaxOutputTokens,
 	}
 }
 
-func (b *chatBackend) live(path, model string, log core.EventLog, s *core.Session, bud *core.Budget, rec chatRecord) *tui.Live {
+func (b *chatBackend) live(provName, path, model string, log core.EventLog, s *core.Session, bud *core.Budget, rec chatRecord) *tui.Live {
 	return &tui.Live{
-		Session: s, ID: filepath.Base(filepath.Dir(path)), Path: path, Model: model, Budget: bud,
+		Session: s, ID: filepath.Base(filepath.Dir(path)), Path: path, Model: model, Provider: provName, Budget: bud,
 		Close: func(status string, code int) error {
 			return errors.Join(s.Close(status, code), rec.close(), log.Close())
 		},
@@ -259,15 +296,43 @@ func (b *chatBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 	return slices.DeleteFunc(all, func(i core.SessionInfo) bool { return filepath.Clean(i.Path) == exclude }), nil
 }
 
-// Models offers the configured model, the models with stored overrides and,
-// on OpenRouter, the context-window catalog.
+// Models offers the configured model (bare or qualified), the models with
+// stored overrides, the context-window catalog qualified by its provider,
+// and every other configured provider's current model.
 func (b *chatBackend) Models() []string {
-	names := append(b.e.file.ModelNames(), b.e.cfg.Model)
+	var names []string
+	for _, m := range append(b.e.file.ModelNames(), b.e.cfg.Model) {
+		names = append(names, b.qualified(m))
+	}
 	if b.e.cfg.Provider == settings.ProviderOpenRouter {
-		names = append(names, settings.CatalogModels()...)
+		for _, id := range settings.CatalogModels() {
+			names = append(names, b.qualified(id))
+		}
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
+}
+
+// qualified prefixes model with its provider unless it already names one.
+// The legacy custom default is left bare: "custom/…" names no endpoint.
+func (b *chatBackend) qualified(model string) string {
+	if _, _, ok := settings.SplitModelRef(model, b.e.file.KnownProvider); ok {
+		return model
+	}
+	if b.e.cfg.Provider != "" && b.e.cfg.Provider != settings.ProviderCustom {
+		return b.e.cfg.Provider + "/" + model
+	}
+	return model
+}
+
+// ProviderOf names the provider a model reference resolves to: for the
+// picker's cross-provider refusal. Bare ids resolve to the default provider.
+func (b *chatBackend) ProviderOf(model string) string {
+	name, _, _, err := b.providerFor(model)
+	if err != nil {
+		return ""
+	}
+	return name
 }
 
 // Window is model's context window, DefaultContextWindow when unknown.

@@ -155,6 +155,22 @@ func TestChat_ModelPicker(t *testing.T) {
 	assert.Eq(t, c.m.picker == nil, true)
 }
 
+// A model on another provider needs a new session: the provider and its
+// key are wired at session start, so switching a live session across
+// providers is refused instead of sending the new id to the old endpoint.
+func TestChat_ModelSwitchAcrossProvidersRefused(t *testing.T) {
+	b := newTestBackend(t)
+	b.provider = "vllm"
+	c := newTestChat(t, b)
+	c.m.live.Provider = "openrouter"
+	c.submit("/model m2")
+	assert.Contains(t, c.printedText(), "runs on vllm")
+	assert.Eq(t, c.m.live.Model, "m")
+	before, err := os.ReadFile(c.m.live.Path)
+	assert.NoErr(t, err)
+	assert.NotContains(t, string(before), "model_changed")
+}
+
 // Regression: /model logged model_changed synchronously inside Update. The
 // log forwards every event to the chat's own message queue, and posting
 // there from Update blocks forever on the program's unbuffered Send — the

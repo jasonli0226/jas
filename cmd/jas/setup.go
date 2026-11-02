@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/term"
 
@@ -23,6 +24,7 @@ type env struct {
 	file        settings.File
 	level       core.Level
 	key         string
+	auth        map[string]settings.AuthEntry // every stored key, for any provider
 	root, home  string
 	red         *core.Redactor
 	policy      core.ExecPolicy
@@ -31,6 +33,22 @@ type env struct {
 	stdin       *bufio.Reader // shared by the trust prompt and jas run's approver
 	interactive bool
 	provider    providers.Provider
+}
+
+// authKeys returns every secret the auth file can put in a request: literal
+// keys and the current values of env references, so all of them are
+// redacted no matter which provider a session picks.
+func authKeys(auth map[string]settings.AuthEntry, env func(string) string) []string {
+	keys := make([]string, 0, len(auth))
+	for _, e := range auth {
+		if e.Key != "" {
+			keys = append(keys, e.Key)
+		}
+		if name := strings.TrimPrefix(e.Env, "$"); name != "" {
+			keys = append(keys, env(name))
+		}
+	}
+	return keys
 }
 
 // prepare resolves settings from flags, env and config.json, the API key, the
@@ -68,7 +86,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	root := core.FindRoot(cwd)
 
 	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home), sessionsDenyPattern}}
-	red := newRedactor(key)
+	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
 	reportRedactor = red
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
@@ -86,7 +104,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	skillList, skillDirs := listedSkills(pc.skills)
 	policy.ReadRoots = skillDirs
 	return &env{
-		cfg: cfg, file: file, level: level, key: key, root: root, home: home, red: red,
+		cfg: cfg, file: file, level: level, key: key, auth: auth, root: root, home: home, red: red,
 		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
 	}, nil
