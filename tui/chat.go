@@ -29,6 +29,7 @@ type Options struct {
 	Windows  bool
 	Continue bool   // resume the newest session for this project at start
 	Name     string // title for the first session (--name); "" leaves it as is
+	Version  string // build version, shown once in the start banner
 	Now      func() time.Time
 	Redact   func(string) string // masks secrets in text the chat prints; nil is identity
 }

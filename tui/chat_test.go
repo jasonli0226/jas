@@ -638,3 +638,10 @@ func TestChat_ApprovalPrintsDiffAboveQuestion(t *testing.T) {
 	assert.NotContains(t, v, "I'll fix d.")
 	assert.NotContains(t, v, "     4 - d")
 }
+
+func TestChat_OptionsCarryVersion(t *testing.T) {
+	c, _ := newUnopenedChat(t, newTestBackend(t), Options{Version: "9.9.9"})
+	if c.m.o.Version != "9.9.9" {
+		t.Fatalf("version %q", c.m.o.Version)
+	}
+}
