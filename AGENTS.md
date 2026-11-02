@@ -14,5 +14,5 @@ TUI UX polish plan
 
 - Stay **inline** (Bubble Tea `Println` scrollback). **No** alt-screen / fullscreen TUI, no theme arms race.
 - Do **not** break `jas run`, `--json`, or exit codes; approval ladder and redaction unchanged.
-- Farm UI, skills-as-orchestrator and scenario pipelines wait for their own design.
+- Farm (`docs/superpowers/specs/2026-11-02-farm-design.md`, draft) **waits for its prerequisites** (event-log spec, provider fidelity, `jas run` token/time caps, opt-in sandbox, supervisor-run success check + benches) and a farm-vs-`jas run` benchmark gate; do not start building it before those. Proposed, core loop (not farm): session awareness (`docs/superpowers/specs/2026-11-02-session-awareness.md`) and spec-driven flow / `jas spec` (`docs/superpowers/specs/2026-11-02-spec-driven-flow.md`). Farm interactive mode is inline only (in the farm spec); attach from another terminal, any dashboard and scenario pipelines wait for their own design.
 - Commits: `type: description`. Keep `go test -race ./...` green; `CGO_ENABLED=0`.

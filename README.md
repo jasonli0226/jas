@@ -10,9 +10,10 @@ jas is a single static Go binary that is:
 
 - **lean** — fewer turns and tokens per task: cache-friendly prompts, parallel
   reads, capped and elided tool output; streaming loop in ~200 lines
-- **parallel** — one agent per git worktree, N tasks at once *(planned v2)*
-- **visible** — every step is a JSONL event (audit + resume); live status
-  board *(planned v2)*
+- **parallel** — *(proposed)* session awareness for agents running side by
+  side; later `jas farm`, one too-big task split into parts across worktrees
+  with a verified merge, after its prerequisites
+- **visible** — every step is a JSONL event (audit + resume)
 - **pluggable** — Tool interface; OpenAI-compatible endpoints (OpenRouter,
   vLLM, ollama); MCP client *(planned v2)*
 
@@ -288,19 +289,20 @@ and run `vhs demo.tape`.
 ## Planned (v2+)
 
 ```sh
-jas farm --n 3 "fix all failing tests"        # 3 parallel worktree agents
-jas attach 2                                  # take over task 2 interactively
-jas tasks                                     # status board
+jas farm "migrate logging to slog"           # plan → you approve → parallel parts → integrate
 ```
 
-Farm, attach, and the TUI status board ship in v2 — not part of the v1 cut
+Farm splits one big task into parts that run in parallel worktrees, then
+merges them behind a `check` gate. Design:
+[docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
+Attach and a live status board come after farm
 ([#12](https://github.com/jasonli0226/jas/issues/12)).
 
 ## Design
 
 Full design in [docs/design.md](docs/design.md); how jas compares with pi is
 §14. Real-world scenarios in
-[docs/use-cases.md](docs/use-cases.md) — one-shot tasks, CI runs, N-way farm,
+[docs/use-cases.md](docs/use-cases.md) — one-shot tasks, CI runs, split-task farm,
 attach, per-project scenario policies (and what jas deliberately isn't).
 Core bets:
 

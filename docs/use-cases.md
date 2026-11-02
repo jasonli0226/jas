@@ -10,8 +10,7 @@ behind it. Each section names who it's for, the job to be done, and what
 **Who:** a solo dev in a weekend loop. **Job:** get a reviewed change without
 leaving the terminal.
 
-Task in, files changed, you `git diff` — review stays with the human, as it
-should until the v2 review queue.
+Task in, files changed, you `git diff` — review stays with the human.
 
 ```sh
 jas run "add a header comment to main.go explaining the retry logic"
@@ -130,44 +129,100 @@ fine for your own repo, think twice for third-party PRs.
 **Done when:** the secrets fixture test from design §11 passes under `--json`
 in CI — zero secret values in the transcript and event log.
 
-## 4. Farm: N parallel worktree agents (v2)
+## 4. Farm: one big task split into parts (after its prerequisites)
 
-**Who:** an experiments-heavy contributor. **Job:** get N attempts at the
-same fix and pick the one to keep.
+**Who:** a contributor with a change too big or too slow for one agent.
+**Job:** get it done in parallel, safely and auditably. Farm is not "better
+than one agent" and costs more tokens than one; it pays on decomposable work
+([research](research/farm-multi-agent-community-2026-11.md)).
 
 ```sh
-jas farm --n 3 "fix all failing tests in pkg/store"
+jas farm plan "migrate logging to slog across all packages" -o plan.yaml
+jas farm run plan.yaml          # CI path; `jas farm "<task>"` in one terminal
 ```
 
-- Non-overlapping git worktrees per task (they won't clobber each other's
-  working trees). Worktrees still share the host FS and `$HOME` — not a
-  sandbox. Isolation answer is bubblewrap/Docker in v1 docs, and per-task
-  containers in v3 (design.md §3.1 / §9).
-- Review queue: diffs come back side by side; accept / merge / discard.
-- Built on the v1 core. Tasks are goroutines inside the `jas farm` process,
-  each with its worktree as its project root, and each emitting the same
-  event stream as `jas run --json`.
+- A planner agent drafts `plan.yaml`: parts, a role per part (coder, tester,
+  researcher, reviewer, or the project's own), the files each part owns, the
+  order between parts, and the contracts they share. Refusing is the
+  default: small or single-package changes, overlapping ownership or purely
+  serial work get a structured reason, exit 8 and a `jas run` suggestion.
+- The owner reviews and approves (or edits, or asks for a new plan) before
+  any worker starts; the approved plan hash is what CI runs.
+- The supervisor (plain code, no LLM) runs 2–3 parts at a time, each in its
+  own worktree (in the user cache dir, outside the repo) and branch. Workers post typed
+  commitments (owns, interface, blocked, done) to an append-only board,
+  delivered as labelled context, a few rounds at most.
+- A failed part pauses the parts that depend on it and asks the owner:
+  retry, take over, drop, or abort. In CI, `on_failure: drop|abort` decides.
+- An integrator agent merges the branches and fixes the seams; the
+  supervisor then runs the project's `check` — that is the verdict. With a
+  TTY the owner merges, keeps or discards; without one the result is kept.
+- Budgets are checked before each model call (per worker, farm total,
+  integrator reserve, time limits).
+- Worktrees still share the host FS and `$HOME` — not a sandbox. Per-task
+  containers are v3 (design.md §3.1 / §9).
 
-**Done when:** N diffs are returned, and the human's accept/merge/discard
-decision is recorded — nothing merges without one.
+Good fits: cross-cutting migrations, a feature across layers (core, CLI,
+UI, docs), a batch of small issues grouped by the files they touch. Poor
+fits: debugging one bug, tightly coupled refactors, small tasks.
 
-## 5. Interactive attach (v2)
+**Done when:** the integrated branch passes the supervisor's `check` and the
+owner's decision is recorded — nothing merges without one — and farm beats
+plain `jas run` on wall-clock in the farm-vs-solo benchmark. Full design:
+[superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
+
+## 4a. Spec-driven work, alone or with farm (proposed)
+
+**Who:** anyone starting a new app or a sizeable feature. **Job:** turn a
+vague idea into a checked spec, then build it section by section — with one
+agent, or with farm when the work splits cleanly.
+
+```sh
+jas spec spec.md                                    # grill-me interview → approved spec
+jas spec --check spec.md                            # CI: exit 0, or 2 with open questions
+jas run --spec spec.md --phase scaffold             # skeleton; jas runs `check`
+jas run --spec spec.md --section F-todos            # one feature, single agent
+jas farm plan --spec spec.md -o plan.yaml && jas farm run plan.yaml   # split by sections
+```
+
+In chat the same steps are `/spec`, `/spec scaffold`, `/spec section <id>`
+and `/farm --spec spec.md` (live row per part, `/farm attach <part>`).
+
+| Story | Front end | Outcome |
+|---|---|---|
+| As a solo dev, I want jas to grill me one question at a time, so that my spec is concrete enough to build and test. | chat | approved spec, hash logged |
+| As a CI maintainer, I want incomplete specs to fail without model calls, so that I don't pay for vague work. | CLI | exit 2 + open-question list |
+| As a CI maintainer, I want a nightly farm from an approved plan + spec, so that big work progresses without touching `main`. | CLI | exit 0, branch kept |
+| As a repo owner, I want hard caps on PR-triggered section runs, so that a runaway agent stops before overspending. | CLI | exit 7 |
+| As a developer, I want the planner to refuse a split that won't pay and fall back to `jas run`. | both | exit 8 / back to chat |
+| As a team lead, I want to audit a farm from its files. | CLI | manifest + `farm.jsonl` answer who/what/why |
+| As a developer, I want to unblock a stuck worker and scope approvals to one part. | chat | `/farm attach`, "always (part)" |
+| As a developer, I want to drop a failing part, merge the rest, and resume after a crash. | chat | unmet recorded; `/farm resume` |
+| As a developer in a second terminal, I want a warning before editing files a farm part owns. | both | overlap ask / warn / fail |
+
+Fourteen step-by-step walkthroughs (commands, what jas shows, events, exit
+codes) are in the spec-driven-flow spec's
+[User stories & scenarios](superpowers/specs/2026-11-02-spec-driven-flow.md#user-stories--scenarios).
+Speed-ups there (e.g. ~2–3× wall-clock for a web app's first cut with farm)
+are expectations until the farm benchmark gate measures them; total tokens
+are higher with farm than with one agent.
+
+**Done when:** a spec-driven `--section` run and a spec-driven farm both end
+with every acceptance criterion listed as met (with evidence) or explicitly
+unmet, and `check` run by jas passes.
+
+## 5. Interactive attach (after farm)
 
 **Who:** the same contributor, mid-migration. **Job:** step into a running
-agent when the model needs a human call.
+part when the model needs a human call.
 
-```sh
-jas farm --n 2 "migrate the config schema"   # supervisor + workers
-jas attach 2   # from another terminal: connects to the farm's Unix socket
-               # and takes over task 2's session
-```
-
-`jas farm` is the supervisor and stays up until its review queue is drained.
-`attach` is a client on its Unix socket (`~/.jas/run/<farm-id>.sock`), not a
-shell background job. Attach waits for the task's current turn to finish, then
-your messages enter through the steering queue. If the supervisor has died,
-attach falls back to `jas resume`: replay the event log and continue — the
-same primitive crash recovery uses.
+In the first farm version, a failed part offers **take over**: the farm
+prints the command to continue that part's session in its worktree. In farm
+interactive mode, `/farm attach <part>` steers a running worker from the
+same chat (farm spec, Interactive mode). Later, `jas attach <part>` connects to the running farm over a Unix socket
+(`~/.jas/run/<farm-id>.sock`) and takes over at a turn boundary through the
+steering queue, without stopping the farm. If the supervisor has died,
+attach falls back to resuming the part's event log.
 
 **Done when:** attach takes over at a turn boundary, and no mutating tool call
 is re-executed on takeover or on the resume fallback (design §3 side-effect

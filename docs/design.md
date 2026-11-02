@@ -7,6 +7,8 @@
 **Language:** Go (rationale below)
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 **Market research (2026-10):** [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md) — jas vs 15 harnesses; recommendations map to open issues.
+**Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
+**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (draft; waits for its prerequisites, §5) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it).
 
 ---
 
@@ -82,18 +84,18 @@ jas (single Go binary)
 │   ├── loader.go            .jas/scenario.yaml discovery, layer-merge
 │   └── bootstrap.go         deterministic project scan → draft scenario.yaml
 │
-├── farm/                    parallel tasks (v2)
-│   ├── worktree.go          one git worktree + branch per task
-│   ├── runner.go            goroutine per task (in-process), errgroup supervision
-│   └── queue.go             task queue + review queue (diff/merge/discard)
+├── farm/                    split one task into parts (v2, spec: superpowers/specs/2026-11-02-farm-design.md)
+│   ├── plan.go              planner agent drafts plan.yaml; validation in code
+│   ├── supervisor.go        runs parts in DAG order, one worktree + branch + session each
+│   ├── board.go             append-only board.jsonl of typed commitment posts, delivered as fenced context
+│   └── integrate.go         integrator agent merges branches; the supervisor runs `check`
 │
-├── ui/                      visibility (v2, minimal stdout in v1)
-│   ├── tui.go               Bubble Tea dashboard: N live sessions, status, last event
-│   └── attach.go            `jas attach <task>` — client of the farm's Unix socket (§5)
+├── ui/                      visibility (inline only — AGENTS.md: no fullscreen TUI)
+│   └── attach.go            after farm: `jas attach <part>` — client of the farm's Unix socket (§5)
 │
 └── cmd/jas/
     ├── main.go              single binary entry
-    └── commands.go          jas run | jas config | jas auth (v1) · jas farm | attach | tasks (v2)
+    └── commands.go          jas run | jas config | jas auth (v1) · jas farm (v2) · attach | tasks (later)
 ```
 
 ### The six interfaces
@@ -276,7 +278,7 @@ and are **not** claimed as a security boundary.
   job that asked for a gate fails loudly instead of hanging or silently
   proceeding. CI that wants unattended runs uses `--approve=never` inside a
   container.
-- If you care about isolation: run jas (or each farm task) inside
+- If you care about isolation: run jas (or each farm part) inside
   **bubblewrap/Docker**. That is the documented answer in v1 and the planned
   per-task option in v3 — not a pretend in-process sandbox.
 
@@ -296,6 +298,14 @@ exit code by themselves. The process exit code reflects how the *run* ended:
 | 130 | interrupted (Ctrl-C / SIGTERM) |
 
 The same code appears in the `session_ended` event.
+
+Reserved for upcoming features (not emitted by v1; see the farm spec's CI contract):
+
+| code | meaning |
+|---|---|
+| 6 | `check` run by jas failed, or required work unmet: farm (a part failed / was dropped) and spec runs (`jas run --spec --phase scaffold` / `--section`); the final event's `reason` says which |
+| 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals); `reason` is `tokens` or `timeout` |
+| 8 | farm planner refused to split (use `jas run`) |
 
 ### The Tool interface (the whole extensibility story)
 
@@ -321,9 +331,9 @@ type Tool interface {
 - **Path confinement:** file tools resolve paths with `filepath.EvalSymlinks`
   and refuse anything outside the project root before the deny-list check runs.
   (Does not confine `shell` — see §3.1 / #1.) **Project root** = `git rev-parse
-  --show-toplevel` from cwd, else cwd. For a farm task it is that task's
+  --show-toplevel` from cwd, else cwd. For a farm part it is that part's
   worktree. The root travels in `ExecPolicy`. jas never calls `os.Chdir`,
-  because farm tasks share one process (§5), and shell children get the root
+  because farm parts share one process (§5), and shell children get the root
   as their `Dir`.
 - **Shell environment:** `shell` runs children with an allowlisted environment
   (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`, plus names the scenario
@@ -394,18 +404,42 @@ per-task containers ship in v3).
 
 ## 5. v2 scope (weekend two+)
 
-- [ ] `jas farm --n 3` — git worktree per task, parallel run, review queue.
-      The `jas farm` process is the supervisor: tasks are goroutines inside
-      it (one worktree root each, §3), and it lives until the review queue is
-      drained
-- [ ] `jas attach <task>` — connects to the farm's Unix socket
+- [ ] **Spec-driven flow** (proposed; core loop, works without farm) —
+      `jas spec` grill-me interview → approved spec (hash in the event log);
+      `jas spec --check` / `jas run --spec` fail headless with open questions
+      (exit 2); bounded `--phase scaffold`; single-agent `--section` runs that
+      cite acceptance criteria. Spec:
+      [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md)
+- [ ] **Session awareness** (proposed; core loop, not farm) — each chat /
+      `jas run` session registers a small record in `<repo>/.jas/sessions/`
+      (title, branch, touched files, heartbeat); read-only peers note and
+      tool; warn/ask before writing a file another active session touched.
+      Can ship before farm. Spec:
+      [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md)
+- [ ] `jas farm plan` / `jas farm run` — for tasks too big or slow for one
+      agent, done safely and auditably (not "better than one agent"; see
+      [research](research/farm-multi-agent-community-2026-11.md)). A planner
+      drafts `plan.yaml` or refuses (default; suggests `jas run`), the owner
+      approves it (plan hash), the supervisor (code, no LLM) runs 2–3 parts in
+      parallel in worktrees outside the repo, workers post typed commitments to
+      a board, an integrator merges, and the supervisor runs `check` as the
+      verdict. Pinned CI contract (exit codes 6/7/8, `--json`, manifest; no
+      TTY = keep). Replaces the earlier best-of-N `--n` design. **Waits for
+      its prerequisites:** event-log spec, provider fidelity, run token/time
+      caps, opt-in sandbox, supervisor-run success check + benches, then a
+      farm-vs-`jas run` benchmark gate. Spec:
+      [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md)
+- [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
+      optional read-only part with a clean context, possibly a different
+      model, reviewing the integrated diff; after farm
+- [ ] `jas attach <task>` (after farm) — connects to the farm's Unix socket
       (`~/.jas/run/<farm-id>.sock`, 0600) and speaks the RPC protocol. Attach
       waits for the task's current turn to finish (no mid-stream handoff), then
       routes the human's messages in through the steering queue. Live
       supervisor = no replay. If the supervisor is gone, attach falls back to
       `jas resume` (event-log replay, §3 side-effect rules)
 - [ ] MCP client support (stdio first, then HTTP)
-- [ ] Bubble Tea TUI: live status board of running/queued tasks
+- [ ] Farm interactive mode (`/farm` in chat): inline plan approval, one live row per part updated in place, part-scoped approvals, `/farm attach <part>`; same supervisor and logs as CI; no fullscreen board (AGENTS.md); after the farm CI path
 - [x] **Auto-compaction** (pi parity): trigger at `window − reserve`
       (16k default); summarize older history with a cheap model into a summary
       entry; originals kept in the session file (v1 already elides tool results)
@@ -511,8 +545,11 @@ mcp:
 ```
 
 `pre_apply` runs before any file-mutation tool result is applied to disk
-(renamed from the earlier `pre_commit` — jas never commits; commits stay with
-the human / farm review queue). See #10.
+(renamed from the earlier `pre_commit`). See #10. **Commit rule:** jas never
+commits to a branch it did not create. The only commits jas makes are farm
+commits on its own `jas/farm/<farm-id>/*` branches, with a stated identity
+and `Jas-Farm:` / `Jas-Part:` trailers; the owner's branch changes only when
+the owner picks *merge* (farm spec, Commits).
 
 ### 8.3 `jas bootstrap` — scenario from an existing project (no LLM)
 
@@ -625,12 +662,15 @@ TUI slash commands.
 ├── trust.json                 # project trust answers: root path + content hash (§3)
 ├── scenarios/                 # saved scenario presets (not blueprints — #9)
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3)
-├── run/                       # v2: farm supervisor sockets (<farm-id>.sock, 0600)
+├── farms/                     # farm state: <farm-id>/{plan.yaml, farm.jsonl, board.jsonl, manifest.json, parts/} (farm spec)
+├── run/                       # after farm: supervisor sockets for attach (<farm-id>.sock, 0600)
 └── AGENTS.md                  # global instructions appended to every system prompt
 
 <project>/.jas/
 ├── scenario.yaml              # runtime rules (§8) — project scope, wins over global
-└── hooks/                     # project hook scripts
+├── hooks/                     # project hook scripts
+├── sessions/                  # session-awareness records, one JSON per live session (git-excluded; proposed)
+└── worktrees/                 # farm worktrees <farm-id>/<part-id> (git-excluded; not under ~/.jas, deny floor)
 
 <project>/AGENTS.md            # loaded in v1 (#8); complements scenario.yaml
 ```
@@ -720,8 +760,9 @@ Persistent config lives in `~/.jas/` and is managed with `jas config` /
 `jas auth`.
 
 **Session storage** stays simple: `~/.jas/sessions/<id>/events.jsonl` (§3) is
-the whole story — no DB, replay = tail the file. Farm task state (v2) lives in
-`~/.jas/farm.json`.
+the whole story — no DB, replay = tail the file. Farm state (v2) lives in
+`~/.jas/farms/<farm-id>/` (plan, supervisor log, board, manifest, one event
+log per part); worktrees live in the user cache dir (`~/.cache/jas/worktrees/`), outside the repo; see the farm spec.
 
 ## 11. Security acceptance: v1, and project trust
 
@@ -848,12 +889,14 @@ Guardrails:
 - **Sandbox safety** — v1 shell is YOLO (§3.1 / #1); `--approve` is the gate;
   containers are the isolation answer. Document loudly; do not claim
   command-string deny is a boundary.
-- **Scope creep** — farm/TUI/blueprints are out (blueprints dropped entirely,
+- **Scope creep** — farm/fullscreen TUI/blueprints are out of v1 (blueprints dropped entirely,
   #9). If v1 takes 3 weekends, it's a bad project, kill features not quality.
 - **Context / cost runaway** — v1 tracks prompt tokens, elides old tool
-  results in chunks, and clean-stops on `context_length_exceeded` (#2). Cost caps
-  (max tokens per session / farm task) and full summarization compaction
-  are v2. Usage is logged per request into events.jsonl from day one.
+  results in chunks, and clean-stops on `context_length_exceeded` (#2).
+  Auto-compaction shipped (§5). Token and wall-clock caps for `jas run`
+  (checked **before** each request, exit 7) are a farm prerequisite; farm adds
+  a farm-wide total, an integrator reserve and a shared rate limiter (farm
+  spec, Budgets). Usage is logged per request into events.jsonl from day one.
 - **Deny-list gaps** — deny semantics are regex/path-glob based and will have
   blind spots (novel secret formats; shell commands that read files indirectly,
   e.g. `python -c`). Symlinks are handled by resolving paths before matching
@@ -882,6 +925,6 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 | Project trust | `--approve`/`-a` trusts project-local files; `--no-context-files` | trust gate on `AGENTS.md`/`CLAUDE.md` (v1), extended to scenarios (v2); `--trust-project` | note the flag clash: pi's `--approve` means *trust*, jas's means *tool gating* |
 | Context | auto-compaction (summary at `window − reserve`) | v1: chunked tool-result elision + clean stop; v2: same compaction | elision is the cheap v1 floor |
 | Sessions | JSONL tree, `--continue` / `--resume` / `--fork` | versioned JSONL events with `parent_id`; resume and fork in v2 | write-ahead `tool_started` for at-most-once side effects |
-| Parallelism | one session per process (tmux for more) | `jas farm --n N`: worktree per task, review queue (v2) | core jas bet |
+| Parallelism | one session per process (tmux for more) | session awareness across parallel sessions; then `jas farm`: one task split into parts, worktree per part, integrator, supervisor-run `check` | last in bet order, after its prerequisites |
 | Extensibility | TS extensions, npm/git packages, skills, prompt templates, MCP | `Tool` interface, MCP (v2), hooks + scenarios (v2), `SKILL.md` skills | no plugin ABI in Go; scenarios are data |
 | Secrets | `auth.json`, keys out of settings | four layers (§9): deny floor, output redaction, blind access (v2), redacted log | redaction is the backstop for YOLO shell |
