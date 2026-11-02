@@ -95,7 +95,8 @@ must be enabled on the server (vLLM, for example, needs its tool-call parser
 flags).
 
 With several providers configured, `--model openrouter/z-ai/glm-5.3` and
-`--model vllm/qwen3-coder` mix freely, and `/model` lists them qualified.
+`--model vllm/qwen3-coder` mix freely, and `/model` lists them qualified;
+**Ctrl+S** in the picker also stores the choice as the config default.
 Switching a live chat to a model on *another* provider needs `/new`: the
 provider and its key are wired at session start.
 

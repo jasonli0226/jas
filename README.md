@@ -93,6 +93,10 @@ model, approval level, context use and token counts.
 - **`/`** opens a command menu, filtered as you type, with every command and
   `/skill:<name>`; Up/Down move, Tab or Enter completes. `/help` lists every
   command and key.
+- **`/model`** lists every configured model (qualified when several providers
+  are set) — Enter switches the session, **Ctrl+S** also stores the choice as
+  the config default. A model on another provider is refused; `/new` starts a
+  session on it.
 - **Up/Down** from the first or last line of the input recall earlier input.
 - Each tool call shows a running row while it runs, then one result row.
 - Edits and writes show a diff (line numbers, `+`/`-`) in the approval prompt
