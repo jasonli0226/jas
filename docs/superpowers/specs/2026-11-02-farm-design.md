@@ -173,13 +173,18 @@ The spec describes the full farm. The **first shippable version** is:
   6/7/8 with `reason`; `--json`; `manifest.json`; budgets and caps; TTY
   failure prompt with **retry / drop / abort** (no take-over).
 - Prerequisites 3 (token/time caps, with `max_tokens`), 5 (supervisor-run
-  `check`) and 7 (trust injection, headless compaction, provenance meta).
+  `check`), 7 (trust injection, headless compaction, provenance meta), and
+  **session-awareness rollout step 1 only** (records + stale cleanup +
+  `jas sessions`): workers register records so a human session can see
+  them. Overlap warnings (rollout step 3) are not needed for MVP; worker
+  ownership is enforced by the plan and write limits.
 
 **After MVP**, in this order: `researcher`/`reviewer` roles and
 `jas farm init`; resume (`jas farm resume`) and take-over; spec-driven
 planning (`--spec`); interactive mode (`/farm`). Prerequisites 1, 2, 4 and 6
-(event-log schema, provider fidelity, OS sandbox, session awareness) remain
-bet-order work that farm benefits from; MVP does not wait for them, but the
+(event-log schema, provider fidelity, OS sandbox, and session-awareness
+steps 2–3) remain bet-order work that farm benefits from; MVP does not wait
+for them, but the
 README marks farm experimental until they and the benchmark gate land.
 **(owner-approved, 2026-11-02 review)**
 
@@ -204,9 +209,13 @@ Farm is built **after** these land, in bet order (design §5 / §13):
 5. **Supervisor-run success check + success-verified benchmarks**: the same
    `check` mechanism, built once.
 6. **Session awareness** (separate spec) — records, overlap warnings, the
-   `.jas/` git-exclude plumbing farm reuses.
+   `.jas/` git-exclude plumbing farm reuses. Farm MVP needs rollout step 1
+   (records) only; see MVP cut.
 7. Small core changes: trust injection (§Trust), opt-in compaction for headless
    sessions (§Context), provenance meta in `session_started` (§Provenance).
+8. **`jas --resume <log-path>`** (after MVP; needed by take-over): open a chat
+   on a given session log in the current directory, honouring the session
+   lock. Today only `--continue` / `/resume` exist.
 
 **Benchmark gate.** Before farm is promoted in the README (beyond
 "experimental"), a farm-vs-solo harness runs the acceptance scenarios on jas
@@ -519,6 +528,11 @@ sections** instead of free text:
   (Windows: `%LocalAppData%\jas\worktrees\…`); `<repo-id>` is a short hash
   of the main checkout's absolute path plus its directory name. Configurable
   with `worktree.dir` (absolute).
+- **Load-time validation** of the resolved directory, default or configured,
+  after resolving symlinks: it must not be inside the main checkout (or any
+  of its linked worktrees), and must not be inside `~/.jas` or `JAS_HOME`.
+  Either violation is a config error (exit 2) naming the rule. Reasons
+  below.
 - **Not inside the repo.** `.git/info/exclude` hides an in-repo directory from
   git only; pytest and jest collect tests recursively, tsc `include` globs and
   eslint scan it, and file watchers fire on it, so the main checkout's own
@@ -617,6 +631,12 @@ steps).
 - Rounds: each delivery to a part is a round; a part receives at most
   `board.max_rounds` deliveries (default 3). Posts arriving after a part's
   last round, or after it is done, go to the integrator only.
+- **No delivery outside the tool-results boundary.** A worker that makes no
+  further tool call (it is thinking toward its final answer, or finishes)
+  never sees posts that arrive after its last delivery. This is by design:
+  the board never re-wakes or interrupts a worker. **The integrator is the
+  fallback**: it receives every post, delivered or not, and the manifest
+  lists per part which posts it never saw.
 - Audit: each delivery is a `board_delivered{part, seqs[], truncated}` event
   in `farm.jsonl`, and the injected block in the worker log carries
   `board_seqs`. "Which commitments had B seen when it acted" is answerable
@@ -693,7 +713,7 @@ can't be prepared. (owner's decision)
   all workers. Either way the farm cannot exit 0 if a part was dropped
   (exit 6), and all branches are kept.
 - **Take over:** the supervisor closes the part's session, prints
-  `jas --resume <log-path>` (new flag, prerequisite) to run in the part's
+  `jas --resume <log-path>` (prerequisite 8) to run in the part's
   worktree, waits for the owner to press Enter, then re-runs the write-limit
   check and commit before marking the part done.
 - **Ctrl-C** once: stop scheduling, let running requests finish, close
@@ -719,7 +739,7 @@ never reuse 3/4/5 (those stay per-part, in the manifest).
 | 2 | usage/config error: bad flags, no `check`, invalid or unapproved plan or spec, hash mismatch, dirty tree without `--allow-dirty` | same |
 | 6 | **farm unmet**: `check`/`contract_check` failed, or a part failed/was dropped (also `jas run --spec` scaffold/section when jas's `check` fails) | — |
 | 7 | **budget exceeded**: farm token pool + reserve or `farm_timeout` exhausted (also used by `jas run --max-tokens/--timeout`) | planner hit its budget |
-| 8 | — | **planner refused** to split (suggests `jas run`) |
+| 8 | — | **planner refused** to split (suggests `jas run`), with or without a TTY; also `jas farm "<task>"` when the planner refuses (no workers start) |
 | 130 | interrupted | interrupted |
 
 The same code appears in `farm_ended`, always with a `reason`, because one

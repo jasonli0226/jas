@@ -64,6 +64,13 @@ session only.
 - `touched` = repo-relative paths successfully written by `write`/`edit`
   (shell writes are not tracked in-process; noted in the record as
   `shell_used: true`). Capped (e.g. 200 paths, then `touched_truncated`).
+- **The overlap check is best-effort: `write`/`edit` only.** Shell is the
+  default in chat, so shell edits are the common untracked path. When a peer
+  has `shell_used: true`, the overlap check adds a generic note ("peer X
+  used shell; it may have written files not listed") for writes in the same
+  checkout. `touched` is not refreshed from `git status`: in a shared
+  checkout that shows every session's changes plus the human's, so it
+  cannot be attributed to one session. **(author's call)**
 - `title` passes through the same redactor as `events.jsonl`; no prompt text
   beyond that, no tool output.
 - Heartbeat every 15 s while the process runs **(author's call)**; `state`
@@ -79,6 +86,10 @@ A record is stale if `heartbeat` is older than 60 s **and** (`host` is this
 host and `pid` is not alive, or the heartbeat is older than 10 min). Any
 session starting up deletes stale records. `jas sessions --prune` does it on
 demand. Stale records are never shown as active peers.
+
+Known gap: a recycled pid looks alive, so a crashed session's record can
+show as an active peer until the 10-minute heartbeat limit. Accepted; the
+record's `started` time and `jas sessions --prune` let a human clear it.
 
 ## Peers (read-only)
 

@@ -54,7 +54,7 @@ check: "make check"                 # becomes the project's `check` if none set
 contract_check: "make contract-test" # optional; API contract tests
 codegen: "make gen"                  # optional; regenerates stubs/clients from the contract
 approved:                            # written by `jas spec` on approval
-  sha256: <hash of everything above `approved:` and the body>
+  sha256: <canonical spec hash; see "Approval hash" below>
   at: 2026-11-02T23:40:00+09:00
 ---
 
@@ -112,6 +112,13 @@ module instead of an inline table.
 The draft is shown (or opened in `$EDITOR`). The owner chooses **approve**,
 **edit**, **keep interviewing**, or **quit** (draft saved, unapproved).
 Approval runs `jas spec --check`; it cannot approve with open questions.
+**Approval hash.** Same canonicalization as the farm plan hash (farm spec,
+"Plan trust in CI"): sha256 of the whole file's bytes, front matter and body
+together, after (1) removing the front-matter key `approved:` and its
+indented block (so `sha256` and `at` are not hashed), (2) normalizing line
+endings to LF, and (3) stripping trailing whitespace at end of file. No YAML
+or Markdown re-serialization; any edit requires re-approval.
+
 On approval jas writes `approved.sha256` and logs
 `spec_approved{path, sha256, sections, features}` in the session's
 `events.jsonl`. Editing an approved spec invalidates the hash until
@@ -135,14 +142,20 @@ spec incomplete (spec.md):
   - approved.sha256 does not match (edited after approval)
 ```
 
-**Exit code 2** (usage/config error), with `--json` emitting
-`spec_check{ok:false, problems:[{section, kind, message}]}` before
-`session_ended`. Rationale: an incomplete spec is a bad *input* found before
+**Exit code 2** (usage/config error). Event shape, so `--json` consumers can
+rely on it:
+
+- `jas spec --check` starts **no session**: `--json` emits only
+  `spec_check{ok, problems:[{section, kind, message}]}`.
+- `jas run --spec …` with a failing check **does** start a session (it is a
+  run): `session_started{spec:{…}}`, then `spec_check{ok:false, …}`, then
+  `session_ended{exit_code:2, reason:"spec_incomplete"}`. No `turn_started`
+  and no model call in between. Rationale: an incomplete spec is a bad *input* found before
 any model call, the same class as farm's invalid/unapproved plan (also 2);
 the §3 table stays small and 6/7/8 keep their farm/budget meanings. CI that
 must tell "spec incomplete" apart from "bad flags" reads the `spec_check`
-event or runs `jas spec --check` as its own step (exit 0/2). **(author's call
-— alternative: a dedicated code 9; flagged for the owner.)**
+event or runs `jas spec --check` as its own step (exit 0/2). (owner-approved, 2026-11-02 review: keep 2, no dedicated code 9; the
+`spec_check` event discriminates.)
 
 ## Scaffold phase
 
@@ -176,8 +189,10 @@ event or runs `jas spec --check` as its own step (exit 0/2). **(author's call
 
 `jas run --spec spec.md --section F-todos [--section F-auth]` gives one agent
 the spec (full, cached), the named section(s) and their acceptance criteria,
-and the Owns hint as a **soft** write scope (overlap warns via session
-awareness; hard limits are a farm feature). Done = `check` passes (run by
+and the Owns hint as a **soft** write scope (hard limits are a farm
+feature). Before session-awareness rollout step 3 ships, the hint is advice
+in the prompt only; once it ships, writes outside the hint that overlap
+another session warn via the overlap check. Done = `check` passes (run by
 jas) and the agent's final answer includes a criteria table:
 
 ```
@@ -455,4 +470,6 @@ the ones proposed in these specs; payloads are abbreviated.
   record, so parallel humans/sessions see "F-auth in progress".
 - **Prerequisites:** scaffold and section runs need jas-run `check`
   (supervisor-run success check) and token/time caps; the interview needs
-  nothing new beyond the inline chat.
+  nothing new beyond the inline chat. Session-awareness features here are
+  additive, not prerequisites: section records need rollout step 1, overlap
+  warnings (and US-13 / I7) need step 3.
