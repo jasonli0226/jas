@@ -149,7 +149,7 @@ jas farm run plan.yaml          # CI path; `jas farm "<task>"` in one terminal
 - The owner reviews and approves (or edits, or asks for a new plan) before
   any worker starts; the approved plan hash is what CI runs.
 - The supervisor (plain code, no LLM) runs 2–3 parts at a time, each in its
-  own worktree (`<repo>/.jas/worktrees/`) and branch. Workers post typed
+  own worktree (in the user cache dir, outside the repo) and branch. Workers post typed
   commitments (owns, interface, blocked, done) to an append-only board,
   delivered as labelled context, a few rounds at most.
 - A failed part pauses the parts that depend on it and asks the owner:

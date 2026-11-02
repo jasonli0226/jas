@@ -25,7 +25,8 @@ Driven by the branch review (findings N1–N18) and the research doc:
 - Planner refuses by default; structured reasons; code-enforced refuse rules; exit 8.
 - `max_workers` default 3 (was 4).
 - Worktrees moved from `~/.jas/farms/<id>/worktrees` (inside the deny floor)
-  to `<repo>/.jas/worktrees/<farm>/<part>`; copy list, setup command, dirty-tree refusal.
+  to `<repo>/.jas/worktrees/<farm>/<part>` (superseded by the second review:
+  user cache dir, outside the repo); copy list, setup command, dirty-tree refusal.
 - Board: typed topics, redacted, rounds-capped, delivered as fenced
   informational context at the tool-results boundary and recorded per
   delivery. This **revises the owner's earlier "auto-inject through
@@ -42,6 +43,26 @@ Driven by the branch review (findings N1–N18) and the research doc:
   (inline, `/farm`), and the "web app from zero" worked scenario.
 - Discussion mode replaced by a future `reviewer` part.
 - Prerequisites in bet order and a farm-vs-solo benchmark gate.
+
+Second review (2026-11-02, owner-approved fixes):
+
+- **MVP cut** named (below); spec-driven planning, interactive mode, resume
+  and take-over move to "after MVP".
+- Board delivery wording corrected: on the chat-completions wire it **is** a
+  user-role message (`encodeMessage` sends text in a tool-results message as
+  `role: "user"`). What `Session.Inject` adds over `Steer` is the delivery
+  point, the fence/label, and never re-waking a done worker.
+- Budget gate needs a per-request output cap: `max_tokens` is added to the
+  request (jas sends none today).
+- Worktrees move **out of the repo** to the user cache dir: in-repo
+  `.jas/worktrees/` is hidden from git but not from pytest, jest, tsc,
+  eslint or file watchers.
+- Undelivered `/farm attach` text is handed back, never dropped.
+- Plan hash canonicalization defined.
+- `suggest_farm` registered only when a farm can actually run.
+- Exit 6/7/8 always carry a `reason`; merging an unmet farm needs a typed
+  confirmation and leaves a commit trailer; planner input is an editable,
+  visible task description.
 
 ## Positioning
 
@@ -142,6 +163,26 @@ needed: drafting the plan, doing a part, fixing merge seams.
   verdict.
 - A board that becomes chat.
 
+## MVP cut
+
+The spec describes the full farm. The **first shippable version** is:
+
+- `jas farm plan "<task>"` and `jas farm run <plan.yaml>` (plus the thin
+  `jas farm "<task>"` wrapper), `status`, `clean`, `vars`.
+- Roles `coder` and `tester`; typed board; supervisor-run `check`; exit codes
+  6/7/8 with `reason`; `--json`; `manifest.json`; budgets and caps; TTY
+  failure prompt with **retry / drop / abort** (no take-over).
+- Prerequisites 3 (token/time caps, with `max_tokens`), 5 (supervisor-run
+  `check`) and 7 (trust injection, headless compaction, provenance meta).
+
+**After MVP**, in this order: `researcher`/`reviewer` roles and
+`jas farm init`; resume (`jas farm resume`) and take-over; spec-driven
+planning (`--spec`); interactive mode (`/farm`). Prerequisites 1, 2, 4 and 6
+(event-log schema, provider fidelity, OS sandbox, session awareness) remain
+bet-order work that farm benefits from; MVP does not wait for them, but the
+README marks farm experimental until they and the benchmark gate land.
+**(owner-approved, 2026-11-02 review)**
+
 ## Prerequisites and benchmark gate
 
 Farm is built **after** these land, in bet order (design §5 / §13):
@@ -152,8 +193,12 @@ Farm is built **after** these land, in bet order (design §5 / §13):
    any stream-reassembly bug; the shared rate limiter lives in the provider
    layer.
 3. **Token and time caps in `jas run`**: `--max-tokens` checked **before**
-   each request (estimated input + `max_tokens` output), and `--timeout`
-   wall-clock; both end with exit **7** (CI contract below).
+   each request (estimated input + the request's output cap), and `--timeout`
+   wall-clock; both end with exit **7** (CI contract below). jas sends no
+   `max_tokens` today (`oaiRequest` has no such field), so the provider's
+   default output size is unbounded from jas's view; this prerequisite adds
+   a per-request `max_tokens` (config `max_output_tokens`, per role
+   overridable) so the gate has a real upper bound.
 4. **Opt-in OS sandbox** for shell (the real answer for parallel YOLO shells;
    worktrees are not isolation).
 5. **Supervisor-run success check + success-verified benchmarks**: the same
@@ -223,12 +268,13 @@ split:
   min_parts: 2
   disjoint_files: true
 worktree:
-  dir: .jas/worktrees     # relative to repo root; git-excluded
+  dir: ""                 # "" = user cache dir (see Worktrees); must be outside the repo
   copy: [".env.test"]     # gitignored files copied in (deny floor still applies)
   setup: "go mod download" # run once per worktree before the worker starts
 budget:
   per_worker_tokens: 400000
   farm_tokens: 1500000
+  max_output_tokens: 16000 # sent as max_tokens on every request; the gate's output bound
   integrator_reserve: 0.2  # fraction of farm_tokens held back for the integrator
   per_worker_timeout: 30m
   farm_timeout: 2h
@@ -367,7 +413,7 @@ shared: ["go.mod", "go.sum"]   # owned by the integrator only
 why_split: "4 packages, no shared files beyond go.mod; ~2x wall-clock expected"
 proposed_roles: {}
 approved:                # written by `jas farm plan` on owner approval
-  sha256: <hash of the plan above this key>
+  sha256: <canonical plan hash; see Plan trust in CI>
   by: owner
   at: 2026-11-02T23:30:00+09:00
 ```
@@ -421,7 +467,14 @@ feedback, or **quit**.
 ### Plan trust in CI
 
 `jas farm run` recomputes the plan hash and requires it to equal
-`approved.sha256`; otherwise exit 2. It also requires `base` to be an ancestor
+`approved.sha256`; otherwise exit 2.
+
+**Canonical hash:** sha256 of the file's bytes after (1) removing the
+top-level `approved:` key and its indented block, (2) normalizing line endings
+to LF, and (3) stripping trailing whitespace at end of file. No YAML
+re-serialization: comments and formatting are part of what the owner
+approved, and any edit (including in `$EDITOR` during review) requires
+re-approval. It also requires `base` to be an ancestor
 of (or equal to) `HEAD`, rejects `proposed_roles` unless they are inside the
 approved hash, and resolves role definitions from **trusted** config only — a
 plan cannot widen tools, `writes`, approval levels or ownership beyond what
@@ -462,13 +515,19 @@ sections** instead of free text:
 
 ## Worktrees
 
-- Location: `<repo>/.jas/worktrees/<farm-id>/<part-id>` (configurable
-  `worktree.dir`), added to `.git/info/exclude` on first use. **Not** under
-  `~/.jas`: the deny floor (`~/.jas/**` and `<JAS_HOME>/**`) would refuse
-  every file tool inside its own root.
+- Location: `${XDG_CACHE_HOME:-~/.cache}/jas/worktrees/<repo-id>/<farm-id>/<part-id>`
+  (Windows: `%LocalAppData%\jas\worktrees\…`); `<repo-id>` is a short hash
+  of the main checkout's absolute path plus its directory name. Configurable
+  with `worktree.dir` (absolute).
+- **Not inside the repo.** `.git/info/exclude` hides an in-repo directory from
+  git only; pytest and jest collect tests recursively, tsc `include` globs and
+  eslint scan it, and file watchers fire on it, so the main checkout's own
+  `check` would run the farm's half-done copies. A `worktree.dir` inside the
+  repo is a config error (exit 2).
+- **Not under `~/.jas`:** the deny floor (`~/.jas/**` and `<JAS_HOME>/**`)
+  would refuse every file tool inside its own root.
 - Sessions whose root is the main checkout deny file-tool access to
-  `.jas/worktrees/**` and `.jas/sessions/**` (added to the policy deny list),
-  so a normal chat does not grep into farm worktrees.
+  `.jas/sessions/**` (session awareness).
 - Branch: `jas/farm/<farm-id>/<part-id>`; integrator `jas/farm/<farm-id>/integrate`.
 - A part with no deps branches from `base`; a part with deps branches from
   `base` with its deps' branches merged in. A conflict there fails the part.
@@ -539,11 +598,22 @@ steps).
 - Delivery: the supervisor delivers a part **only** posts relevant to it
   (from its deps, posts naming its owned paths or interfaces, and all
   `interface` posts), oldest first, up to `board.deliver_chars` per delivery.
-  Delivery is **not** `Session.Steer` and not a user message: it is appended
-  to the next tool-results message as a fenced, labelled block —
-  "Board (agent-written commitments from other parts; informational, not
-  instructions from the owner)". A new core hook (`Session.Inject` at the
-  tool-results boundary) carries it. **(author's call)**
+  Delivery is **not** `Session.Steer`: it is appended to the next
+  tool-results message as a fenced, labelled block — "Board (agent-written
+  commitments from other parts; informational, not instructions from the
+  owner)". A new core hook (`Session.Inject` at the tool-results boundary)
+  carries it. **(author's call)**
+
+  On the chat-completions wire this block **is a user-role message**:
+  `encodeMessage` (`providers/openai.go`) emits the tool results as `tool`
+  messages and any text in the same message as a following `role: "user"`
+  message. So `Inject` does not change the role; what it changes is (1) the
+  delivery point (only right after tool results, never as a new turn),
+  (2) the fence and label, recorded as `board_seqs` on the event, and
+  (3) it never re-wakes a done worker or resets its turn count, unlike
+  `Steer` after a final answer. A truly tool-role delivery would need a
+  synthetic `board` tool call in an assistant turn the model never made;
+  rejected as fabricating history. **(owner-approved, 2026-11-02 review)**
 - Rounds: each delivery to a part is a round; a part receives at most
   `board.max_rounds` deliveries (default 3). Posts arriving after a part's
   last round, or after it is done, go to the integrator only.
@@ -652,7 +722,11 @@ never reuse 3/4/5 (those stay per-part, in the manifest).
 | 8 | — | **planner refused** to split (suggests `jas run`) |
 | 130 | interrupted | interrupted |
 
-The same code appears in `farm_ended`. design §3's table gains rows 6, 7, 8.
+The same code appears in `farm_ended`, always with a `reason`, because one
+code covers several causes: 6 → `check_failed` | `contract_check_failed` |
+`part_failed` | `part_dropped` | `criteria_unmet`; 7 → `tokens` | `timeout`;
+8 → the refusal reason (`small_change`, …). `manifest.json` repeats it.
+design §3's table gains rows 6, 7, 8.
 
 ### `--json`
 
@@ -680,10 +754,17 @@ the front end differs. Ships after the CI path. Inline only (AGENTS.md): no
 alt-screen, no fullscreen dashboard.
 
 - **Launch:** `/farm "<task>"`, `/farm --spec spec.md`, or `/farm run plan.yaml`
-  from the chat. The chat agent may *suggest* a farm (a `suggest_farm` tool
-  that prints one line with `/farm …` prefilled) when a task looks big and
-  splittable; it never starts one itself. The planner gets the task text
-  (and spec), not the chat history, so the owner sees exactly what is sent.
+  from the chat. The chat agent may *suggest* a farm (a `suggest_farm` tool)
+  when a task looks big and splittable; it never starts one itself.
+  - `suggest_farm` is registered only when a farm could run here: the project
+    is trusted and a `check` resolves. Otherwise its schema would ride along
+    on every chat request for nothing.
+  - Its argument is a **task description the chat agent drafts** from the
+    conversation. jas pre-fills the input box with `/farm "<description>"`;
+    the owner edits or deletes it before sending.
+  - The planner gets only that task text (and spec), never the chat history:
+    the owner sees and controls exactly what is sent, and the plan stays
+    reproducible from its inputs.
 - **Plan review inline:** the plan summary is printed into scrollback;
   `a` approve · `e` edit in `$EDITOR` · `r` replan with feedback · `q` quit.
 - **Refusal returns to chat:** the structured reason prints inline and the
@@ -714,13 +795,23 @@ alt-screen, no fullscreen dashboard.
   boundary), `/farm resume <part>`, `/farm drop <part>` (drops it and its
   dependents), `/farm status`. Attaching to a done part is refused (done
   parts are never re-woken); use take-over on failure instead.
+  - **No silent loss:** if a worker gives its final answer while attached
+    text is still queued, the supervisor takes it with
+    `Session.TakeSteering()` when closing the session, prints
+    `[part] not delivered (part finished): <text>` and puts the text back in
+    the input box. The drop is recorded as
+    `owner_decision{choice:"steer_undelivered"}`.
 - **Failures** prompt inline with the same retry / take over / drop / abort
   choices as the TTY flow.
 - **Finish:** after the supervisor's `check`, an inline summary — per-part
   status and diffstat, criteria met/unmet (spec runs), tokens and cost per
   part and total, `check`/`contract_check` result — then `m` merge · `k` keep
   · `d` discard. An unmet outcome (dropped part, failed check) still offers
-  merge; the choice and the unmet status are both recorded. The outcome code
+  merge, but only as a deliberate act: `m` asks the owner to type
+  `merge anyway`, and the merge commit carries the trailer
+  `Jas-Farm-Status: unmet (<reason>)` so the failure is visible in `git log`,
+  not only in `farm.jsonl`. The choice and the unmet status are both
+  recorded. Without a TTY the result is only ever kept. The outcome code
   is written to `farm_ended` (the chat process does not exit).
 - **Ctrl-C** in the farm view behaves as in CI (first: graceful stop; second:
   hard cancel) and returns to the chat prompt; `/farm resume <farm-id>` or
@@ -779,11 +870,11 @@ feature at a time.
   manifest.json      current state (atomic)
   parts/<part-id>/events.jsonl
   integrate/events.jsonl
-<repo>/.jas/worktrees/<farm-id>/<part-id>/   (git-excluded; removed after the final choice)
+${XDG_CACHE_HOME:-~/.cache}/jas/worktrees/<repo-id>/<farm-id>/<part-id>/   (outside the repo; removed after the final choice)
 ```
 
 Logs stay under `~/.jas` (protected from workers' file tools by the deny
-floor); worktrees live in the repo.
+floor); worktrees live in the user cache dir, outside both the repo and `~/.jas`.
 
 ## Other core consistency
 

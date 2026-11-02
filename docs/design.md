@@ -303,8 +303,8 @@ Reserved for upcoming features (not emitted by v1; see the farm spec's CI contra
 
 | code | meaning |
 |---|---|
-| 6 | `check` run by jas failed, or required work unmet: farm (a part failed / was dropped) and spec runs (`jas run --spec --phase scaffold` / `--section`) |
-| 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals) |
+| 6 | `check` run by jas failed, or required work unmet: farm (a part failed / was dropped) and spec runs (`jas run --spec --phase scaffold` / `--section`); the final event's `reason` says which |
+| 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals); `reason` is `tokens` or `timeout` |
 | 8 | farm planner refused to split (use `jas run`) |
 
 ### The Tool interface (the whole extensibility story)
@@ -421,7 +421,7 @@ per-task containers ship in v3).
       [research](research/farm-multi-agent-community-2026-11.md)). A planner
       drafts `plan.yaml` or refuses (default; suggests `jas run`), the owner
       approves it (plan hash), the supervisor (code, no LLM) runs 2–3 parts in
-      parallel in `<repo>/.jas/worktrees/`, workers post typed commitments to
+      parallel in worktrees outside the repo, workers post typed commitments to
       a board, an integrator merges, and the supervisor runs `check` as the
       verdict. Pinned CI contract (exit codes 6/7/8, `--json`, manifest; no
       TTY = keep). Replaces the earlier best-of-N `--n` design. **Waits for
@@ -762,7 +762,7 @@ Persistent config lives in `~/.jas/` and is managed with `jas config` /
 **Session storage** stays simple: `~/.jas/sessions/<id>/events.jsonl` (§3) is
 the whole story — no DB, replay = tail the file. Farm state (v2) lives in
 `~/.jas/farms/<farm-id>/` (plan, supervisor log, board, manifest, one event
-log per part); worktrees live in `<repo>/.jas/worktrees/`; see the farm spec.
+log per part); worktrees live in the user cache dir (`~/.cache/jas/worktrees/`), outside the repo; see the farm spec.
 
 ## 11. Security acceptance: v1, and project trust
 

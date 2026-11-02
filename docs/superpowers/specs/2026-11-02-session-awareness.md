@@ -113,9 +113,9 @@ conflict when the farm is merged. **(author's call)**
 
 ## Security
 
-- `.jas/sessions/**` is denied to file tools (added to the policy deny list
-  next to `.jas/worktrees/**`), so a model cannot forge or delete peer
-  records; only jas code writes them.
+- `.jas/sessions/**` is denied to file tools (added to the policy deny
+  list), so a model cannot forge or delete peer records; only jas code
+  writes them.
 - Records hold paths, titles (redacted), branch and pid — no prompts, tool
   output or secrets.
 - Untrusted projects still get records (they are jas-written metadata), but

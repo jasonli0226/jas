@@ -160,7 +160,15 @@ event or runs `jas spec --check` as its own step (exit 0/2). **(author's call
   keep it out of anything outside the layout it declared in its first
   `scaffold_plan` step. "No feature logic" is not fully machine-checkable:
   contract tests for feature behaviour are expected to fail/skip as pending,
-  and the owner reviews the diff. **(author's call)**
+  and the owner reviews the diff. **(author's call)** Two cheap code checks
+  narrow the gap: (1) every contract route's stub answers with the
+  not-implemented status (501 or the stack's equivalent), verified by a
+  generated smoke test the verifier runs; (2) a per-file line cap on
+  scaffold-written source files (default 150, config
+  `scaffold.max_file_lines`; generated code under `shared:` paths exempt),
+  over which the verifier fails the phase with exit 6
+  `reason: scaffold_too_large`. Both stay heuristics; owner review remains
+  the final check.
 - Prompt budget and turn cap are lower than a normal run (it's a bounded
   phase).
 
