@@ -17,8 +17,11 @@ const (
 	dirMode  = 0o700
 	fileMode = 0o600
 
-	modelsPrefix  = "models."
-	contextWindow = ".context_window"
+	modelsPrefix     = "models."
+	contextWindow    = ".context_window"
+	providersPrefix  = "providers."
+	baseURLSuffix    = ".base_url"
+	providerReserved = "default" // the flat provider/base_url keys, as a name
 )
 
 // ModelOverride is a per-model setting.
@@ -26,10 +29,17 @@ type ModelOverride struct {
 	ContextWindow int `json:"context_window"`
 }
 
+// ProviderEntry is one named provider: an endpoint that speaks Chat
+// Completions. The name is what model refs address ("vllm/qwen3").
+type ProviderEntry struct {
+	BaseURL string `json:"base_url,omitempty"`
+}
+
 // File is the stored global config (config.json).
 type File struct {
-	Values map[string]string        // plain settings
-	Models map[string]ModelOverride // models.<name>.*
+	Values    map[string]string        // plain settings
+	Models    map[string]ModelOverride // models.<name>.*
+	Providers map[string]ProviderEntry // providers.<name>.base_url
 }
 
 // UnmarshalJSON accepts string or numeric values for plain keys.
@@ -38,11 +48,17 @@ func (f *File) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
 	}
-	f.Values, f.Models = map[string]string{}, nil
+	f.Values, f.Models, f.Providers = map[string]string{}, nil, nil
 	for k, v := range raw {
-		if k == "models" {
+		switch k {
+		case "models":
 			if err := json.Unmarshal(v, &f.Models); err != nil {
 				return fmt.Errorf("models: %w", err)
+			}
+			continue
+		case "providers":
+			if err := json.Unmarshal(v, &f.Providers); err != nil {
+				return fmt.Errorf("providers: %w", err)
 			}
 			continue
 		}
@@ -63,6 +79,9 @@ func (f File) MarshalJSON() ([]byte, error) {
 	}
 	if len(f.Models) > 0 {
 		m["models"] = f.Models
+	}
+	if len(f.Providers) > 0 {
+		m["providers"] = f.Providers
 	}
 	return json.Marshal(m)
 }
@@ -125,6 +144,30 @@ func modelKey(key string) (name string, ok bool) {
 	return name, name != ""
 }
 
+// providerKey parses providers.<name>.base_url.
+func providerKey(key string) (name string, ok bool) {
+	if !strings.HasPrefix(key, providersPrefix) || !strings.HasSuffix(key, baseURLSuffix) {
+		return "", false
+	}
+	name = strings.TrimSuffix(strings.TrimPrefix(key, providersPrefix), baseURLSuffix)
+	if err := validProviderName(name); err != nil {
+		return "", false
+	}
+	return name, true
+}
+
+// validProviderName rejects names that cannot be addressed as <name>/model:
+// empty, or containing the key or ref separators.
+func validProviderName(name string) error {
+	if name == "" {
+		return errors.New("provider name must not be empty")
+	}
+	if strings.ContainsAny(name, "./") {
+		return fmt.Errorf("provider name must not contain '.' or '/': %q", name)
+	}
+	return nil
+}
+
 // Set validates and stores key=value, returning the updated File.
 func (f File) Set(key, value string) (File, error) {
 	out := f.clone()
@@ -134,6 +177,16 @@ func (f File) Set(key, value string) (File, error) {
 		}
 		n, _ := strconv.Atoi(value)
 		out.Models[name] = ModelOverride{ContextWindow: n}
+		return out, nil
+	}
+	if name, ok := providerKey(key); ok {
+		if err := validURL(value); err != nil {
+			return f, fmt.Errorf("%s: %w", key, err)
+		}
+		if out.Providers == nil {
+			out.Providers = map[string]ProviderEntry{}
+		}
+		out.Providers[name] = ProviderEntry{BaseURL: value}
 		return out, nil
 	}
 	spec, ok := LookupKey(key)
@@ -154,6 +207,10 @@ func (f File) Unset(key string) (File, error) {
 		delete(out.Models, name)
 		return out, nil
 	}
+	if name, ok := providerKey(key); ok {
+		delete(out.Providers, name)
+		return out, nil
+	}
 	if _, ok := LookupKey(key); !ok {
 		return f, unknownKey(key)
 	}
@@ -166,6 +223,10 @@ func (f File) Stored(key string) (string, bool, error) {
 	if name, ok := modelKey(key); ok {
 		m, found := f.Models[name]
 		return strconv.Itoa(m.ContextWindow), found, nil
+	}
+	if name, ok := providerKey(key); ok {
+		p, found := f.Providers[name]
+		return p.BaseURL, found, nil
 	}
 	if _, ok := LookupKey(key); !ok {
 		return "", false, unknownKey(key)
@@ -194,12 +255,15 @@ func (f File) ModelNames() []string {
 }
 
 func (f File) clone() File {
-	out := File{Values: map[string]string{}, Models: map[string]ModelOverride{}}
+	out := File{Values: map[string]string{}, Models: map[string]ModelOverride{}, Providers: map[string]ProviderEntry{}}
 	for k, v := range f.Values {
 		out.Values[k] = v
 	}
 	for k, v := range f.Models {
 		out.Models[k] = v
+	}
+	for k, v := range f.Providers {
+		out.Providers[k] = v
 	}
 	return out
 }
@@ -209,5 +273,5 @@ func unknownKey(key string) error {
 	for _, k := range Keys {
 		names = append(names, k.Name)
 	}
-	return fmt.Errorf("unknown setting %q: want one of %s or models.<name>.context_window", key, strings.Join(names, ", "))
+	return fmt.Errorf("unknown setting %q: want one of %s, models.<name>.context_window or providers.<name>.base_url", key, strings.Join(names, ", "))
 }

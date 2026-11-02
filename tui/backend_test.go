@@ -39,6 +39,7 @@ type testBackend struct {
 	prov        *fake.Provider
 	redact      func(string) string // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
 	window      int                 // context window; 0 is testWindow
+	provider    string              // what ProviderOf reports; "" is unknown, so /model never refuses
 	keep        int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
 	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
 	opens       atomic.Int32        // sessions handed out as a Live
@@ -145,8 +146,9 @@ func (b *testBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 	}), nil
 }
 
-func (b *testBackend) Models() []string     { return []string{"m", "m2"} }
-func (b *testBackend) SkillNames() []string { return []string{"review"} }
+func (b *testBackend) Models() []string         { return []string{"m", "m2"} }
+func (b *testBackend) ProviderOf(string) string { return b.provider }
+func (b *testBackend) SkillNames() []string     { return []string{"review"} }
 func (b *testBackend) SkillFiles() map[string]string {
 	return map[string]string{"/skills/review/SKILL.md": "review"}
 }

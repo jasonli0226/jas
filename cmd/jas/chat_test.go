@@ -237,7 +237,7 @@ func TestChatBackend_EnablesCompaction(t *testing.T) {
 	e := testEnv(t)
 	e.cfg.CompactReserve, e.cfg.CompactKeep, e.cfg.CompactModel = 8000, 4000, "z-ai/glm-x"
 	b := &chatBackend{e: e}
-	c := b.config("m", nil, core.NewQuietUI(), core.AllowAll{})
+	c := b.configProv(e.provider, e.cfg.Provider, e.cfg.BaseURL, "m", nil, core.NewQuietUI(), core.AllowAll{})
 	if c.Compact == nil {
 		t.Fatal("chat sessions should have compaction on")
 	}

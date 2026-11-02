@@ -98,7 +98,8 @@ type Value struct {
 type Effective map[string]Value
 
 // Resolve merges layers: flag > env > file > default. An empty string counts
-// as unset in every layer.
+// as unset in every layer. Stored named providers are exposed as
+// "providers.<name>.base_url" keys for Build.
 func Resolve(flags map[string]string, env func(string) string, file File) Effective {
 	out := Effective{}
 	for _, k := range Keys {
@@ -112,6 +113,9 @@ func Resolve(flags map[string]string, env func(string) string, file File) Effect
 		default:
 			out[k.Name] = Value{k.Default, SourceDefault}
 		}
+	}
+	for name, p := range file.Providers {
+		out[providersPrefix+name+baseURLSuffix] = Value{p.BaseURL, SourceFile}
 	}
 	return out
 }

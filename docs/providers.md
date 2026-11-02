@@ -80,23 +80,39 @@ model's maximum.
 
 ### vLLM, LM Studio, llama.cpp and other local servers
 
+Every endpoint gets a name of its own — there is no special `custom`
+label. Set a base URL under `providers.<name>.base_url`, store a key
+under the same name, and address its models as `<name>/<model>`:
+
 ```sh
-jas config set provider custom
-jas config set base_url http://localhost:8000/v1
-jas config set model <model id the server reports>
+jas config set providers.vllm.base_url http://localhost:8000/v1
+jas config set model vllm/<model id the server reports>
 jas config set models.<model id>.context_window 32768
 ```
 
-If the server wants a key, store it with `jas auth add custom`. Tool calling
+If the server wants a key, store it with `jas auth add vllm`. Tool calling
 must be enabled on the server (vLLM, for example, needs its tool-call parser
 flags).
+
+With several providers configured, `--model openrouter/z-ai/glm-5.3` and
+`--model vllm/qwen3-coder` mix freely, and `/model` lists them qualified.
+Switching a live chat to a model on *another* provider needs `/new`: the
+provider and its key are wired at session start.
 
 ### OpenAI
 
 ```sh
+jas config set providers.openai.base_url https://api.openai.com/v1
+jas auth add openai                     # or: --env OPENAI_API_KEY
+jas config set model openai/<model id>
+```
+
+The older flat form still works and stays the default provider (reserved
+name `default`; `custom` remains an ordinary alias for it):
+
+```sh
 jas config set provider custom
 jas config set base_url https://api.openai.com/v1
-jas auth add custom                     # or: --env OPENAI_API_KEY
 jas config set model <model id>
 ```
 

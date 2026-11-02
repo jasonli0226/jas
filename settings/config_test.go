@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -154,5 +155,102 @@ func TestConfig_MaxOutputTokensDefault(t *testing.T) {
 	}
 	if _, err := (File{}).Set("max_output_tokens", "-1"); err == nil {
 		t.Fatal("max_output_tokens=-1 should be rejected")
+	}
+}
+
+func TestProviders_SetStoredUnset(t *testing.T) {
+	f, err := File{}.Set("providers.vllm.base_url", "http://localhost:8000/v1")
+	assert.NoErr(t, err)
+	v, ok, err := f.Stored("providers.vllm.base_url")
+	assert.NoErr(t, err)
+	assert.Eq(t, ok, true)
+	assert.Eq(t, v, "http://localhost:8000/v1")
+
+	// Round-trips through config.json.
+	b, err := json.Marshal(f)
+	assert.NoErr(t, err)
+	var back File
+	assert.NoErr(t, json.Unmarshal(b, &back))
+	assert.Eq(t, back.Providers["vllm"], ProviderEntry{BaseURL: "http://localhost:8000/v1"})
+
+	// Bad URL and bad names are rejected.
+	if _, err := f.Set("providers.vllm.base_url", "not a url"); err == nil {
+		t.Fatal("bad URL should be rejected")
+	}
+	for _, key := range []string{"providers.a.b.base_url", "providers..base_url", "providers.a/b.base_url", "providers.x.url"} {
+		if _, err := f.Set(key, "http://x/v1"); err == nil {
+			t.Errorf("%s should be rejected", key)
+		}
+	}
+
+	// Unset removes the entry.
+	f, err = f.Unset("providers.vllm.base_url")
+	assert.NoErr(t, err)
+	assert.Eq(t, len(f.Providers), 0)
+	_, ok, err = f.Stored("providers.vllm.base_url")
+	assert.NoErr(t, err)
+	assert.Eq(t, ok, false)
+}
+
+func TestBuild_QualifiedModel(t *testing.T) {
+	f := File{Providers: map[string]ProviderEntry{
+		"vllm": {BaseURL: "http://localhost:8000/v1"},
+	}}
+
+	// A named provider's URL and its bare model id.
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "vllm/qwen3"}), f).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, "vllm")
+	assert.Eq(t, r.BaseURL, "http://localhost:8000/v1")
+	assert.Eq(t, r.Model, "qwen3")
+
+	// A preset provider is addressable without configuration; slash ids
+	// after the first segment survive.
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "openrouter/z-ai/glm-5.3"}), File{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, "openrouter")
+	assert.Eq(t, r.BaseURL, Presets["openrouter"])
+	assert.Eq(t, r.Model, "z-ai/glm-5.3")
+
+	// An unknown first segment stays a bare model id on the default provider.
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "z-ai/glm-5.3", "JAS_BASE_URL": "http://x/v1"}), File{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, "custom")
+	assert.Eq(t, r.Model, "z-ai/glm-5.3")
+
+	// A bare model keeps the flat provider and base_url.
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "qwen3", "JAS_BASE_URL": "http://x/v1"}), f).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, "custom")
+	assert.Eq(t, r.BaseURL, "http://x/v1")
+
+	// A named provider whose stored entry has no URL fails loudly, naming
+	// the fix (possible via a hand-edited config.json).
+	f2 := File{Providers: map[string]ProviderEntry{"nope": {}}}
+	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "nope/m"}), f2).Build()
+	if err == nil {
+		t.Fatal("provider without base_url should fail")
+	}
+	assert.Contains(t, err.Error(), "providers.nope.base_url")
+}
+
+func TestSplitModelRef(t *testing.T) {
+	known := func(n string) bool { return n == "vllm" }
+	p, m, ok := SplitModelRef("vllm/qwen3", known)
+	assert.Eq(t, ok, true)
+	assert.Eq(t, p, "vllm")
+	assert.Eq(t, m, "qwen3")
+
+	// Unknown provider: the whole ref is the model.
+	p, m, ok = SplitModelRef("z-ai/glm-5.3", known)
+	assert.Eq(t, ok, false)
+	assert.Eq(t, p, "")
+	assert.Eq(t, m, "z-ai/glm-5.3")
+
+	// Reserved and degenerate refs never split.
+	for _, ref := range []string{"default/m", "vllm/", "bare"} {
+		if _, _, ok := SplitModelRef(ref, known); ok {
+			t.Errorf("%s should not split", ref)
+		}
 	}
 }
