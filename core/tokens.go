@@ -160,3 +160,18 @@ func (s *Session) ctxEnd(ctx context.Context) (status string, code int, reason s
 	s.note(s.c.Log.Append(EvBudgetStop, map[string]any{"reason": reasonTimeout}))
 	return endBudget, ExitBudget, reasonTimeout
 }
+
+// outputCap is the request's max_tokens: MaxOutput, lowered to the room the
+// known context window leaves after the prompt, since servers such as vLLM
+// reject prompt + max_tokens over the window. 0 (omit) stays 0.
+func (s *Session) outputCap() int {
+	n := s.c.MaxOutput
+	b := s.c.Budget
+	if n <= 0 || b == nil || b.Window <= 0 {
+		return n
+	}
+	if room := b.Window - b.Count(s.messages); room > 0 && room < n {
+		return room
+	}
+	return n
+}

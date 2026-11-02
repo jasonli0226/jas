@@ -65,9 +65,11 @@ type Record struct {
 type Handle struct {
 	path string
 
-	mu  sync.Mutex
-	rec Record
-	err error // last write error
+	mu     sync.Mutex
+	rec    Record
+	err    error // last write error
+	closed bool  // after Close nothing writes the record again
+	stop   context.CancelFunc
 }
 
 // Register writes r as <dir>/<session id>.json, filling in version, pid,
@@ -128,6 +130,9 @@ func (h *Handle) update(f func(r *Record)) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.closed {
+		return
+	}
 	f(&h.rec)
 	_ = h.write()
 }
@@ -170,6 +175,10 @@ func (h *Handle) StartEvery(ctx context.Context, every time.Duration) {
 	if h == nil {
 		return
 	}
+	ctx, stop := context.WithCancel(ctx)
+	h.mu.Lock()
+	h.stop = stop
+	h.mu.Unlock()
 	go func() {
 		t := time.NewTicker(every)
 		defer t.Stop()
@@ -191,6 +200,13 @@ func (h *Handle) Close() error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.closed {
+		return nil
+	}
+	h.closed = true
+	if h.stop != nil {
+		h.stop()
+	}
 	h.rec.State, h.rec.Heartbeat = StateEnded, time.Now()
 	return h.write()
 }

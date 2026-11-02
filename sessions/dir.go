@@ -39,10 +39,23 @@ func gitCommonDir(root string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil { // git before 2.31 has no --path-format; its answer may be relative
+		out, err = exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-common-dir").Output()
+	}
 	if err != nil {
 		return "", false
 	}
-	return filepath.Clean(strings.TrimSpace(string(out))), true
+	return CommonDirFromOutput(root, string(out)), true
+}
+
+// CommonDirFromOutput turns `git rev-parse --git-common-dir` output, which
+// older git prints relative to root, into an absolute path.
+func CommonDirFromOutput(root, out string) string {
+	p := strings.TrimSpace(out)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(root, p)
+	}
+	return filepath.Clean(p)
 }
 
 // ensureExcluded appends excludeLine to path unless a line already equals it.

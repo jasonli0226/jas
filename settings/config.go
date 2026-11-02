@@ -63,8 +63,8 @@ var Keys = []KeySpec{
 	{Name: "redact_skip_paths", Validate: anyValue},
 	{Name: "compact_reserve_tokens", Default: strconv.Itoa(DefaultCompactReserve), Validate: positiveInt},
 	{Name: "compact_keep_tokens", Default: strconv.Itoa(DefaultCompactKeep), Validate: positiveInt},
-	{Name: "compact_model", Validate: anyValue}, // "" = the session's model
-	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: positiveInt, Flag: true},
+	{Name: "compact_model", Validate: anyValue},                                                                      // "" = the session's model
+	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true}, // 0 = omit max_tokens
 }
 
 // LookupKey finds a plain key spec by name.

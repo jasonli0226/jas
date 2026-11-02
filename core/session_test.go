@@ -416,3 +416,19 @@ func TestSession_RequestCarriesMaxOutput(t *testing.T) {
 	send(t, s, context.Background(), "hi")
 	assert.Eq(t, r.prov.Requests[0].MaxTokens, 123)
 }
+
+// A small known window caps max_tokens to the room left after the prompt, so
+// a 16k-context local model is not asked for more than it can return.
+func TestSession_MaxOutputClampedToWindowRoom(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "ok"}})
+	sc := r.sessionConfig()
+	sc.MaxOutput = 16000
+	sc.Budget = &core.Budget{Window: 4000, ElideAt: core.DefaultElideAt, Keep: core.DefaultKeepToolResults}
+	s, err := core.NewSession(sc)
+	assert.NoErr(t, err)
+	send(t, s, context.Background(), "hi")
+	got := r.prov.Requests[0].MaxTokens
+	if got <= 0 || got >= 4000 {
+		t.Fatalf("MaxTokens = %d, want clamped into (0, 4000)", got)
+	}
+}

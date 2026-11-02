@@ -148,7 +148,11 @@ func TestConfig_MaxOutputTokensDefault(t *testing.T) {
 	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), File{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.MaxOutputTokens, 16000)
-	if _, err := (File{}).Set("max_output_tokens", "0"); err == nil {
-		t.Fatal("max_output_tokens=0 should be rejected")
+	// 0 omits max_tokens, for endpoints that reject it (OpenAI o-series).
+	if _, err := (File{}).Set("max_output_tokens", "0"); err != nil {
+		t.Fatalf("max_output_tokens=0 should mean omit: %v", err)
+	}
+	if _, err := (File{}).Set("max_output_tokens", "-1"); err == nil {
+		t.Fatal("max_output_tokens=-1 should be rejected")
 	}
 }

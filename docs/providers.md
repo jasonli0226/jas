@@ -45,6 +45,11 @@ repo checks it yet.
 The local servers' URLs are their usual defaults; use whatever host and port
 yours listens on.
 
+jas sends `max_tokens` on every request (`max_output_tokens`, default 16000),
+lowered to the room left in the model's context window when the window is
+known. Endpoints that reject `max_tokens` (OpenAI o-series and gpt-5 on Chat
+Completions) need `jas config set max_output_tokens 0`, which omits it.
+
 The fixtures live in `providers/testdata/`. There is no Claude-via-OpenRouter
 fixture: the key used to record them only reaches GLM and DeepSeek models
 (others return 403), so DeepSeek stands in as the second OpenRouter upstream.

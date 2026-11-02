@@ -30,6 +30,7 @@ func registerRecord(ctx context.Context, root, mode, logPath, title string, reda
 	if err != nil {
 		return nil, err
 	}
+	_, _ = sessions.Prune(dir, time.Now()) // spec: a starting session clears stale records
 	if r := []rune(title); len(r) > recordTitleRunes {
 		title = string(r[:recordTitleRunes])
 	}

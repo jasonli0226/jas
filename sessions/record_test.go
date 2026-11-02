@@ -153,3 +153,24 @@ func TestHandle_HeartbeatAdvances(t *testing.T) {
 		t.Fatal("heartbeat did not advance")
 	}
 }
+
+func TestHandle_CloseStopsHeartbeat(t *testing.T) {
+	dir := t.TempDir()
+	h := register(t, dir, "s1")
+	h.StartEvery(context.Background(), 10*time.Millisecond)
+	assert.NoErr(t, h.Close())
+	closed, _ := os.ReadFile(filepath.Join(dir, "s1.json"))
+	time.Sleep(60 * time.Millisecond)
+	later, _ := os.ReadFile(filepath.Join(dir, "s1.json"))
+	assert.Eq(t, string(later), string(closed))
+	h.Touch("x.go") // no-op after Close
+	again, _ := os.ReadFile(filepath.Join(dir, "s1.json"))
+	assert.Eq(t, string(again), string(closed))
+}
+
+func TestCommonDirFromOutput(t *testing.T) {
+	root := t.TempDir()
+	assert.Eq(t, sessions.CommonDirFromOutput(root, ".git\n"), filepath.Join(root, ".git"))
+	abs := filepath.Join(root, "x", ".git")
+	assert.Eq(t, sessions.CommonDirFromOutput(root, abs+"\n"), abs)
+}

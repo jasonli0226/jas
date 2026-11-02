@@ -381,7 +381,7 @@ func (s *Session) request(ctx context.Context, m *msgState) (providers.Message, 
 	c := s.c
 	req := providers.Request{
 		Model: s.model, System: c.System, Tools: c.Exec.Reg.Specs(),
-		Messages: slices.Clone(s.messages), MaxTokens: c.MaxOutput,
+		Messages: slices.Clone(s.messages), MaxTokens: s.outputCap(),
 	}
 	est := s.estimate(req)
 	res, err := s.reserve(est)
