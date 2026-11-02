@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	compactWindow  = 2000 // tokens; 8000 bytes
+	compactWindow  = 3000 // tokens; 12000 bytes, room for the rig's ~450-token system prompt and schemas
 	summaryReply   = "SUMMARY-REPLY"
 	compactSummary = "[jas] The earlier conversation was compacted. Summary:\n\n"
 )
@@ -117,7 +117,7 @@ func TestSession_CompactOffReturnsError(t *testing.T) {
 }
 
 // autoRig scripts a big first exchange, so the second Send crosses the
-// threshold (1000 tokens) with u1 and A1 to compact and u2 kept.
+// threshold (1500 tokens) with u1 and A1 to compact and u2 kept.
 func autoRig(t *testing.T, summary fake.Turn, more ...fake.Turn) (*rig, *core.Session) {
 	t.Helper()
 	turns := append([]fake.Turn{{Text: "A1" + tokens(100)}, summary}, more...)
@@ -279,7 +279,7 @@ func TestSession_CompactKeptMessageWithoutID(t *testing.T) {
 }
 
 // smallWindowRig runs a session on the compactWindow with a Reserve far over
-// the window (so the trigger is half the window, 1000 tokens) and every model
+// the window (so the trigger is half the window, 1500 tokens) and every model
 // turn, summaries included, answering with about 100 tokens.
 func smallWindowRig(t *testing.T, keep int) (*rig, *core.Session) {
 	t.Helper()
@@ -303,9 +303,9 @@ func summaryRequests(r *rig) int {
 }
 
 func TestSession_SmallWindowKeepIsClamped(t *testing.T) {
-	// Keep 1200 is above the 1000-token trigger: unclamped, the kept tail
+	// Keep 1800 is above the 1500-token trigger: unclamped, the kept tail
 	// alone is over the threshold and every Send compacts again.
-	r, s := smallWindowRig(t, 1200)
+	r, s := smallWindowRig(t, 1800)
 	ctx := context.Background()
 	const sends = 10
 	compacted := false
@@ -332,7 +332,7 @@ func TestSession_SmallWindowKeepIsClamped(t *testing.T) {
 }
 
 func TestSession_KeepLargerThanWindowStillCompacts(t *testing.T) {
-	r, s := smallWindowRig(t, 2500)
+	r, s := smallWindowRig(t, 3500)
 	ctx := context.Background()
 	for i := 0; i < 6; i++ {
 		res := send(t, s, ctx, "u"+tokens(100))

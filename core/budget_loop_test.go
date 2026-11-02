@@ -35,7 +35,7 @@ func TestRun_ElidesAndLogsEvent(t *testing.T) {
 	turns = append(turns, fake.Turn{Text: "done"})
 	r := newRig(t, turns)
 	assert.NoErr(t, os.WriteFile(filepath.Join(r.root, "big.txt"), []byte(strings.Repeat("0123456789\n", 100)), 0o644))
-	r.cfg.Budget = &core.Budget{Window: 400, ElideAt: 0.6, Keep: 1}
+	r.cfg.Budget = &core.Budget{Window: 500, ElideAt: 0.48, Keep: 1} // trigger 240 tokens
 	_, err := core.Run(context.Background(), r.cfg)
 	assert.NoErr(t, err)
 	var ev map[string]any
@@ -62,4 +62,13 @@ func TestRun_ElidesAndLogsEvent(t *testing.T) {
 	if stubs == 0 {
 		t.Fatal("no stubs sent to provider")
 	}
+}
+
+func TestRun_HugeSystemPromptStopsBeforeFirstRequest(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "never"}})
+	r.cfg.System = core.BuildSystem(core.BasePrompt, strings.Repeat("rule\n", 4000))
+	r.cfg.Budget = &core.Budget{Window: 2000, ElideAt: core.DefaultElideAt, Keep: core.DefaultKeepToolResults}
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitContextFull)
+	assert.Eq(t, len(r.prov.Requests), 0)
 }

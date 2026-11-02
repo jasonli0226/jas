@@ -170,7 +170,10 @@ v1 tracks prompt tokens against the model's context window (see #2):
 - **Token count** = the last response's `usage.prompt_tokens` plus a
   `len(bytes)/4` estimate for every message appended since. That covers the
   first request and the turn right after a large tool result, where no usage
-  number exists yet.
+  number exists yet. Until the first usage number (and again after a
+  compaction), the estimate also adds `len(bytes)/4` of the system prompt and
+  tool schemas, which the messages don't contain. Compaction's kept tail
+  leaves room for that overhead under the trigger.
 - **Elision is chunked to protect the prompt cache** (§2). Nothing is rewritten
   until the count crosses `elide_at` (default 60% of the window). Then, in one
   pass, every tool result except the last K becomes
