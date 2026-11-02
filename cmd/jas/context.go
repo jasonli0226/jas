@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -49,10 +50,11 @@ func loadProjectContext(ctx context.Context, root, home string, project, user []
 	in *bufio.Reader, out io.Writer, redact func(string) string, warn func(string)) (projectContext, error) {
 	path, content, hasFile := core.FindContextFile(root)
 	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: flagTrust}
+	farmCfg := readFarmConfig(root)
 	instructions := ""
-	if hasFile || len(project) > 0 {
+	if hasFile || len(project) > 0 || farmCfg != nil {
 		store := core.TrustStore{Path: filepath.Join(home, trustFile)}
-		load, err := core.DecideContextFile(trustLabel(path, len(project)), root, trustBundle(content, project), store,
+		load, err := core.DecideContextFile(trustLabel(path, len(project), farmCfg != nil), root, trustBundle(content, project, farmCfg), store,
 			interactive, flagTrust, func(p string) string { return askLine(ctx, in, out, p) })
 		if err != nil {
 			return projectContext{}, err
@@ -85,7 +87,7 @@ func loadProjectContext(ctx context.Context, root, home string, project, user []
 }
 
 // trustLabel names what the trust prompt covers, e.g. "AGENTS.md and 2 project skills".
-func trustLabel(path string, projectSkills int) string {
+func trustLabel(path string, projectSkills int, farmCfg bool) string {
 	var parts []string
 	if path != "" {
 		parts = append(parts, filepath.Base(path))
@@ -97,6 +99,9 @@ func trustLabel(path string, projectSkills int) string {
 	default:
 		parts = append(parts, fmt.Sprintf("%d project skills", projectSkills))
 	}
+	if farmCfg {
+		parts = append(parts, ".jas/farm.yaml")
+	}
 	return strings.Join(parts, " and ")
 }
 
@@ -104,11 +109,28 @@ func trustLabel(path string, projectSkills int) string {
 // each project skill's location and SKILL.md, length-prefixed so no split of
 // the bytes reads as another. With no project skills it is the context file
 // alone, so trust recorded before skills existed still holds.
-func trustBundle(content []byte, project []skills.Skill) []byte {
+func trustBundle(content []byte, project []skills.Skill, farmCfg []byte) []byte {
 	b := append([]byte{}, content...)
 	for _, s := range project {
 		b = fmt.Appendf(b, "\x00skill %d:%s %d:", len(s.Location), s.Location, len(s.Content))
 		b = append(b, s.Content...)
+	}
+	if farmCfg != nil { // absent leaves the bytes as they were before farm existed
+		b = fmt.Appendf(b, "\x00farm.yaml %d:", len(farmCfg))
+		b = append(b, farmCfg...)
+	}
+	return b
+}
+
+// readFarmConfig returns the project's .jas/farm.yaml, or nil when absent.
+// Its check, setup and role prompts run code, so it joins the trust decision.
+func readFarmConfig(root string) []byte {
+	b, err := os.ReadFile(filepath.Join(root, ".jas", "farm.yaml"))
+	if err != nil {
+		return nil
+	}
+	if b == nil {
+		b = []byte{}
 	}
 	return b
 }
@@ -166,5 +188,5 @@ func projectBundleHash(root string) string {
 			project[i].Location = filepath.ToSlash(rel)
 		}
 	}
-	return core.ContentHash(trustBundle(content, project))
+	return core.ContentHash(trustBundle(content, project, readFarmConfig(root)))
 }

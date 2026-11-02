@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
@@ -264,4 +266,98 @@ func TestWorkerContext_ProjectSkillsCompared(t *testing.T) {
 	assert.Eq(t, ok, true)
 	_, ok = workerContext(main, a, c)
 	assert.Eq(t, ok, false)
+}
+
+func loadCtx(t *testing.T, root, home string, interactive, flagTrust bool, input string) projectContext {
+	t.Helper()
+	pc, err := loadProjectContext(context.Background(), root, home, nil, nil, interactive, flagTrust,
+		bufio.NewReader(strings.NewReader(input)), &bytes.Buffer{}, func(s string) string { return s }, func(string) {})
+	assert.NoErr(t, err)
+	return pc
+}
+
+func TestTrust_FarmYAMLChangeReprompts(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	assert.NoErr(t, os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("rules\n"), 0o644))
+	store := core.TrustStore{Path: filepath.Join(home, trustFile)}
+	assert.NoErr(t, store.Trust(root, []byte("rules\n")))
+	assert.Eq(t, loadCtx(t, root, home, false, false, "").trusted, true)
+	assert.NoErr(t, os.MkdirAll(filepath.Join(root, ".jas"), 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(root, ".jas", "farm.yaml"), []byte("check: rm -rf x\n"), 0o644))
+	assert.Eq(t, loadCtx(t, root, home, false, false, "").trusted, false)
+	assert.Eq(t, loadCtx(t, root, home, true, false, "n\n").trusted, false)
+	assert.Eq(t, loadCtx(t, root, home, true, false, "y\n").trusted, true)
+}
+
+func TestTrust_FarmYAMLOnlyRepo(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	assert.NoErr(t, os.MkdirAll(filepath.Join(root, ".jas"), 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(root, ".jas", "farm.yaml"), []byte("check: go test ./...\n"), 0o644))
+	assert.Eq(t, loadCtx(t, root, home, false, false, "").trusted, false)
+	assert.Eq(t, loadCtx(t, root, home, true, false, "y\n").trusted, true)
+	assert.Eq(t, loadCtx(t, root, home, false, true, "").trusted, true)
+}
+
+func TestTrust_BundleUnchangedWithoutFarmYAML(t *testing.T) {
+	assert.Eq(t, string(trustBundle([]byte("rules\n"), nil, nil)), "rules\n")
+}
+
+func planRes(goal string) farm.PlannerResult {
+	y := "task: t\nparts:\n  - id: a\n    role: coder\n    goal: " + goal + "\n    owns: [\"core/**\"]\n"
+	p, _ := farm.ParsePlan([]byte(y))
+	return farm.PlannerResult{Raw: []byte(y), Plan: p}
+}
+
+func TestReview_RedactsAndSanitizesPlannerText(t *testing.T) {
+	var out bytes.Buffer
+	d := reviewDeps("q\n", &out)
+	d.Redact = newRedactor(testKey).Redact
+	res := planRes("'use " + testKey + " \\u001b[31mred'")
+	res.Plan.Parts[0].Goal = "use " + testKey + " \x1b[31mred"
+	res.Problems = []farm.Problem{{Message: "bad \x1b[2J " + testKey}}
+	_, _, err := reviewPlan(context.Background(), d, res, filepath.Join(t.TempDir(), "p"))
+	assert.NoErr(t, err)
+	assert.NotContains(t, out.String(), testKey)
+	assert.NotContains(t, out.String(), "\x1b")
+	assert.Contains(t, out.String(), "bad")
+}
+
+func finishEnv(input string) *env {
+	return &env{interactive: true, stdin: bufio.NewReader(strings.NewReader(input)), red: newRedactor(testKey)}
+}
+
+func TestFinishPlan_ProblemsOnTTYGoToReview(t *testing.T) {
+	flog, err := core.OpenEventLog(filepath.Join(t.TempDir(), "farm.jsonl"), nil, nil)
+	assert.NoErr(t, err)
+	defer flog.Close()
+	res := planRes("g")
+	res.Problems = []farm.Problem{{Message: "still bad"}}
+	_, approved, err := finishPlan(context.Background(), finishEnv("a\nq\n"), planArgs{out: filepath.Join(t.TempDir(), "p.yaml")}, nil, farm.PlannerInput{}, flog, res)
+	assert.NoErr(t, err)
+	assert.Eq(t, approved, false)
+	e := finishEnv("")
+	e.interactive = false
+	_, _, err = finishPlan(context.Background(), e, planArgs{out: filepath.Join(t.TempDir(), "p.yaml")}, nil, farm.PlannerInput{}, flog, res)
+	var ee *core.ExitError
+	if !errors.As(err, &ee) || ee.Code != 2 {
+		t.Fatalf("want exit 2, got %v", err)
+	}
+}
+
+func TestFinishPlan_ReplanRefusalExit8(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "farm.jsonl")
+	flog, err := core.OpenEventLog(logPath, nil, nil)
+	assert.NoErr(t, err)
+	replan := func(context.Context, string) (farm.PlannerResult, error) {
+		return farm.PlannerResult{Refusal: &farm.Refusal{Reason: "small_change", Detail: "tiny"}}, nil
+	}
+	_, approved, err := finishPlan(context.Background(), finishEnv("r\nmake it small\n"), planArgs{task: "x", out: filepath.Join(t.TempDir(), "p.yaml")}, replan, farm.PlannerInput{}, flog, planRes("g"))
+	assert.Eq(t, approved, false)
+	var ee *core.ExitError
+	if !errors.As(err, &ee) || ee.Code != 8 {
+		t.Fatalf("want exit 8, got %v", err)
+	}
+	flog.Close()
+	ev := testutil.ReadEvents(t, logPath)
+	assert.Eq(t, ev[len(ev)-1]["type"].(string), farm.EvFarmPlanRefused)
 }

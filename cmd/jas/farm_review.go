@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/farm"
 )
 
@@ -27,6 +28,10 @@ type reviewIO struct {
 	// Recheck re-parses and re-validates edited plan bytes.
 	Recheck func(raw []byte) farm.PlannerResult
 	Now     func() time.Time
+	// Redact masks secrets in planner-written text before it is shown.
+	Redact func(string) string
+	// OnRefuse is called when a replan ends in a refusal; its error ends the review.
+	OnRefuse func(*farm.Refusal) error
 }
 
 // reviewPlan shows res and loops on the owner's choice. Approve writes the
@@ -34,7 +39,7 @@ type reviewIO struct {
 // end of input) approves nothing and writes nothing.
 func reviewPlan(ctx context.Context, r reviewIO, res farm.PlannerResult, outPath string) (final []byte, approved bool, err error) {
 	for {
-		showPlan(r.Out, res)
+		showPlan(r.Out, res, r.clean)
 		line := askLine(ctx, r.In, r.Out, reviewPrompt)
 		if line == "" { // end of input or cancelled: nothing approved
 			return nil, false, ctx.Err()
@@ -65,9 +70,21 @@ func reviewPlan(ctx context.Context, r reviewIO, res farm.PlannerResult, outPath
 			if err != nil {
 				return nil, false, err
 			}
+			if next.Refusal != nil && r.OnRefuse != nil {
+				return nil, false, r.OnRefuse(next.Refusal)
+			}
 			res = next
 		}
 	}
+}
+
+// clean makes planner-written text safe for the terminal: redacted, then
+// control characters escaped.
+func (r reviewIO) clean(s string) string {
+	if r.Redact != nil {
+		s = r.Redact(s)
+	}
+	return core.Sanitize(s)
 }
 
 // editPlan lets the owner edit the raw bytes and re-checks them.
@@ -97,46 +114,59 @@ func editPlan(r reviewIO, res farm.PlannerResult) (farm.PlannerResult, error) {
 	return r.Recheck(raw), nil
 }
 
-// showPlan prints a summary of the plan, or why it cannot be approved.
-func showPlan(w io.Writer, res farm.PlannerResult) {
+// showPlan prints a summary of the plan, or why it cannot be approved. Every
+// planner-derived string goes through clean.
+func showPlan(w io.Writer, res farm.PlannerResult, clean func(string) string) {
 	p := res.Plan
-	fmt.Fprintf(w, "\nPlan: %s\n", p.Task)
+	fmt.Fprintf(w, "\nPlan: %s\n", clean(p.Task))
 	for _, pt := range p.Parts {
 		after := ""
 		if len(pt.After) > 0 {
-			after = " after " + strings.Join(pt.After, ",")
+			after = " after " + clean(strings.Join(pt.After, ","))
 		}
-		fmt.Fprintf(w, "  %-12s %-7s owns %s%s\n    %s\n", pt.ID, pt.Role, strings.Join(pt.Owns, ", "), after, pt.Goal)
+		fmt.Fprintf(w, "  %-12s %-7s owns %s%s\n    %s\n", clean(pt.ID), clean(pt.Role), clean(strings.Join(pt.Owns, ", ")), after, clean(pt.Goal))
 	}
 	if len(p.Shared) > 0 {
-		fmt.Fprintf(w, "  shared (integrator only): %s\n", strings.Join(p.Shared, ", "))
+		fmt.Fprintf(w, "  shared (integrator only): %s\n", clean(strings.Join(p.Shared, ", ")))
 	}
 	if p.Contracts != "" {
-		fmt.Fprintf(w, "Contracts:\n%s\n", indent(p.Contracts))
+		fmt.Fprintf(w, "Contracts:\n%s\n", indent(p.Contracts, clean))
 	}
 	for _, i := range p.Interfaces {
-		fmt.Fprintf(w, "Interface %s (%s): %s\n", i.Name, i.Owner, i.Shape)
+		fmt.Fprintf(w, "Interface %s (%s): %s\n", clean(i.Name), clean(i.Owner), clean(i.Shape))
 	}
 	if len(p.ProposedRoles) > 0 {
 		names := make([]string, 0, len(p.ProposedRoles))
 		for n := range p.ProposedRoles {
-			names = append(names, n)
+			names = append(names, clean(n))
 		}
 		fmt.Fprintf(w, "Proposed roles: %s\n", strings.Join(names, ", "))
 	}
 	if p.WhySplit != "" {
-		fmt.Fprintf(w, "Why split: %s\n", p.WhySplit)
+		fmt.Fprintf(w, "Why split: %s\n", clean(p.WhySplit))
 	}
 	if len(res.Problems) > 0 {
-		fmt.Fprintf(w, "Problems:\n%s", farm.FormatProblems(res.Problems))
+		fmt.Fprintln(w, "Problems:")
+		for _, pr := range res.Problems {
+			if pr.Part != "" {
+				fmt.Fprintf(w, "- part %s: %s\n", clean(pr.Part), clean(pr.Message))
+			} else {
+				fmt.Fprintf(w, "- %s\n", clean(pr.Message))
+			}
+		}
 	}
 	if res.Refusal != nil {
-		fmt.Fprintf(w, "Refused: %s: %s\n", res.Refusal.Reason, res.Refusal.Detail)
+		fmt.Fprintf(w, "Refused: %s: %s\n", clean(res.Refusal.Reason), clean(res.Refusal.Detail))
 	}
 }
 
-func indent(s string) string {
-	return "  " + strings.ReplaceAll(strings.TrimRight(s, "\n"), "\n", "\n  ")
+// indent cleans each line of s separately and indents it.
+func indent(s string, clean func(string) string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = "  " + clean(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // runEditor opens path in $EDITOR (vi if unset), wired to the terminal.

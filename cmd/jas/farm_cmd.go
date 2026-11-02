@@ -143,11 +143,7 @@ func farmPlanCmd(ctx context.Context, args []string) (string, bool, error) {
 		code = core.ExitRefused
 		return "", false, refuse(e, flog, pa.task, res.Refusal)
 	}
-	if len(res.Problems) > 0 {
-		code = core.ExitUsage
-		return "", false, planInvalid(res)
-	}
-	final, approved, err := finishPlan(ctx, e, pa, pl, in, res)
+	final, approved, err := finishPlan(ctx, e, pa, pl.Revise, in, flog, res)
 	if err != nil {
 		code = exitCodeOf(err)
 		return "", false, err
@@ -262,14 +258,24 @@ func refuse(e *env, flog core.EventLog, task string, r *farm.Refusal) error {
 	return &core.ExitError{Code: core.ExitRefused, Reason: "planner refused: " + r.Reason}
 }
 
-func planInvalid(res farm.PlannerResult) error {
-	return usageErr("planner produced an invalid plan:\n%s", strings.TrimRight(farm.FormatProblems(res.Problems), "\n"))
+func planInvalid(res farm.PlannerResult, redact func(string) string) error {
+	lines := strings.Split(strings.TrimRight(redact(farm.FormatProblems(res.Problems)), "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = core.Sanitize(l)
+	}
+	return usageErr("planner produced an invalid plan:\n%s", strings.Join(lines, "\n"))
 }
 
 // finishPlan runs the owner review on a TTY, or writes the unapproved plan
-// without one. It returns the bytes written to -o (nil if none).
-func finishPlan(ctx context.Context, e *env, pa planArgs, pl *farm.Planner, in farm.PlannerInput, res farm.PlannerResult) ([]byte, bool, error) {
+// without one. Problems that survived the retry go to the owner on a TTY (the
+// review blocks approval) and exit 2 without one. It returns the bytes written
+// to -o (nil if none).
+func finishPlan(ctx context.Context, e *env, pa planArgs, replan func(context.Context, string) (farm.PlannerResult, error),
+	in farm.PlannerInput, flog core.EventLog, res farm.PlannerResult) ([]byte, bool, error) {
 	if !e.interactive {
+		if len(res.Problems) > 0 {
+			return nil, false, planInvalid(res, e.red.Redact)
+		}
 		if err := writePlan(pa.out, res.Raw); err != nil {
 			return nil, false, err
 		}
@@ -277,9 +283,10 @@ func finishPlan(ctx context.Context, e *env, pa planArgs, pl *farm.Planner, in f
 		return res.Raw, false, nil
 	}
 	r := reviewIO{
-		In: e.stdin, Out: os.Stderr, Edit: runEditor, Now: time.Now,
-		Recheck: func(raw []byte) farm.PlannerResult { return farm.CheckPlan(raw, in) },
-		Replan:  pl.Revise,
+		In: e.stdin, Out: os.Stderr, Edit: runEditor, Now: time.Now, Redact: e.red.Redact,
+		Recheck:  func(raw []byte) farm.PlannerResult { return farm.CheckPlan(raw, in) },
+		Replan:   replan,
+		OnRefuse: func(rf *farm.Refusal) error { return refuse(e, flog, pa.task, rf) },
 	}
 	final, approved, err := reviewPlan(ctx, r, res, pa.out)
 	if err == nil && approved {

@@ -110,6 +110,9 @@ func CheckPlan(raw []byte, in PlannerInput) PlannerResult {
 	if err != nil {
 		return PlannerResult{Raw: raw, Problems: []Problem{{Message: err.Error()}}}
 	}
+	if plan.Approved != nil {
+		return PlannerResult{Raw: raw, Problems: []Problem{{Message: "approved: is written by the owner's approval, never in a plan draft; remove it"}}}
+	}
 	if plan.Refuse == nil {
 		plan.Base = in.Base
 	}
@@ -134,7 +137,8 @@ func withBase(raw []byte, base string) []byte {
 		}
 		out = append(out, l)
 	}
-	body := strings.TrimLeft(strings.Join(out, "\n"), "\n")
+	// never trust a planner-written approval: strip it as the canonical hash does
+	body := strings.TrimLeft(stripApproved([]byte(strings.Join(out, "\n"))), "\n") + "\n"
 	if strings.Contains(body, "\nrefuse:") || strings.HasPrefix(body, "refuse:") {
 		return []byte(body)
 	}
