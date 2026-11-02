@@ -446,3 +446,32 @@ func TestWriteEdit_BinaryNoChange(t *testing.T) {
 		t.Fatal("edit preview: want no change for content with NUL")
 	}
 }
+
+func limitedPolicy(t *testing.T) core.ExecPolicy {
+	p := policy(t)
+	p.Writes = []core.WriteRule{{All: []string{"core/**"}}}
+	return p
+}
+
+func TestWrite_OutsideLimitDenied(t *testing.T) {
+	p := limitedPolicy(t)
+	r := call(t, Write{}, p, `{"path":"cmd/a.go","content":"x"}`)
+	assert.Eq(t, r.IsError, true)
+	assert.Eq(t, r.Denied, true)
+	assert.Eq(t, r.Output, "write limit: cmd/a.go is outside this part's writable paths")
+	_, err := os.Stat(filepath.Join(p.Root, "cmd", "a.go"))
+	assert.Eq(t, os.IsNotExist(err), true)
+	r = call(t, Write{}, p, `{"path":"core/a.go","content":"x"}`)
+	assert.Eq(t, r.IsError, false)
+}
+
+func TestEdit_OutsideLimitDenied(t *testing.T) {
+	p := limitedPolicy(t)
+	write(t, p, "cmd/a.go", "old")
+	r := call(t, Edit{}, p, `{"path":"cmd/a.go","old_string":"old","new_string":"new"}`)
+	assert.Eq(t, r.IsError, true)
+	assert.Eq(t, r.Denied, true)
+	assert.Eq(t, r.Output, "write limit: cmd/a.go is outside this part's writable paths")
+	b, _ := os.ReadFile(filepath.Join(p.Root, "cmd", "a.go"))
+	assert.Eq(t, string(b), "old")
+}

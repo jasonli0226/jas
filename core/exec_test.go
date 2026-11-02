@@ -433,3 +433,18 @@ func TestExec_CancelDuringApproval(t *testing.T) {
 	assert.Eq(t, st[0], "cancelled")
 	assert.Eq(t, st[1], "cancelled")
 }
+
+type deniedTool struct{ fakeTool }
+
+func (*deniedTool) Call(context.Context, ExecPolicy, json.RawMessage) (Result, error) {
+	return Result{Output: "refused", IsError: true, Denied: true}, nil
+}
+
+func TestExec_ToolDeniedResultRecordedDenied(t *testing.T) {
+	log := &fakeLog{}
+	e := newExec(log, nil, &deniedTool{fakeTool{name: "write", kind: Mutating}})
+	res, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "write")})
+	assert.NoErr(t, err)
+	assert.Eq(t, res[0].IsError, true)
+	assert.Eq(t, statuses(log)[0], "denied")
+}

@@ -21,7 +21,10 @@ const (
 type Result struct {
 	Output  string
 	IsError bool
-	Change  *Change // display only: never sent to the model or logged as output
+	// Denied marks an error result as a policy refusal; the executor records
+	// it with status "denied" rather than "error".
+	Denied bool
+	Change *Change // display only: never sent to the model or logged as output
 }
 
 // Previewer is implemented by mutating tools that can say what a call would
@@ -34,8 +37,12 @@ type Previewer interface {
 // ExecPolicy is the per-run tool environment. It travels explicitly because
 // farm tasks share one process (no os.Chdir).
 type ExecPolicy struct {
-	Root         string
-	MaxOutput    int
+	Root      string
+	MaxOutput int
+	// Env lists extra environment variable names shell children inherit,
+	// or KEY=VALUE pairs that set a variable. Pairs must come only from
+	// trusted code (the farm supervisor), never from project config: a value
+	// could set PATH or LD_PRELOAD.
 	Env          []string
 	Deny         []string
 	RedactSkip   []string // config redact_skip_paths (Task 11)
@@ -43,7 +50,14 @@ type ExecPolicy struct {
 	// ReadRoots are extra symlink-resolved directories (the discovered skill
 	// directories) that read-only tools may open; see ResolveRead.
 	ReadRoots []string
+	// Writes limits where write and edit may change files; nil is
+	// unrestricted. See WriteAllowed.
+	Writes []WriteRule
 }
+
+// WriteRule restricts writable paths. A path matches a rule when it matches
+// every glob in All; a path is writable when any rule matches.
+type WriteRule struct{ All []string }
 
 // Tool is one capability offered to the model.
 type Tool interface {

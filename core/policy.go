@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // DefaultMaxOutput is the tool output cap in bytes when ExecPolicy.MaxOutput is 0.
@@ -144,4 +146,47 @@ func within(root, path string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// WriteAllowed reports whether write and edit may change the resolved
+// absolute path. With no Writes everything is allowed; otherwise the
+// Root-relative slash path must match every glob of some rule. Matching is
+// case-sensitive so an allow-list never widens on case.
+func (p ExecPolicy) WriteAllowed(resolved string) bool {
+	if p.Writes == nil {
+		return true
+	}
+	root, err := filepath.EvalSymlinks(p.Root)
+	if err != nil {
+		root = p.Root
+	}
+	if !filepath.IsAbs(resolved) || !within(root, resolved) {
+		return false
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return false
+	}
+	return MatchWriteRules(p.Writes, filepath.ToSlash(rel))
+}
+
+// MatchWriteRules reports whether the repo-relative slash path rel matches
+// every glob of at least one rule.
+func MatchWriteRules(rules []WriteRule, rel string) bool {
+	for _, r := range rules {
+		if len(r.All) == 0 {
+			continue
+		}
+		all := true
+		for _, g := range r.All {
+			if ok, _ := doublestar.Match(g, rel); !ok {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
 }

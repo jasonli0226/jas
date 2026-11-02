@@ -19,6 +19,10 @@ var version = "dev"
 const usage = `usage:
   jas [--continue] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project]
   jas run [--json] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project] "task"
+  jas farm plan "task" [-o plan.yaml] [--allow-dirty]
+  jas farm run plan.yaml [--json] [--allow-dirty]
+  jas farm "task"
+  jas farm status|clean|vars
   jas config set|get|unset|list|init
   jas auth add|list|rm|rotate
   jas --version
@@ -53,6 +57,8 @@ func dispatch(ctx context.Context, args []string) int {
 		return report(configCmd(args[1:]))
 	case "auth":
 		return report(authCmd(args[1:]))
+	case "farm":
+		return report(farmCmd(ctx, args[1:]))
 	case "sessions":
 		return report(sessionsCmd(args[1:]))
 	default:

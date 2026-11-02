@@ -29,10 +29,40 @@ const (
 var baseEnv = []string{"PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR"}
 
 // ShellEnv builds the child environment: only the base allowlist plus the
-// extra names, taken from os.Environ().
+// extra names, taken from os.Environ(). An extra entry of the form KEY=VALUE
+// sets KEY to VALUE instead, replacing any inherited value.
 func ShellEnv(extra []string) []string {
-	names := append(append(append([]string{}, baseEnv...), extraBaseEnv...), extra...)
-	return filterEnv(os.Environ(), names, envCaseFold)
+	names := append(append([]string{}, baseEnv...), extraBaseEnv...)
+	var set []string
+	for _, e := range extra {
+		if strings.Contains(e, "=") {
+			set = append(set, e)
+			continue
+		}
+		names = append(names, e)
+	}
+	env := filterEnv(os.Environ(), names, envCaseFold)
+	if len(set) == 0 {
+		return env
+	}
+	key := func(kv string) string {
+		k, _, _ := strings.Cut(kv, "=")
+		if envCaseFold {
+			return strings.ToUpper(k)
+		}
+		return k
+	}
+	override := map[string]bool{}
+	for _, kv := range set {
+		override[key(kv)] = true
+	}
+	out := make([]string, 0, len(env)+len(set))
+	for _, kv := range env {
+		if !override[key(kv)] {
+			out = append(out, kv)
+		}
+	}
+	return append(out, set...)
 }
 
 // filterEnv keeps the environ entries whose name is in names. With fold set,

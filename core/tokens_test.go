@@ -1,7 +1,10 @@
 package core_test
 
 import (
+	"context"
+
 	"errors"
+	"github.com/jasonli0226/jas/providers/fake"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -59,4 +62,19 @@ func TestTokenPool_ConcurrentNeverOvershoots(t *testing.T) {
 	}
 	wg.Wait()
 	assert.Eq(t, int(ok.Load()), 10)
+}
+
+func TestSession_TurnResultNamesRefusingPool(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "never"}})
+	farmPool := core.NewTokenPool("farm", 10, nil)
+	part := core.NewTokenPool("part/a", 1_000_000, farmPool)
+	s, err := core.NewSession(core.SessionConfig{
+		Provider: r.prov, Model: "m", Exec: r.cfg.Exec, Log: r.cfg.Log, Tokens: part,
+	})
+	assert.NoErr(t, err)
+	res, err := s.Send(context.Background(), "hi")
+	assert.NoErr(t, err)
+	assert.Eq(t, res.Code, core.ExitBudget)
+	assert.Eq(t, res.Reason, "tokens")
+	assert.Eq(t, res.Pool, "farm")
 }

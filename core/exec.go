@@ -278,6 +278,8 @@ func (r *run) execute(ctx context.Context, s *slot) {
 		s.settle(Result{Output: cancelledOutput, IsError: true}, statusCancelled)
 	case err != nil:
 		s.settle(Result{Output: err.Error(), IsError: true}, statusError)
+	case res.IsError && res.Denied:
+		s.settle(res, statusDenied)
 	case res.IsError:
 		s.settle(res, statusError)
 	default:

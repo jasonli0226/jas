@@ -158,3 +158,28 @@ func TestDeny_AbsolutePattern(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPolicy_WriteAllowed(t *testing.T) {
+	root := realpath(t, t.TempDir())
+	p := ExecPolicy{Root: root}
+	assert.Eq(t, p.WriteAllowed(filepath.Join(root, "cmd", "a.go")), true) // nil = unrestricted
+
+	p.Writes = []WriteRule{{All: []string{"core/**"}}, {All: []string{"docs/**", "**/*.md"}}}
+	cases := map[string]bool{
+		"core/a.go":    true,
+		"core/x/y.go":  true,
+		"cmd/a.go":     false,
+		"Core/a.go":    false, // case-sensitive
+		"docs/a.md":    true,
+		"docs/a.txt":   false, // must match every glob of the rule
+		"other/a.md":   false,
+		"coreish/a.go": false,
+	}
+	for rel, want := range cases {
+		assert.Eq(t, p.WriteAllowed(filepath.Join(root, filepath.FromSlash(rel))), want)
+	}
+	assert.Eq(t, p.WriteAllowed(filepath.Join(filepath.Dir(root), "core", "a.go")), false) // outside root
+	assert.Eq(t, p.WriteAllowed("core/a.go"), false)                                       // not absolute
+	p.Writes = []WriteRule{}
+	assert.Eq(t, p.WriteAllowed(filepath.Join(root, "core", "a.go")), false) // empty non-nil allows nothing
+}

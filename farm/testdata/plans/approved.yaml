@@ -1,0 +1,10 @@
+task: "t"
+parts:
+  - id: a
+    role: coder
+    goal: g
+    owns: ["a/**"]
+approved:
+  sha256: stale
+  by: owner
+  at: 2026-11-02T23:30:00+09:00

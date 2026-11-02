@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -39,4 +40,22 @@ func TestNormalizeCmd_WindowsKeepsBackslashPaths(t *testing.T) {
 func TestNormalizeCmd_WindowsEnvNameCaseInsensitive(t *testing.T) {
 	got := normalizeCmd(`type %userprofile%\x`, `C:\Users\u`, true)
 	assert.Eq(t, got, `type C:\Users\u\x`)
+}
+
+func TestShellEnv_SetsKeyValueEntries(t *testing.T) {
+	t.Setenv("TMPDIR", "/outer")
+	env := ShellEnv([]string{"TMPDIR=/wt/.jas/tmp", "GIT_CONFIG_NOSYSTEM=1"})
+	var tmp []string
+	nosys := false
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "TMPDIR=") {
+			tmp = append(tmp, kv)
+		}
+		if kv == "GIT_CONFIG_NOSYSTEM=1" {
+			nosys = true
+		}
+	}
+	assert.Eq(t, len(tmp), 1)
+	assert.Eq(t, tmp[0], "TMPDIR=/wt/.jas/tmp")
+	assert.Eq(t, nosys, true)
 }

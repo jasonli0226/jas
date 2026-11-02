@@ -1,0 +1,5 @@
+task: "fix typo"
+refuse:
+  reason: small_change
+  detail: "Single bug in one function."
+suggest: 'jas run "fix typo"'

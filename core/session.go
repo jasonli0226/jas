@@ -33,6 +33,11 @@ type SessionConfig struct {
 	// Tokens caps total tokens: each request reserves its estimate first and
 	// the session stops with exit 7 when that would cross the cap. nil = none.
 	Tokens *TokenPool
+	// Inject, if set, is called after each tool-results message is pushed and
+	// before the next request. Non-empty text is appended to that message as a
+	// text block and logged as an injected event with meta merged in. Never
+	// called after a final answer; independent of the steering queue.
+	Inject func() (text string, meta map[string]any)
 }
 
 // TurnResult describes how one user message (one Send, or the last steering
@@ -41,9 +46,12 @@ type TurnResult struct {
 	Status string // "ok" | "context_full" | "turn_cap" | "approval_needed" | "interrupted" | "failed"
 	Code   int    // the Exit* code jas run would exit with
 	Reason string
-	Turns  int // model requests for this user message
-	Usage  providers.Usage
-	Final  string
+	// Pool names the token pool that refused a request when Reason is
+	// "tokens", so a farm can tell a part's cap from the farm's.
+	Pool  string
+	Turns int // model requests for this user message
+	Usage providers.Usage
+	Final string
 }
 
 // Session holds a conversation across user messages. Send, SetModel, Messages
@@ -61,6 +69,7 @@ type Session struct {
 	logErr   error           // first event-log failure in the current Send
 	closed   bool
 	reason   string // reason of the last non-ok turn, for session_ended
+	pool     string // pool that refused the current user message, if any
 
 	mu    sync.Mutex
 	queue []string // steering texts not yet delivered
@@ -165,6 +174,7 @@ func (s *Session) Send(ctx context.Context, text string) (TurnResult, error) {
 
 // begin appends a user message and logs user_message and turn_started.
 func (s *Session) begin(text string, steer bool) *msgState {
+	s.pool = ""
 	s.addUser(text, steer)
 	s.note(s.c.Log.Append(EvTurnStarted, map[string]any{}))
 	return &msgState{}
@@ -204,7 +214,7 @@ func (s *Session) endTurn(m *msgState, status string, code int, reason string) T
 	if code != ExitOK {
 		s.reason = reason
 	}
-	return TurnResult{Status: status, Code: code, Reason: reason, Turns: m.turns, Usage: m.usage, Final: m.final}
+	return TurnResult{Status: status, Code: code, Reason: reason, Pool: s.pool, Turns: m.turns, Usage: m.usage, Final: m.final}
 }
 
 // Steer queues text for delivery at the next point the loop can take it.
@@ -364,6 +374,9 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		st, code := classify(err)
 		return true, st, code, err.Error()
 	}
+	if ctx.Err() == nil {
+		s.inject()
+	}
 	// Steering stays queued after a cancel or on the last allowed turn, where
 	// no further request would answer it.
 	if ctx.Err() == nil && m.turns < c.MaxTurns {
@@ -373,6 +386,26 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	}
 	s.elide()
 	return false, "", 0, ""
+}
+
+// inject appends the Inject hook's text to the tool-results message just
+// pushed and logs it, so Replay can rebuild the same message.
+func (s *Session) inject() {
+	if s.c.Inject == nil || len(s.messages) == 0 {
+		return
+	}
+	text, meta := s.c.Inject()
+	if text == "" {
+		return
+	}
+	last := len(s.messages) - 1
+	msg := s.messages[last]
+	msg.Content = append(slices.Clone(msg.Content), providers.ContentBlock{Type: providers.BlockText, Text: text})
+	s.messages[last] = msg
+	data := map[string]any{}
+	maps.Copy(data, meta)
+	data["text"] = text
+	s.note(s.c.Log.Append(EvInjected, data))
 }
 
 // request streams one model request over the current history, showing its
