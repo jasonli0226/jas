@@ -1,0 +1,4 @@
+task: "x"
+refuse:
+  reason: because
+  detail: "nope"

@@ -1,0 +1,25 @@
+task: "migrate logging to slog"
+base: abc123
+contracts: |
+  All packages call slog.Default().
+interfaces:
+  - name: logging.New
+    owner: core
+    shape: "func New(level slog.Level) *slog.Logger"
+parts:
+  - id: core
+    role: coder
+    goal: "Migrate core/ to slog."
+    owns: ["core/**"]
+  - id: cli
+    role: coder
+    goal: "Migrate cmd/ to slog."
+    owns: ["cmd/**"]
+  - id: tests-core
+    role: tester
+    goal: "Update core tests."
+    owns: ["core/**"]
+    after: [core]
+shared: ["go.mod", "go.sum"]
+why_split: "2 packages; ~2x wall-clock"
+proposed_roles: {}
