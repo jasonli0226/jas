@@ -4,15 +4,15 @@ jas is a tiny, fast coding-agent harness in Go (CI-friendly, MIT, inline chat + 
 
 ## Current focus
 
-Farm MVP is implemented on `feat/farm-mvp` (worktree `jas-farm`), pending review
-and merge: `farm plan`/`run`/`<task>`/`status`/`clean`/`vars`, `coder`/`tester`
-roles, typed board, supervisor-run `check`, integrator, exit codes 6/7/8,
-`--json`, `manifest.json`, budgets. Spec:
+Farm MVP merged (see README's experimental farm section): `farm plan`/`run`/`<task>`/
+`status`/`clean`/`vars`, `coder`/`tester` roles, typed board, supervisor-run
+`check`, integrator, exit codes 6/7/8, `--json`, `manifest.json`, budgets. Spec:
 `docs/superpowers/specs/2026-11-02-farm-design.md` (MVP cut section); plan:
-`docs/superpowers/plans/2026-11-02-farm-mvp.md`. README marks farm experimental
-until the benchmark gate (farm vs `jas run`) lands. After merge, in spec order:
-`farm resume` + take-over, `researcher`/`reviewer` roles, `--spec` planning,
-`farm init`, interactive `/farm`.
+`docs/superpowers/plans/2026-11-02-farm-mvp.md`; live acceptance results in the
+PR. Next, in spec order: the farm-vs-`jas run` benchmark gate (README drops the
+experimental note when it lands), then `farm resume` + take-over,
+`researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
+`/farm`.
 
 ## Constraints
 
