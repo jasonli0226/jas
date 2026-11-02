@@ -406,3 +406,13 @@ func TestSession_SetTitleCapsLength(t *testing.T) {
 	assert.NoErr(t, s.SetTitle(strings.Repeat("x", 200)))
 	assert.Eq(t, len([]rune(s.Title())), 80)
 }
+
+func TestSession_RequestCarriesMaxOutput(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "ok"}})
+	sc := r.sessionConfig()
+	sc.MaxOutput = 123
+	s, err := core.NewSession(sc)
+	assert.NoErr(t, err)
+	send(t, s, context.Background(), "hi")
+	assert.Eq(t, r.prov.Requests[0].MaxTokens, 123)
+}

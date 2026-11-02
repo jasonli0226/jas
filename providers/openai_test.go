@@ -530,3 +530,31 @@ func TestOpenAI_RecordedProviderFixtures(t *testing.T) {
 		})
 	}
 }
+
+// captureBody serves text_only.sse and returns the decoded request body.
+func captureBody(t *testing.T, req Request) map[string]any {
+	t.Helper()
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		assert.NoErr(t, json.Unmarshal(b, &got))
+		sseHandler(readFixture(t, "text_only.sse"))(w, r)
+	}))
+	defer srv.Close()
+	out, errc := newOpenAI(srv.URL).Stream(context.Background(), req)
+	_, err := drainEvents(out, errc)
+	assert.NoErr(t, err)
+	return got
+}
+
+func TestOpenAI_RequestSendsMaxTokens(t *testing.T) {
+	body := captureBody(t, Request{Model: "m", MaxTokens: 16000, Messages: []Message{{Role: RoleUser, Content: []ContentBlock{{Type: BlockText, Text: "hi"}}}}})
+	assert.Eq(t, body["max_tokens"], any(16000.0))
+}
+
+func TestOpenAI_RequestOmitsZeroMaxTokens(t *testing.T) {
+	body := captureBody(t, Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: []ContentBlock{{Type: BlockText, Text: "hi"}}}}})
+	if _, ok := body["max_tokens"]; ok {
+		t.Fatalf("max_tokens sent: %v", body["max_tokens"])
+	}
+}

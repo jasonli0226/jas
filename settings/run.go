@@ -25,6 +25,7 @@ type Run struct {
 	CompactReserve  int
 	CompactKeep     int
 	CompactModel    string // "" = the session's model
+	MaxOutputTokens int    // sent as max_tokens on every model request
 }
 
 // Build validates e and returns typed settings. Missing model or base_url
@@ -55,6 +56,7 @@ func (e Effective) Build() (Run, error) {
 	r.ElideAt, _ = strconv.ParseFloat(e["elide_at"].Raw, 64)
 	r.CompactReserve, _ = strconv.Atoi(e["compact_reserve_tokens"].Raw)
 	r.CompactKeep, _ = strconv.Atoi(e["compact_keep_tokens"].Raw)
+	r.MaxOutputTokens, _ = strconv.Atoi(e["max_output_tokens"].Raw)
 	for _, p := range strings.Split(e["redact_skip_paths"].Raw, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			r.RedactSkipPaths = append(r.RedactSkipPaths, p)

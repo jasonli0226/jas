@@ -81,7 +81,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
-		SessionMeta: meta,
+		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens,
 	})
 	if err == nil && !ra.json {
 		fmt.Println()

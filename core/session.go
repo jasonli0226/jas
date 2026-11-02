@@ -28,6 +28,8 @@ type SessionConfig struct {
 	Budget   *Budget        // nil = no context budget
 	Compact  *CompactConfig // nil: compaction off (jas run)
 	Meta     map[string]any // merged into session_started / session_resumed
+	// MaxOutput is sent as each model request's max_tokens; 0 omits it.
+	MaxOutput int
 }
 
 // TurnResult describes how one user message (one Send, or the last steering
@@ -357,7 +359,7 @@ func (s *Session) request(ctx context.Context, m *msgState) (providers.Message, 
 	c := s.c
 	req := providers.Request{
 		Model: s.model, System: c.System, Tools: c.Exec.Reg.Specs(),
-		Messages: slices.Clone(s.messages),
+		Messages: slices.Clone(s.messages), MaxTokens: c.MaxOutput,
 	}
 	stream, errc := c.Provider.Stream(ctx, req)
 	var (

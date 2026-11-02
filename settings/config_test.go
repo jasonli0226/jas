@@ -143,3 +143,12 @@ func TestKeys_CompactDefaults(t *testing.T) {
 		assert.Eq(t, spec.Flag, false)
 	}
 }
+
+func TestConfig_MaxOutputTokensDefault(t *testing.T) {
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), File{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.MaxOutputTokens, 16000)
+	if _, err := (File{}).Set("max_output_tokens", "0"); err == nil {
+		t.Fatal("max_output_tokens=0 should be rejected")
+	}
+}

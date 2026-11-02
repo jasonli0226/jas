@@ -34,6 +34,7 @@ type RunConfig struct {
 	MaxTurns    int
 	Budget      *Budget        // nil = no context budget
 	SessionMeta map[string]any // merged into session_started
+	MaxOutput   int            // max_tokens per model request; 0 omits it
 }
 
 // Summary describes a finished run.
@@ -50,7 +51,7 @@ type Summary struct {
 func Run(ctx context.Context, c RunConfig) (Summary, error) {
 	sess, err := NewSession(SessionConfig{
 		Provider: c.Provider, Model: c.Model, System: c.System, Exec: c.Exec,
-		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta,
+		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta, MaxOutput: c.MaxOutput,
 	})
 	if err != nil {
 		return Summary{}, err
