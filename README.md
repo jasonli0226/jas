@@ -301,17 +301,24 @@ the same model, are in [docs/benchmarks.md](docs/benchmarks.md).
 To record the demo GIF, install [vhs](https://github.com/charmbracelet/vhs)
 and run `vhs demo.tape`.
 
-## Planned (v2+)
+## Farm (experimental)
 
 ```sh
-jas farm "migrate logging to slog"           # plan → you approve → parallel parts → integrate
+jas farm plan "migrate logging to slog"    # draft a split plan; you approve it on a TTY
+jas farm run plan.yaml [--json]             # run the parts in parallel worktrees (CI path)
+jas farm "migrate logging to slog"          # plan → approve → run, one terminal
+jas farm status [<farm-id>]                 # parts, tokens and the check verdict (offline)
+jas farm clean [<farm-id>] [--branches]      # drop the farm's worktrees (and branches)
+jas farm vars [--trust-project]             # each farm variable's value and source
 ```
 
 Farm splits one big task into parts that run in parallel worktrees, then
-merges them behind a `check` gate. Design:
+merges them behind a `check` gate. **Experimental** until the benchmark gate
+(farm vs plain `jas run` on wall-clock) lands. Not yet: `farm resume`,
+`researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
+`/farm` (attach and the live board stay [#12](https://github.com/jasonli0226/jas/issues/12)).
+Full design:
 [docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
-Attach and a live status board come after farm
-([#12](https://github.com/jasonli0226/jas/issues/12)).
 
 ## Design
 

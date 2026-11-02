@@ -22,6 +22,7 @@ const usage = `usage:
   jas farm plan "task" [-o plan.yaml] [--allow-dirty]
   jas farm run plan.yaml [--json] [--allow-dirty]
   jas farm "task"
+  jas farm status|clean|vars
   jas config set|get|unset|list|init
   jas auth add|list|rm|rotate
   jas --version

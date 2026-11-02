@@ -43,7 +43,10 @@ type planArgs struct {
 const farmUsage = `usage:
   jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
   jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project]
-  jas farm "<task>"          (needs a terminal; otherwise use plan + run)`
+  jas farm "<task>"          (needs a terminal; otherwise use plan + run)
+  jas farm status [<farm-id>]
+  jas farm clean [<farm-id>] [--branches]
+  jas farm vars [--trust-project]`
 
 // farmCmd dispatches jas farm subcommands, or runs plan then run for a task.
 func farmCmd(ctx context.Context, args []string) error {
@@ -56,8 +59,12 @@ func farmCmd(ctx context.Context, args []string) error {
 		return err
 	case "run":
 		return farmRunCmd(ctx, args[1:])
-	case "status", "clean", "vars":
-		return usageErr("jas farm %s is not implemented yet", args[0])
+	case "status":
+		return farmStatusCmd(args[1:])
+	case "clean":
+		return farmCleanCmd(ctx, args[1:])
+	case "vars":
+		return farmVarsCmd(ctx, args[1:])
 	}
 	if !isTerminal(int(os.Stdin.Fd())) || !isTerminal(int(os.Stderr.Fd())) {
 		return usageErr(`jas farm "<task>" needs a terminal: use jas farm plan "<task>" then jas farm run <plan.yaml>`)

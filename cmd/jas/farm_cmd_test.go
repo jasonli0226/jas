@@ -454,3 +454,143 @@ func TestFarmRun_UsageNeedsOnePlan(t *testing.T) {
 	assert.Eq(t, code, 2)
 	assert.Contains(t, errOut, "plan.yaml")
 }
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
+}
+
+// writeManifest saves a minimal manifest for id under home's farms directory.
+func writeManifest(t *testing.T, home, id string, m *farm.Manifest) {
+	t.Helper()
+	assert.NoErr(t, m.Save(filepath.Join(home, farmsDir, id, "manifest.json")))
+}
+
+func TestFarmStatus_FromManifest(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "")
+	id := "20260102T030405-abc123def456"
+	writeManifest(t, home, id, &farm.Manifest{
+		FarmID: id, PlanSHA256: strings.Repeat("a", 64), Base: strings.Repeat("b", 40),
+		Parts: map[string]*farm.PartState{
+			"core": {Role: "coder", Branch: "jas/farm/" + id + "/core", Status: "done", Tokens: 1200},
+			"docs": {Role: "coder", Branch: "jas/farm/" + id + "/docs", Status: "failed", FailureReason: "write_limit", ExitCode: 1, Tokens: 300},
+		},
+		Check:       &core.CheckResult{ExitCode: 1, Duration: time.Second, Output: "boom"},
+		FinalChoice: "keep", Reason: "check_failed", ExitCode: 6, TotalTokens: 1500,
+	})
+	url, _ := testutil.FakeOpenAI(t, nil)
+	out, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "status", id)
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "core")
+	assert.Contains(t, out, "coder")
+	assert.Contains(t, out, "done")
+	assert.Contains(t, out, "1200")
+	assert.Contains(t, out, "failed")
+	assert.Contains(t, out, "write_limit")
+	assert.Contains(t, out, "check")
+	assert.Contains(t, out, "exit 1")
+}
+
+func TestFarmStatus_LatestFarmWhenIDOmitted(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "")
+	writeManifest(t, home, "20260101T000000-older000001", &farm.Manifest{FarmID: "20260101T000000-older000001",
+		Parts: map[string]*farm.PartState{"stale": {Role: "coder", Status: "done"}}})
+	writeManifest(t, home, "20260102T000000-newer000001", &farm.Manifest{FarmID: "20260102T000000-newer000001",
+		Parts: map[string]*farm.PartState{"fresh": {Role: "coder", Status: "done"}}})
+	url, _ := testutil.FakeOpenAI(t, nil)
+	out, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "status")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "fresh")
+	if strings.Contains(out, "stale") {
+		t.Fatal("status printed an older farm than the latest")
+	}
+}
+
+func TestFarmStatus_UnknownFarmIDExit2(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "")
+	url, _ := testutil.FakeOpenAI(t, nil)
+	_, errOut, code := runJasIn(t, repo, farmEnv(url, home), "farm", "status", "20260101T000000-nosuch")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "20260101T000000-nosuch")
+}
+
+// cleanFarm makes a farm whose parts have real worktrees and branches.
+func cleanFarm(t *testing.T, repo, home, id string) (string, []string) {
+	t.Helper()
+	wtDir := t.TempDir()
+	m := &farm.Manifest{FarmID: id, Base: strings.Repeat("c", 40), Parts: map[string]*farm.PartState{}}
+	var parts []string
+	for _, p := range []string{"core", "docs"} {
+		path := filepath.Join(wtDir, p)
+		gitIn(t, repo, "worktree", "add", "-q", "-b", "jas/farm/"+id+"/"+p, path)
+		m.Parts[p] = &farm.PartState{Role: "coder", Branch: "jas/farm/" + id + "/" + p, Worktree: path, Status: "done"}
+		parts = append(parts, p)
+	}
+	writeManifest(t, home, id, m)
+	return wtDir, parts
+}
+
+func TestFarmClean_RemovesWorktreesKeepsBranches(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	id := "20260103T000000-clean00001"
+	wtDir, parts := cleanFarm(t, repo, home, id)
+	url, _ := testutil.FakeOpenAI(t, nil)
+	out, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "clean", id)
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "core")
+	refs := gitOut(t, repo, "for-each-ref", "refs/heads/jas/farm/"+id+"/", "--format=%(refname)")
+	for _, p := range parts {
+		if _, err := os.Stat(filepath.Join(wtDir, p)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("worktree %s still exists", p)
+		}
+		assert.Contains(t, refs, "jas/farm/"+id+"/"+p)
+	}
+}
+
+func TestFarmClean_BranchesFlag(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	id := "20260104T000000-clean00002"
+	cleanFarm(t, repo, home, id)
+	url, _ := testutil.FakeOpenAI(t, nil)
+	out, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "clean", id, "--branches")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "jas/farm/"+id)
+	refs := gitOut(t, repo, "for-each-ref", "refs/heads/jas/farm/"+id+"/", "--format=%(refname)")
+	assert.Eq(t, refs, "")
+}
+
+func TestFarmVars_Sources(t *testing.T) {
+	repo := t.TempDir()
+	assert.NoErr(t, os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.com/t\n\ngo 1.27\n"), 0o644))
+	gitIn(t, repo, "init", "-q")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-q", "-m", "init")
+	assert.NoErr(t, os.MkdirAll(filepath.Join(repo, ".jas"), 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(repo, ".jas", "farm.yaml"), []byte("vars:\n  lint: golangci-lint run\n"), 0o644))
+	home := farmHome(t, "")
+	url, _ := testutil.FakeOpenAI(t, nil)
+
+	out, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "vars", "--trust-project")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "check")
+	assert.Contains(t, out, "detected")
+	assert.Contains(t, out, "go build ./... && go test ./...")
+	assert.Contains(t, out, "test_globs")
+	assert.Contains(t, out, "**/*_test.go")
+	assert.Contains(t, out, "lint")
+	assert.Contains(t, out, "project")
+	assert.Contains(t, out, "golangci-lint run")
+	assert.Contains(t, out, "build")
+	assert.Contains(t, out, "unset")
+
+	// without trust the project vars are skipped with a notice
+	_, errOut, code := runJasIn(t, repo, farmEnv(url, home), "farm", "vars")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, errOut, "untrusted")
+}

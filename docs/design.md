@@ -295,19 +295,13 @@ exit code by themselves. The process exit code reflects how the *run* ended:
 | 3 | context full (`context_length_exceeded`, or over the window after elision) |
 | 4 | turn cap (`max_turns`) hit |
 | 5 | approval required but no TTY to ask |
+| 6 | farm unmet: the supervisor's `check` failed or a part failed/was dropped; the final event's `reason` says which |
 | 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals); `reason` is `tokens` or `timeout`, after a `budget_stop` event |
+| 8 | farm planner refused to split (use `jas run`) |
 | 130 | interrupted (Ctrl-C / SIGTERM) |
 
 The same code appears in the `session_ended` event, with a `reason` on every
 non-zero exit.
-
-Reserved for upcoming features (see the farm spec's CI contract; `core`
-already defines 6 for the farm and spec runs):
-
-| code | meaning |
-|---|---|
-| 6 | `check` run by jas failed, or required work unmet: farm (a part failed / was dropped) and spec runs (`jas run --spec --phase scaffold` / `--section`); the final event's `reason` says which |
-| 8 | farm planner refused to split (use `jas run`) |
 
 ### The Tool interface (the whole extensibility story)
 
