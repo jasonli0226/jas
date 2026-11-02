@@ -141,6 +141,8 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: tea.KeyDown}
 	case "ctrl+c":
 		msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	case "ctrl+s":
+		msg = tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 	default:
 		c.t.Fatalf("unknown key %q", k)
 	}

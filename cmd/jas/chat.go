@@ -353,6 +353,21 @@ func (b *chatBackend) Window(model string) int {
 	return w
 }
 
+// SetDefaultModel stores model as the default in config.json, so a new jas
+// starts on it. The picked reference is stored verbatim: a qualified one
+// ("vllm/qwen3") keeps naming its provider, a bare id stays on the default.
+func (b *chatBackend) SetDefaultModel(model string) error {
+	next, err := b.e.file.Set("model", model)
+	if err != nil {
+		return err
+	}
+	if err := next.Save(filepath.Join(b.e.home, configFile)); err != nil {
+		return err
+	}
+	b.e.file, b.e.cfg.Model = next, model
+	return nil
+}
+
 // SkillNames lists every skill the user can invoke, including those hidden
 // from the model.
 func (b *chatBackend) SkillNames() []string {

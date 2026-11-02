@@ -9,6 +9,9 @@ type Backend interface {
 	Sessions(exclude string) ([]core.SessionInfo, error)                     // this project, newest first
 	Models() []string
 	Window(model string) int
+	// SetDefaultModel stores model as the config default, so a new jas
+	// starts on it. The chat calls it from the /model picker's Ctrl+S.
+	SetDefaultModel(model string) error
 	// ProviderOf names the provider a model reference resolves to; ""
 	// when unknown. The chat uses it to refuse switching a live session
 	// to another provider.

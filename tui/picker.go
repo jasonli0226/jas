@@ -18,11 +18,12 @@ type pickItem struct{ label, value, desc string }
 // by case-insensitive substring, labels starting with the filter first; Up
 // and Down move, Enter chooses, Esc cancels.
 type picker struct {
-	title  string
-	mark   string // drawn before every label, not filtered on
-	items  []pickItem
-	filter string
-	cursor int // index into visible()
+	title      string
+	mark       string // drawn before every label, not filtered on
+	items      []pickItem
+	filter     string
+	cursor     int  // index into visible()
+	canDefault bool // Ctrl+S also offers the choice as a default
 }
 
 type pickResult int
@@ -31,6 +32,7 @@ const (
 	pickOpen pickResult = iota
 	pickChosen
 	pickCancelled
+	pickSetDefault // Ctrl+S on a canDefault picker: choose and store as default
 )
 
 // visible returns the items matching the filter, prefix matches first.
@@ -48,12 +50,18 @@ func (p *picker) visible() []pickItem {
 	return append(prefix, inner...)
 }
 
-// key handles a key press; with pickChosen the value is the chosen item's.
+// key handles a key press; with pickChosen the value is the chosen item's,
+// with pickSetDefault (Ctrl+S) it is the highlighted item's, to also store
+// as a default.
 func (p *picker) key(msg tea.KeyPressMsg) (pickResult, string) {
 	switch msg.String() {
 	case "enter":
 		if vis := p.visible(); p.cursor < len(vis) {
 			return pickChosen, vis[p.cursor].value
+		}
+	case "ctrl+s":
+		if vis := p.visible(); p.canDefault && p.cursor < len(vis) {
+			return pickSetDefault, vis[p.cursor].value
 		}
 	case "esc", "ctrl+c":
 		return pickCancelled, ""
@@ -79,7 +87,11 @@ func (p *picker) view(width int) string {
 	if len(p.visible()) == 0 {
 		return title + "\n" + dimStyle.Render("  no matches")
 	}
-	return title + "\n" + p.rows(width)
+	view := title + "\n" + p.rows(width)
+	if p.canDefault {
+		view += "\n" + dimStyle.Render("  Ctrl+S set as default")
+	}
+	return view
 }
 
 // rows renders up to pickerRows matching items, scrolled so the cursor stays

@@ -44,6 +44,7 @@ type testBackend struct {
 	keep        int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
 	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
 	opens       atomic.Int32        // sessions handed out as a Live
+	defaults    []string            // models stored as the config default, in order
 }
 
 const testWindow = 100000
@@ -150,6 +151,12 @@ func (b *testBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 func (b *testBackend) Models() []string         { return []string{"m", "m2"} }
 func (b *testBackend) ProviderOf(string) string { return b.provider }
 
+// SetDefaultModel records the stored default; the real one writes config.json.
+func (b *testBackend) SetDefaultModel(name string) error {
+	b.defaults = append(b.defaults, name)
+	return nil
+}
+
 // BareModel mirrors the real backend: a known provider prefix is stripped,
 // anything else is already a bare id.
 func (b *testBackend) BareModel(ref string) string {
@@ -161,7 +168,7 @@ func (b *testBackend) BareModel(ref string) string {
 	}
 	return ref
 }
-func (b *testBackend) SkillNames() []string     { return []string{"review"} }
+func (b *testBackend) SkillNames() []string { return []string{"review"} }
 func (b *testBackend) SkillFiles() map[string]string {
 	return map[string]string{"/skills/review/SKILL.md": "review"}
 }

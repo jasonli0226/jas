@@ -63,7 +63,8 @@ keys
   Up/Down recall earlier input (from the first or last line of the input)
   Ctrl-C clear the input; twice on an empty box quits
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
-  in a picker: type to filter · Up/Down move · Enter choose · Esc cancel`
+  in a picker: type to filter · Up/Down move · Enter choose · Esc cancel
+  in the /model picker: Ctrl+S also sets the default for new sessions`
 
 // parseCommand splits "/name arg..." at the first whitespace. ok is false
 // for input that is not a slash command with a name.
@@ -257,7 +258,8 @@ func (m *Model) openPicker(title string, items []pickItem, onPick func(string) t
 	m.picker, m.onPick = &picker{title: title, items: items}, onPick
 }
 
-// onPickerKey feeds a key to the open picker and runs onPick on a choice.
+// onPickerKey feeds a key to the open picker and runs onPick on a choice;
+// Ctrl+S on a canDefault picker also stores the choice as the default.
 func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	res, value := m.picker.key(msg)
 	if res == pickOpen {
@@ -265,8 +267,11 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	onPick := m.onPick
 	m.picker, m.onPick = nil, nil
-	if res == pickChosen {
+	switch res {
+	case pickChosen:
 		return onPick(value)
+	case pickSetDefault:
+		return m.setDefaultModel(value)
 	}
 	return nil
 }
@@ -306,7 +311,21 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 		items = append(items, pickItem{label: m.clean(n), value: n})
 	}
 	m.openPicker("model", items, m.setModel)
+	m.picker.canDefault = true
 	return nil
+}
+
+// setDefaultModel stores name as the config default, then switches this
+// session to it like setModel. The store runs first but the cross-provider
+// refusal comes before it: a default that cannot be used is not stored.
+func (m *Model) setDefaultModel(name string) tea.Cmd {
+	if cmd := m.refuseCrossProvider(name); cmd != nil {
+		return cmd
+	}
+	if err := m.b.SetDefaultModel(name); err != nil {
+		return m.print(errStyle.Render("set default: " + m.clean(err.Error())))
+	}
+	return tea.Batch(m.setModel(name), m.notice("default model "+m.clean(name)))
 }
 
 // setModel switches the current session's model and its context window. The
@@ -318,8 +337,8 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 // wired at session start, so half-migrating a live session would send the
 // new model's id to the old endpoint. /new picks up the new provider.
 func (m *Model) setModel(name string) tea.Cmd {
-	if prov := m.b.ProviderOf(name); prov != "" && m.live.Provider != "" && prov != m.live.Provider {
-		return m.notice(fmt.Sprintf("%s runs on %s — /new for a %s session", m.clean(name), prov, prov))
+	if cmd := m.refuseCrossProvider(name); cmd != nil {
+		return cmd
 	}
 	bare := m.b.BareModel(name) // requests carry the bare id, never the provider prefix
 	m.model, m.live.Model = name, bare
@@ -339,6 +358,15 @@ func (m *Model) setModel(name string) tea.Cmd {
 		},
 		m.notice("model "+name),
 	)
+}
+
+// refuseCrossProvider is the notice that refuses switching a live session to
+// a model on another provider, or nil when the switch may go ahead.
+func (m *Model) refuseCrossProvider(name string) tea.Cmd {
+	if prov := m.b.ProviderOf(name); prov != "" && m.live.Provider != "" && prov != m.live.Provider {
+		return m.notice(fmt.Sprintf("%s runs on %s — /new for a %s session", m.clean(name), prov, prov))
+	}
+	return nil
 }
 
 func (m *Model) cmdThinking(string) tea.Cmd {

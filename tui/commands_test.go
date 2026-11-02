@@ -171,6 +171,33 @@ func TestChat_ModelSwitchAcrossProvidersRefused(t *testing.T) {
 	assert.NotContains(t, string(before), "model_changed")
 }
 
+// Ctrl+S in the /model picker also stores the choice as the config default.
+func TestChat_ModelPickerCtrlSSetsDefault(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.submit("/model")
+	c.typeText("2")
+	c.key("ctrl+s")
+	assert.Eq(t, c.m.live.Model, "m2")
+	assert.Eq(t, strings.Join(b.defaults, ","), "m2")
+	assert.Contains(t, c.printedText(), "default model m2")
+	assert.Eq(t, c.m.picker == nil, true)
+}
+
+// Ctrl+S refuses a cross-provider default for the same reason Enter does:
+// the default would send the new model's id to the old endpoint.
+func TestChat_ModelDefaultAcrossProvidersRefused(t *testing.T) {
+	b := newTestBackend(t)
+	b.provider = "vllm"
+	c := newTestChat(t, b)
+	c.m.live.Provider = "openrouter"
+	c.submit("/model")
+	c.typeText("2")
+	c.key("ctrl+s")
+	assert.Eq(t, len(b.defaults), 0)
+	assert.Contains(t, c.printedText(), "runs on vllm")
+}
+
 // Regression: /model with a qualified reference ("openrouter/m2") sent
 // the whole reference as the model id — the provider answered 400 for
 // "openrouter/m2 is not a valid model ID". The switch must store the bare id.

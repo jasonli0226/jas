@@ -106,6 +106,16 @@ func TestChatBackend_NewSessionMetaMatchesRun(t *testing.T) {
 	assert.Eq(t, saved.Path, filepath.Join(b.e.home, sessionsDir, saved.ID, eventsFile))
 }
 
+func TestChatBackend_SetDefaultModelPersists(t *testing.T) {
+	b := &chatBackend{e: testEnv(t)}
+	assert.NoErr(t, b.SetDefaultModel("openrouter/gpt-5.2"))
+	raw, err := os.ReadFile(filepath.Join(b.e.home, configFile))
+	assert.NoErr(t, err)
+	assert.Contains(t, string(raw), `"model": "openrouter/gpt-5.2"`)
+	assert.Eq(t, b.e.cfg.Model, "openrouter/gpt-5.2")
+	assert.Contains(t, strings.Join(b.Models(), ","), "openrouter/gpt-5.2")
+}
+
 func TestChatBackend_ResumeLockedSession(t *testing.T) {
 	b := &chatBackend{e: testEnv(t, fake.Turn{Text: "a"})}
 	saved := saveSession(t, b, "m")

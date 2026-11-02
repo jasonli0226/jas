@@ -22,6 +22,8 @@ func pickKey(p *picker, k string) (pickResult, string) {
 		return p.key(tea.KeyPressMsg{Code: tea.KeyDown})
 	case "backspace":
 		return p.key(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	case "ctrl+s":
+		return p.key(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	}
 	var res pickResult
 	var v string
@@ -57,6 +59,20 @@ func TestPicker_MoveBackspaceAndCancel(t *testing.T) {
 	assert.Eq(t, len(p.visible()), 2)
 	res, _ = pickKey(p, "esc")
 	assert.Eq(t, res, pickCancelled)
+}
+
+func TestPicker_CtrlSSetsDefaultWhenEnabled(t *testing.T) {
+	p := &picker{title: "model", items: []pickItem{{label: "m", value: "m"}, {label: "m2", value: "m2"}}, canDefault: true}
+	pickKey(p, "down")
+	res, v := pickKey(p, "ctrl+s")
+	assert.Eq(t, res, pickSetDefault)
+	assert.Eq(t, v, "m2")
+	assert.Contains(t, ansi.Strip(p.view(80)), "Ctrl+S set as default")
+
+	plain := &picker{title: "pick", items: []pickItem{{label: "m", value: "m"}}}
+	res, _ = pickKey(plain, "ctrl+s")
+	assert.Eq(t, res, pickOpen)
+	assert.NotContains(t, ansi.Strip(plain.view(80)), "Ctrl+S")
 }
 
 func TestPicker_ViewShowsTenRowsAroundCursor(t *testing.T) {
