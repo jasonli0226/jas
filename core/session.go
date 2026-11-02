@@ -33,6 +33,11 @@ type SessionConfig struct {
 	// Tokens caps total tokens: each request reserves its estimate first and
 	// the session stops with exit 7 when that would cross the cap. nil = none.
 	Tokens *TokenPool
+	// Inject, if set, is called after each tool-results message is pushed and
+	// before the next request. Non-empty text is appended to that message as a
+	// text block and logged as an injected event with meta merged in. Never
+	// called after a final answer; independent of the steering queue.
+	Inject func() (text string, meta map[string]any)
 }
 
 // TurnResult describes how one user message (one Send, or the last steering
@@ -364,6 +369,9 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		st, code := classify(err)
 		return true, st, code, err.Error()
 	}
+	if ctx.Err() == nil {
+		s.inject()
+	}
 	// Steering stays queued after a cancel or on the last allowed turn, where
 	// no further request would answer it.
 	if ctx.Err() == nil && m.turns < c.MaxTurns {
@@ -373,6 +381,26 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	}
 	s.elide()
 	return false, "", 0, ""
+}
+
+// inject appends the Inject hook's text to the tool-results message just
+// pushed and logs it, so Replay can rebuild the same message.
+func (s *Session) inject() {
+	if s.c.Inject == nil || len(s.messages) == 0 {
+		return
+	}
+	text, meta := s.c.Inject()
+	if text == "" {
+		return
+	}
+	last := len(s.messages) - 1
+	msg := s.messages[last]
+	msg.Content = append(slices.Clone(msg.Content), providers.ContentBlock{Type: providers.BlockText, Text: text})
+	s.messages[last] = msg
+	data := map[string]any{}
+	maps.Copy(data, meta)
+	data["text"] = text
+	s.note(s.c.Log.Append(EvInjected, data))
 }
 
 // request streams one model request over the current history, showing its

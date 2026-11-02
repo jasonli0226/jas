@@ -64,6 +64,7 @@ type replayLine struct {
 	CallID  string      `json:"call_id"`
 	Status  string      `json:"status"`
 	Output  string      `json:"output"`
+	Text    string      `json:"text"`
 	// compaction payload
 	Summary     string `json:"summary"`
 	FirstKeptID string `json:"first_kept_id"`
@@ -119,13 +120,14 @@ func Replay(path string) (ReplayState, error) {
 // next message event so they can be emitted as one user message in the
 // assistant's tool_use order.
 type replayer struct {
-	st      ReplayState
-	started bool
-	order   []string                          // tool_use ids awaiting results, in call order
-	names   map[string]string                 // tool_use id → tool name
-	results map[string]providers.ContentBlock // results seen so far
-	firstID string                            // event id of the first result seen
-	ran     map[string]bool                   // tool_use ids with a tool_started event
+	st       ReplayState
+	started  bool
+	order    []string                          // tool_use ids awaiting results, in call order
+	names    map[string]string                 // tool_use id → tool name
+	results  map[string]providers.ContentBlock // results seen so far
+	firstID  string                            // event id of the first result seen
+	ran      map[string]bool                   // tool_use ids with a tool_started event
+	injected []string                          // injected texts for the pending results message
 }
 
 func (r *replayer) notef(format string, a ...any) {
@@ -167,6 +169,10 @@ func (r *replayer) apply(line int, ev replayLine) {
 		}
 	case EvToolResult:
 		r.recordResult(ev)
+	case EvInjected:
+		if len(r.order) > 0 && ev.Text != "" {
+			r.injected = append(r.injected, ev.Text)
+		}
 	}
 }
 
@@ -242,9 +248,12 @@ func (r *replayer) flushResults(final bool) {
 		}
 		blocks[i] = b
 	}
+	for _, t := range r.injected {
+		blocks = append(blocks, providers.ContentBlock{Type: providers.BlockText, Text: t})
+	}
 	r.st.Messages = append(r.st.Messages, providers.Message{Role: providers.RoleUser, Content: blocks})
 	r.st.MessageIDs = append(r.st.MessageIDs, r.firstID)
-	r.order, r.results, r.names, r.ran, r.firstID = nil, nil, nil, nil, ""
+	r.order, r.results, r.names, r.ran, r.firstID, r.injected = nil, nil, nil, nil, "", nil
 }
 
 // ResumeModel picks the model for a resumed session: the file's model when
