@@ -232,3 +232,91 @@ func TestDirty(t *testing.T) {
 		t.Fatal(d, err)
 	}
 }
+
+func TestWorktrees_CopyRefusesEscapes(t *testing.T) {
+	w, base := newRepo(t)
+	p, _, _ := w.Create(context.Background(), "core", base, nil)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	writeFile(t, outside, "O")
+	writeFile(t, filepath.Join(w.Main, ".env"), "S=1\n")
+	writeFile(t, filepath.Join(w.Main, ".gitignore"), ".env\n.env.local\n.out\n")
+	if err := os.Symlink(".env", filepath.Join(w.Main, ".env.local")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if err := os.Symlink(outside, filepath.Join(w.Main, ".out")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	w.Deny = func(abs string) bool { return filepath.Base(abs) == ".env" }
+	for _, c := range []string{"../x", outside, ".env.local", ".out"} {
+		w.Copy = []string{c}
+		if err := w.CopyFiles(p); err == nil {
+			t.Errorf("CopyFiles(%q) succeeded", c)
+		}
+	}
+}
+
+func TestWorktrees_CopyRefusesDestEscape(t *testing.T) {
+	w, base := newRepo(t)
+	p, _, _ := w.Create(context.Background(), "core", base, nil)
+	writeFile(t, filepath.Join(w.Main, ".gitignore"), "cfg/\n")
+	writeFile(t, filepath.Join(w.Main, "cfg", "a"), "A")
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(p, "cfg")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	w.Copy = []string{"cfg/a"}
+	if err := w.CopyFiles(p); err == nil {
+		t.Fatal("copied through symlinked destination")
+	}
+	if _, err := os.Stat(filepath.Join(target, "a")); err == nil {
+		t.Fatal("file escaped the worktree")
+	}
+}
+
+func TestWorktrees_HooksNotRun(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	for _, h := range []string{"pre-merge-commit", "commit-msg", "pre-commit"} {
+		writeFile(t, filepath.Join(w.Main, ".git", "hooks", h), "#!/bin/sh\nexit 1\n")
+		if err := os.Chmod(filepath.Join(w.Main, ".git", "hooks", h), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, _, err := w.Create(ctx, "dep", base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(p, "x.txt"), "X")
+	if _, err := w.Commit(ctx, p, "dep", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.Create(ctx, "next", base, []string{"dep"}); err != nil {
+		t.Fatalf("dep merge ran hooks: %v", err)
+	}
+}
+
+func TestWorktrees_CreateCleansUpAndRetries(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	for _, part := range []string{"d1", "d2"} {
+		p, _, _ := w.Create(ctx, part, base, nil)
+		writeFile(t, filepath.Join(p, "a.txt"), "one\n"+part+"\nthree\n")
+		if _, err := w.Commit(ctx, p, part, "edit"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := w.Create(ctx, "next", base, []string{"d1", "d2"})
+	var mc *MergeConflictError
+	if !errors.As(err, &mc) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(w.Path("next")); err == nil {
+		t.Fatal("worktree left behind")
+	}
+	if out := mustGit(t, w.Git, w.Main, "branch", "--list", w.Branch("next")); out != "" {
+		t.Fatalf("branch left behind: %q", out)
+	}
+	if _, _, err := w.Create(ctx, "next", base, []string{"d1"}); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+}

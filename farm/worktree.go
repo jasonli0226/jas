@@ -60,24 +60,39 @@ func (w *Worktrees) Create(ctx context.Context, part, base string, deps []string
 	if _, err := w.Git.Run(ctx, w.Main, "worktree", "add", "-b", branch, path, base); err != nil {
 		return "", "", err
 	}
-	if err := w.ensureExclude(ctx); err != nil {
+	if err := w.populate(ctx, path, part, deps); err != nil {
+		w.discard(path, branch)
 		return "", "", err
 	}
+	return path, branch, nil
+}
+
+// populate sets up excludes and merges the dep branches into the new worktree.
+func (w *Worktrees) populate(ctx context.Context, path, part string, deps []string) error {
+	if err := w.ensureExclude(ctx); err != nil {
+		return err
+	}
 	for _, dep := range deps {
-		depBranch := w.Branch(dep)
-		_, mergeErr := w.Git.Run(ctx, path, "merge", "--no-ff", "--no-edit", depBranch)
+		_, mergeErr := w.Git.Run(ctx, path, "merge", "--no-ff", "--no-edit", "--no-verify", w.Branch(dep))
 		if mergeErr == nil {
 			continue
 		}
-		out, _ := w.Git.Run(ctx, path, "diff", "--name-only", "--diff-filter=U")
+		out, _ := w.Git.Run(context.Background(), path, "diff", "--name-only", "--diff-filter=U")
 		files := strings.Fields(out)
-		_, _ = w.Git.Run(ctx, path, "merge", "--abort")
+		_, _ = w.Git.Run(context.Background(), path, "merge", "--abort")
 		if len(files) > 0 {
-			return "", "", &MergeConflictError{Part: part, Dep: dep, Files: files}
+			return &MergeConflictError{Part: part, Dep: dep, Files: files}
 		}
-		return "", "", mergeErr
+		return mergeErr
 	}
-	return path, branch, nil
+	return nil
+}
+
+// discard removes a half-made worktree and its branch so Create can be retried.
+func (w *Worktrees) discard(path, branch string) {
+	ctx := context.Background()
+	_, _ = w.Git.Run(ctx, w.Main, "worktree", "remove", "--force", path)
+	_, _ = w.Git.Run(ctx, w.Main, "branch", "-D", branch)
 }
 
 // ensureExclude adds /.jas/tmp/ to the shared info/exclude once.
@@ -111,30 +126,84 @@ func (w *Worktrees) ensureExclude(ctx context.Context) error {
 	return w.excludeError
 }
 
-// CopyFiles copies each Copy entry from Main into path. An entry must exist,
-// be ignored by git, and not be denied.
+// CopyFiles copies each Copy entry from Main into path. An entry must be a
+// local relative path, exist, be ignored by git, and not be denied (checked on
+// both the lexical and the symlink-resolved path, which must stay inside Main).
+// The destination must stay inside path.
 func (w *Worktrees) CopyFiles(path string) error {
 	ctx := context.Background()
+	mainReal, err := filepath.EvalSymlinks(w.Main)
+	if err != nil {
+		return err
+	}
+	pathReal, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
 	for _, rel := range w.Copy {
-		src := filepath.Join(w.Main, filepath.FromSlash(rel))
-		if w.Deny != nil && w.Deny(src) {
-			return fmt.Errorf("worktree.copy %q: denied by the deny list", rel)
-		}
-		info, err := os.Stat(src)
-		if err != nil {
-			return fmt.Errorf("worktree.copy %q: %w", rel, err)
-		}
-		if _, err := w.Git.Run(ctx, w.Main, "check-ignore", "-q", "--", rel); err != nil {
-			return fmt.Errorf("worktree.copy %q: not ignored by git: %w", rel, err)
-		}
-		if info.IsDir() {
-			return fmt.Errorf("worktree.copy %q: directories are not supported", rel)
-		}
-		if err := copyFile(src, filepath.Join(path, filepath.FromSlash(rel)), info.Mode().Perm()); err != nil {
+		if err := w.copyOne(ctx, mainReal, pathReal, path, rel); err != nil {
 			return fmt.Errorf("worktree.copy %q: %w", rel, err)
 		}
 	}
 	return nil
+}
+
+func (w *Worktrees) copyOne(ctx context.Context, mainReal, pathReal, path, rel string) error {
+	if !filepath.IsLocal(filepath.FromSlash(rel)) {
+		return errors.New("must be a relative path inside the repository")
+	}
+	src := filepath.Join(w.Main, filepath.FromSlash(rel))
+	real, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+	if !within(real, mainReal) {
+		return errors.New("resolves outside the repository")
+	}
+	if w.Deny != nil && (w.Deny(src) || w.Deny(real)) {
+		return errors.New("denied by the deny list")
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Git.Run(ctx, w.Main, "check-ignore", "-q", "--", rel); err != nil {
+		return fmt.Errorf("not ignored by git: %w", err)
+	}
+	if info.IsDir() {
+		return errors.New("directories are not supported")
+	}
+	dst := filepath.Join(path, filepath.FromSlash(rel))
+	if err := destInside(pathReal, dst); err != nil {
+		return err
+	}
+	if err := copyFile(real, dst, info.Mode().Perm()); err != nil {
+		return err
+	}
+	return destInside(pathReal, dst)
+}
+
+// destInside checks that dst, resolved through its deepest existing ancestor,
+// stays inside root (already symlink-resolved).
+func destInside(root, dst string) error {
+	cur := dst
+	for {
+		if _, err := os.Lstat(cur); err == nil {
+			real, err := filepath.EvalSymlinks(cur)
+			if err != nil {
+				return err
+			}
+			if !within(real, root) {
+				return errors.New("destination resolves outside the worktree")
+			}
+			return nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return errors.New("destination has no existing parent")
+		}
+		cur = parent
+	}
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
