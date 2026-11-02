@@ -101,11 +101,20 @@ func TestRun_SessionStartedListsSkills(t *testing.T) {
 			continue
 		}
 		sk := m["skills"].([]any)
-		assert.Eq(t, len(sk), 1)
-		e := sk[0].(map[string]any)
-		assert.Eq(t, e["name"], any("meta"))
-		assert.Eq(t, e["scope"], any("user"))
-		assert.Eq(t, e["location"], any(loc))
+		// meta plus jas's own manual, installed under the config dir.
+		assert.Eq(t, len(sk), 2)
+		var meta map[string]any
+		for _, e := range sk {
+			e := e.(map[string]any)
+			if e["name"] == "meta" {
+				meta = e
+			}
+		}
+		if meta == nil {
+			t.Fatal("meta skill missing from session_started")
+		}
+		assert.Eq(t, meta["scope"], any("user"))
+		assert.Eq(t, meta["location"], any(loc))
 		return
 	}
 	t.Fatal("no session_started event")

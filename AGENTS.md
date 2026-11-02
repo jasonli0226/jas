@@ -25,3 +25,9 @@ experimental note when it lands), then `farm resume` + take-over,
   inside `Update` — never reads. Log from a `tea.Cmd` instead (see
   `tui/commands.go` `setModel`).
 - Commits: `type: description`. Keep `go test -race ./...` green; `CGO_ENABLED=0`.
+- Docs follow features: every user-visible change (CLI subcommand/flag, chat
+  command/key, config key, auth, approval level, deny floor, exit code, farm
+  behavior) updates `README.md` and the built-in manual skill
+  `cmd/jas/manual/jas/SKILL.md` in the same commit — the manual is embedded
+  (`//go:embed`) and re-installed under `~/.config/jas/skills/` at every
+  start, so stale text ships until the next binary.
