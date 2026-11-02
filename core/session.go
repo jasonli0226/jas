@@ -46,9 +46,12 @@ type TurnResult struct {
 	Status string // "ok" | "context_full" | "turn_cap" | "approval_needed" | "interrupted" | "failed"
 	Code   int    // the Exit* code jas run would exit with
 	Reason string
-	Turns  int // model requests for this user message
-	Usage  providers.Usage
-	Final  string
+	// Pool names the token pool that refused a request when Reason is
+	// "tokens", so a farm can tell a part's cap from the farm's.
+	Pool  string
+	Turns int // model requests for this user message
+	Usage providers.Usage
+	Final string
 }
 
 // Session holds a conversation across user messages. Send, SetModel, Messages
@@ -66,6 +69,7 @@ type Session struct {
 	logErr   error           // first event-log failure in the current Send
 	closed   bool
 	reason   string // reason of the last non-ok turn, for session_ended
+	pool     string // pool that refused the current user message, if any
 
 	mu    sync.Mutex
 	queue []string // steering texts not yet delivered
@@ -170,6 +174,7 @@ func (s *Session) Send(ctx context.Context, text string) (TurnResult, error) {
 
 // begin appends a user message and logs user_message and turn_started.
 func (s *Session) begin(text string, steer bool) *msgState {
+	s.pool = ""
 	s.addUser(text, steer)
 	s.note(s.c.Log.Append(EvTurnStarted, map[string]any{}))
 	return &msgState{}
@@ -209,7 +214,7 @@ func (s *Session) endTurn(m *msgState, status string, code int, reason string) T
 	if code != ExitOK {
 		s.reason = reason
 	}
-	return TurnResult{Status: status, Code: code, Reason: reason, Turns: m.turns, Usage: m.usage, Final: m.final}
+	return TurnResult{Status: status, Code: code, Reason: reason, Pool: s.pool, Turns: m.turns, Usage: m.usage, Final: m.final}
 }
 
 // Steer queues text for delivery at the next point the loop can take it.

@@ -145,6 +145,7 @@ func (s *Session) budgetStopped(err error) (done bool, status string, code int, 
 	if !errors.As(err, &be) {
 		return false, "", 0, ""
 	}
+	s.pool = be.Pool
 	s.note(s.c.Log.Append(EvBudgetStop, map[string]any{
 		"reason": reasonTokens, "pool": be.Pool, "limit": be.Limit, "used": be.Used, "want": be.Want,
 	}))
