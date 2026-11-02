@@ -89,6 +89,7 @@ type RoleDef struct {
 	Prompt  string   `yaml:"prompt"`
 	Approve string   `yaml:"approve"`
 	Model   string   `yaml:"model"`
+	Budget  int      `yaml:"budget"`
 }
 
 // Config is the merged farm configuration.
@@ -322,8 +323,8 @@ func validate(cfg Config) error {
 	sort.Strings(roles)
 	for _, name := range roles {
 		r := cfg.Roles[name]
-		texts := append(append([]string{r.Prompt}, r.Tools...), r.Writes...)
-		for _, s := range texts {
+		// Only writes take ${var} expansion; prompts and tools are literal.
+		for _, s := range r.Writes {
 			for _, m := range varRef.FindAllStringSubmatch(s, -1) {
 				if _, ok := cfg.Vars[m[1]]; !ok {
 					return fmt.Errorf("role %s: unknown variable ${%s}", name, m[1])

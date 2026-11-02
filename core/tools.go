@@ -45,6 +45,10 @@ type ExecPolicy struct {
 	ReadRoots []string
 }
 
+// WriteRule restricts writable paths. A path matches a rule when it matches
+// every glob in All; a path is writable when any rule matches.
+type WriteRule struct{ All []string }
+
 // Tool is one capability offered to the model.
 type Tool interface {
 	Name() string
