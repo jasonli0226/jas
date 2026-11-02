@@ -33,8 +33,8 @@ repo checks it yet.
 
 | Provider | `provider` | `base_url` | Key | Status |
 |---|---|---|---|---|
-| OpenRouter | `openrouter` | preset `https://openrouter.ai/api/v1` | required | Tested (GLM fixture and live tests) |
-| ollama | `ollama` | preset `http://localhost:11434/v1` | none | Should work (fixture missing, #29) |
+| OpenRouter | `openrouter` | preset `https://openrouter.ai/api/v1` | required | Tested (GLM and DeepSeek fixtures, live tests) |
+| ollama | `ollama` | preset `http://localhost:11434/v1` | none | Tested (qwen2.5:0.5b fixture) |
 | vLLM | `custom` | `http://localhost:8000/v1` | optional | Should work |
 | LM Studio | `custom` | `http://localhost:1234/v1` | none | Should work |
 | llama.cpp server | `custom` | `http://localhost:8080/v1` | optional | Should work |
@@ -44,6 +44,10 @@ repo checks it yet.
 
 The local servers' URLs are their usual defaults; use whatever host and port
 yours listens on.
+
+The fixtures live in `providers/testdata/`. There is no Claude-via-OpenRouter
+fixture: the key used to record them only reaches GLM and DeepSeek models
+(others return 403), so DeepSeek stands in as the second OpenRouter upstream.
 
 ## Recipes
 
