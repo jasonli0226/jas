@@ -2,6 +2,13 @@ package tui
 
 import "github.com/jasonli0226/jas/core"
 
+// ContextFile is one context entry offered to the session; Loaded is the
+// trust decision on it.
+type ContextFile struct {
+	Path   string
+	Loaded bool
+}
+
 // Backend is everything the chat needs from jas's wiring; cmd/jas implements it.
 type Backend interface {
 	NewSession(model string, ui core.UI, gate core.Gate) (*Live, error)
@@ -22,6 +29,9 @@ type Backend interface {
 	// prefix.
 	BareModel(ref string) string
 	SkillNames() []string
+	// ContextFiles lists the context file and project skills offered to the
+	// chat (the start banner's [Context] rows); empty hides the section.
+	ContextFiles() []ContextFile
 	SkillFiles() map[string]string                // SKILL.md path -> skill name
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
 }

@@ -103,6 +103,10 @@ model, approval level, context use and token counts.
   and under the tool row.
 - **`jas --continue`** or **`/resume`** reopens a saved session and reprints
   its conversation; Up/Down history comes back with it.
+- The chat shows a start banner when it opens fresh and on **`/new`**: the
+  version, the key hints above, and the context files and skills it loaded
+  (context files left unloaded by a declined trust decision are marked
+  `not loaded`). Resuming — `--continue` or `/resume` — does not show it.
 - **`/name <title>`** (or `jas --name`) names the session. The `/resume`
   picker lists it by that title instead of its first message, and the status
   line shows it.

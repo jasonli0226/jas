@@ -132,7 +132,7 @@ func TestChat_SkillCommandSendsPrompt(t *testing.T) {
 	msgs := b.prov.Requests[0].Messages
 	last := msgs[len(msgs)-1]
 	assert.Eq(t, last.Content[0].Text, want)
-	printed := plain(c.m.Printed())
+	printed := plain(c.printedNoBanner())
 	assert.Eq(t, printed[0], "◆ skill review")
 	assert.Eq(t, printed[1], "› /skill:review fix it")
 }
@@ -312,7 +312,7 @@ func TestChat_SlashMenuPrefixFirstAndUpDown(t *testing.T) {
 	assert.Contains(t, c.view(), "› /skill:review")
 	c.update(tea.KeyPressMsg{Code: tea.KeyEnter}) // a partial name completes
 	assert.Eq(t, c.m.input.Value(), "/skill:review ")
-	assert.Eq(t, len(c.m.Printed()), 0)
+	assert.Eq(t, len(c.printedNoBanner()), 0)
 }
 
 func TestChat_SlashMenuEscDismissesUntilEdited(t *testing.T) {
@@ -375,7 +375,9 @@ func TestChat_ShutdownWithNewThatNeverRan(t *testing.T) {
 	open := c.pendingNew()
 	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, b.closes.Load(), 1) // the current session
-	assert.Eq(t, open(), tea.Msg(nil))
+	for _, cmd := range batchCmds(t, open()) { // the late open runs nothing
+		cmd()
+	}
 	assert.Eq(t, b.closes.Load(), 1)
 }
 
@@ -383,7 +385,9 @@ func TestChat_ShutdownWithNewWhoseMessageWasLost(t *testing.T) {
 	b := newTestBackend(t)
 	c := newTestChat(t, b)
 	open := c.pendingNew()
-	open()                        // closes the old session, opens the new one
+	for _, cmd := range batchCmds(t, open()) { // closes the old session, opens the new one; messages dropped
+		cmd()
+	}
 	assert.NoErr(t, c.shutdown()) // closes the new one
 	assert.Eq(t, b.closes.Load(), 2)
 }

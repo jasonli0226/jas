@@ -64,7 +64,7 @@ func chatCmd(ctx context.Context, args []string) error {
 	}
 	e.warnUnknownWindow(e.cfg.Model)
 	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e}, tui.Options{
-		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows",
+		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows", Version: version,
 		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact,
 	}, os.Stdin, os.Stdout))
 }
@@ -377,6 +377,16 @@ func (b *chatBackend) SkillNames() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// ContextFiles lists the context file and project skills that were offered
+// to this session; Loaded is the trust decision.
+func (b *chatBackend) ContextFiles() []tui.ContextFile {
+	files := make([]tui.ContextFile, len(b.e.pc.files))
+	for i, f := range b.e.pc.files {
+		files[i] = tui.ContextFile{Path: f.Path, Loaded: f.Loaded}
+	}
+	return files
 }
 
 // SkillFiles maps each skill's SKILL.md path to its name, so the chat can

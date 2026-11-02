@@ -42,6 +42,7 @@ type testBackend struct {
 	window      int                 // context window; 0 is testWindow
 	provider    string              // what ProviderOf reports; "" is unknown, so /model never refuses
 	keep        int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
+	ctxFiles    []ContextFile       // the start banner's [Context] rows; nil hides the section
 	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
 	opens       atomic.Int32        // sessions handed out as a Live
 	defaults    []string            // models stored as the config default, in order
@@ -169,6 +170,9 @@ func (b *testBackend) BareModel(ref string) string {
 	return ref
 }
 func (b *testBackend) SkillNames() []string { return []string{"review"} }
+
+// ContextFiles backs the start banner's [Context] section; nil hides it.
+func (b *testBackend) ContextFiles() []ContextFile { return b.ctxFiles }
 func (b *testBackend) SkillFiles() map[string]string {
 	return map[string]string{"/skills/review/SKILL.md": "review"}
 }

@@ -68,6 +68,27 @@ func newUnopenedChat(t *testing.T, b *testBackend, o Options) (*testChat, tea.Cm
 	return c, c.m.Init()
 }
 
+// printedNoBanner returns the printed blocks without the leading start
+// banner, which Init and /new always print first.
+func (c *testChat) printedNoBanner() []string {
+	p := c.m.Printed()
+	if len(p) > 0 && strings.HasPrefix(p[0], boldStyle.Render("jas")) {
+		return p[1:]
+	}
+	return p
+}
+
+// batchCmds returns the commands inside a tea.Batch result, for tests that
+// run a command the program has already left.
+func batchCmds(t *testing.T, msg tea.Msg) []tea.Cmd {
+	t.Helper()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("not a batch: %T", msg)
+	}
+	return batch
+}
+
 func (c *testChat) shutdown() error {
 	c.shut = true
 	return c.m.shutdown()
@@ -191,7 +212,7 @@ func TestChat_SendStreamsAndPrints(t *testing.T) {
 	assert.Eq(t, c.m.input.Value(), "")
 	assert.Contains(t, c.view(), "working…")
 	c.pump()
-	eqStrings(t, plain(c.m.Printed()), []string{"› hi", "", "● Hello", "", "  World"})
+	eqStrings(t, plain(c.printedNoBanner()), []string{"› hi", "", "● Hello", "", "  World"})
 	assert.NotContains(t, c.view(), "working…")
 }
 
@@ -228,7 +249,7 @@ func TestChat_SteerPrintsUserBlock(t *testing.T) {
 	c.submit("also")
 	close(release)
 	c.pump()
-	got := plain(c.m.Printed())
+	got := plain(c.printedNoBanner())
 	assert.Eq(t, len(got), 7)
 	eqStrings(t, append(got[:2:2], got[3:]...), []string{"› hi", "", "", "› also", "", "● done"})
 	assert.Eq(t, strings.HasPrefix(got[2], "▸ ls"), true)
@@ -244,7 +265,7 @@ func TestChat_NoticeSeparatesUserTurns(t *testing.T) {
 	c.pump()
 	c.submit("retry")
 	c.pump()
-	eqStrings(t, plain(c.m.Printed()), []string{"› go", "", "interrupted", "", "› retry", "", "● ok"})
+	eqStrings(t, plain(c.printedNoBanner()), []string{"› go", "", "interrupted", "", "› retry", "", "● ok"})
 }
 
 func TestChat_EscRestoresQueuedText(t *testing.T) {
@@ -264,7 +285,7 @@ func TestChat_EscWhileIdleDoesNothing(t *testing.T) {
 	c.typeText("abc")
 	c.key("esc")
 	assert.Eq(t, c.m.input.Value(), "abc")
-	assert.Eq(t, len(c.m.Printed()), 0)
+	assert.Eq(t, len(c.printedNoBanner()), 0)
 }
 
 func TestChat_PasteWithNewlinesDoesNotSubmit(t *testing.T) {
@@ -290,9 +311,9 @@ func TestChat_EmptyAndSlashInputDoNotRun(t *testing.T) {
 	b := newTestBackend(t)
 	c := newTestChat(t, b)
 	c.submit("   ")
-	assert.Eq(t, len(c.m.Printed()), 0)
+	assert.Eq(t, len(c.printedNoBanner()), 0)
 	c.submit("/foo bar")
-	eqStrings(t, plain(c.m.Printed()), []string{"unknown command /foo"})
+	eqStrings(t, plain(c.printedNoBanner()), []string{"unknown command /foo"})
 	assert.Eq(t, c.m.running(), false)
 	assert.Eq(t, len(b.prov.Requests), 0)
 }
@@ -367,7 +388,7 @@ func TestChat_DropsMessagesFromOldSession(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t))
 	c.update(textMsg{gen: c.m.gen - 1, s: "stale\n\nmore"})
 	c.update(eventMsg{gen: c.m.gen - 1, typ: core.EvUsage, data: map[string]any{"prompt_tokens": 50000}})
-	assert.Eq(t, len(c.m.Printed()), 0)
+	assert.Eq(t, len(c.printedNoBanner()), 0)
 	assert.Eq(t, c.m.tr.Live(), "")
 	assert.Contains(t, c.view(), "· 0% ·")
 }
@@ -426,7 +447,9 @@ func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {
 func TestChat_ShutdownClosesSessionWhoseMessageWasLost(t *testing.T) {
 	b := newTestBackend(t)
 	c, init := newUnopenedChat(t, b, Options{})
-	init() // the session opens but the program is gone before sessionMsg
+	for _, cmd := range batchCmds(t, init()) { // the program is gone: run the batch but drop the messages
+		cmd()
+	}
 	assert.NoErr(t, c.shutdown())
 	assert.Eq(t, b.closes.Load(), 1)
 }
@@ -435,7 +458,9 @@ func TestChat_ShutdownClaimsOpenThatNeverRan(t *testing.T) {
 	b := newTestBackend(t)
 	c, init := newUnopenedChat(t, b, Options{})
 	assert.NoErr(t, c.shutdown())
-	assert.Eq(t, init(), tea.Msg(nil)) // the late command opens nothing
+	for _, cmd := range batchCmds(t, init()) { // the late command opens nothing
+		cmd()
+	}
 	assert.Eq(t, b.closes.Load(), 0)
 	infos, err := b.Sessions("")
 	assert.NoErr(t, err)
@@ -637,4 +662,60 @@ func TestChat_ApprovalPrintsDiffAboveQuestion(t *testing.T) {
 	assert.Contains(t, v, "[y/N/always]")
 	assert.NotContains(t, v, "I'll fix d.")
 	assert.NotContains(t, v, "     4 - d")
+}
+
+func TestChat_OptionsCarryVersion(t *testing.T) {
+	c, _ := newUnopenedChat(t, newTestBackend(t), Options{Version: "9.9.9"})
+	if c.m.o.Version != "9.9.9" {
+		t.Fatalf("version %q", c.m.o.Version)
+	}
+}
+
+func TestChat_BannerOnStart(t *testing.T) {
+	c := newTestChatOpts(t, newTestBackend(t), Options{Version: "1.0.0"})
+	printed := plain(c.m.Printed())
+	if len(printed) == 0 {
+		t.Fatal("no blocks printed")
+	}
+	assert.Contains(t, printed[0], "v1.0.0")
+	assert.Contains(t, printed[0], "jas")
+	assert.Contains(t, strings.Join(printed, "\n"), testHints)
+}
+
+func TestChat_NoBannerOnContinue(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "A"})
+	first := newTestChatOpts(t, b, Options{Version: "9.9.9"})
+	first.submit("hi")
+	first.pump()
+	first.key("ctrl+c")
+	first.key("ctrl+c")
+	assert.Eq(t, first.quit, true)
+
+	c := newTestChatOpts(t, b, Options{Version: "1.0.0", Continue: true})
+	assert.Contains(t, c.printedText(), "resumed "+first.m.live.ID)
+	assert.NotContains(t, c.printedText(), "1.0.0")
+	assert.NotContains(t, c.printedText(), "[Skills]")
+	assert.NotContains(t, c.printedText(), testHints)
+}
+
+func TestChat_BannerOnNew(t *testing.T) {
+	c := newTestChatOpts(t, newTestBackend(t), Options{Version: "1.0.0"})
+	c.submit("/new")
+	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), 2)
+}
+
+func TestChat_NoBannerOnResume(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "ok"})
+	first := newTestChatOpts(t, b, Options{Version: "9.9.9"})
+	first.submit("hi")
+	first.pump()
+	first.key("ctrl+c")
+	first.key("ctrl+c")
+	assert.Eq(t, first.quit, true)
+
+	c := newTestChatOpts(t, b, Options{Version: "1.0.0"})
+	c.submit("/resume")
+	c.key("enter")
+	assert.Eq(t, c.m.live.Path, first.m.live.Path)
+	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), 1)
 }
