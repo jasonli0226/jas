@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -152,6 +153,25 @@ func TestChat_ModelPicker(t *testing.T) {
 	c.key("enter")
 	assert.Eq(t, c.m.live.Model, "m2")
 	assert.Eq(t, c.m.picker == nil, true)
+}
+
+// Regression: /model logged model_changed synchronously inside Update. The
+// log forwards every event to the chat's own message queue, and posting
+// there from Update blocks forever on the program's unbuffered Send — the
+// UI hung when Enter chose a model. The append must run in a Cmd instead.
+func TestChat_ModelSwitchLogsFromCmd(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/model m2")
+	_, cmd := c.m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	before, err := os.ReadFile(c.m.live.Path)
+	assert.NoErr(t, err)
+	assert.NotContains(t, string(before), "model_changed") // not logged in Update
+	c.run(cmd)
+	after, err := os.ReadFile(c.m.live.Path)
+	assert.NoErr(t, err)
+	assert.Contains(t, string(after), "model_changed") // logged by the Cmd
+	assert.Contains(t, c.printedText(), "model m2")
+	assert.Eq(t, c.m.live.Model, "m2")
 }
 
 func TestChat_ThinkingApproveSessionCopy(t *testing.T) {
