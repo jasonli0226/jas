@@ -72,3 +72,32 @@ func TestRun_HugeSystemPromptStopsBeforeFirstRequest(t *testing.T) {
 	assert.Eq(t, exitCode(t, err), core.ExitContextFull)
 	assert.Eq(t, len(r.prov.Requests), 0)
 }
+
+func TestRun_MaxTokensStopsBeforeRequest(t *testing.T) {
+	r := newRig(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "read", Args: `{"path":"a.txt"}`}}, Usage: providers.Usage{PromptTokens: 900, CompletionTokens: 50}},
+		{Text: "never"},
+	})
+	assert.NoErr(t, os.WriteFile(filepath.Join(r.root, "a.txt"), []byte("hello\n"), 0o644))
+	r.cfg.MaxOutput = 100
+	r.cfg.Tokens = core.NewTokenPool("run", 1000, nil)
+	_, err := core.Run(context.Background(), r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitBudget)
+	assert.Eq(t, len(r.prov.Requests), 1)
+	evs := r.events(t)
+	assert.Eq(t, count(evs, "tool_result"), 1)
+	var stop map[string]any
+	for _, e := range evs {
+		if e["type"] == "budget_stop" {
+			stop = e
+		}
+	}
+	if stop == nil {
+		t.Fatal("no budget_stop event")
+	}
+	assert.Eq(t, stop["reason"], any("tokens"))
+	end := lastEnded(t, evs)
+	assert.Eq(t, end["status"], any("budget_exceeded"))
+	assert.Eq(t, end["reason"], any("tokens"))
+	assert.Eq(t, end["exit_code"], any(float64(core.ExitBudget)))
+}

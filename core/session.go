@@ -30,6 +30,9 @@ type SessionConfig struct {
 	Meta     map[string]any // merged into session_started / session_resumed
 	// MaxOutput is sent as each model request's max_tokens; 0 omits it.
 	MaxOutput int
+	// Tokens caps total tokens: each request reserves its estimate first and
+	// the session stops with exit 7 when that would cross the cap. nil = none.
+	Tokens *TokenPool
 }
 
 // TurnResult describes how one user message (one Send, or the last steering
@@ -57,6 +60,7 @@ type Session struct {
 	usage    providers.Usage // session total, for session_ended
 	logErr   error           // first event-log failure in the current Send
 	closed   bool
+	reason   string // reason of the last non-ok turn, for session_ended
 
 	mu    sync.Mutex
 	queue []string // steering texts not yet delivered
@@ -196,6 +200,10 @@ func (s *Session) endTurn(m *msgState, status string, code int, reason string) T
 	if code == ExitOK && s.logErr != nil { // only turn_ended itself failed
 		status, code, reason = endFailed, ExitFailure, "event log failure"
 	}
+	s.reason = ""
+	if code != ExitOK {
+		s.reason = reason
+	}
 	return TurnResult{Status: status, Code: code, Reason: reason, Turns: m.turns, Usage: m.usage, Final: m.final}
 }
 
@@ -275,10 +283,14 @@ func (s *Session) Close(status string, code int) error {
 		return nil
 	}
 	s.closed = true
-	if err := s.c.Log.AppendSync(EvSessionEnded, map[string]any{
+	ev := map[string]any{
 		"status": status, "exit_code": code, "turns": s.turns,
 		"prompt_tokens": s.usage.PromptTokens, "completion_tokens": s.usage.CompletionTokens,
-	}); err != nil {
+	}
+	if code != ExitOK && s.reason != "" {
+		ev["reason"] = s.reason
+	}
+	if err := s.c.Log.AppendSync(EvSessionEnded, ev); err != nil {
 		return fmt.Errorf("event log: %w", err)
 	}
 	return nil
@@ -317,12 +329,18 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		return true, endContextFull, ExitContextFull, "context window full"
 	}
 	msg, uses, err := s.request(ctx, m)
+	if done, st, code, reason := s.budgetStopped(err); done {
+		return true, st, code, reason
+	}
 	if err != nil && s.retryAfterOverflow(ctx, err) {
 		_, cerr := s.Compact(ctx, "")
 		if done, st, code, reason := compactFailed(ctx, cerr); done {
 			return true, st, code, reason
 		}
 		msg, uses, err = s.request(ctx, m)
+		if done, st, code, reason := s.budgetStopped(err); done {
+			return true, st, code, reason
+		}
 		if errors.Is(err, providers.ErrContextLength) {
 			return true, endContextFull, ExitContextFull, reasonFullAfterCompact
 		}
@@ -361,6 +379,11 @@ func (s *Session) request(ctx context.Context, m *msgState) (providers.Message, 
 		Model: s.model, System: c.System, Tools: c.Exec.Reg.Specs(),
 		Messages: slices.Clone(s.messages), MaxTokens: c.MaxOutput,
 	}
+	est := s.estimate(req)
+	res, err := s.reserve(est)
+	if err != nil {
+		return providers.Message{}, nil, err
+	}
 	stream, errc := c.Provider.Stream(ctx, req)
 	var (
 		acc   providers.Accumulator
@@ -379,6 +402,11 @@ func (s *Session) request(ctx context.Context, m *msgState) (providers.Message, 
 		acc.Add(ev)
 	}
 	streamErr := <-errc
+	if usage != nil {
+		res.Settle(usage.PromptTokens + usage.CompletionTokens)
+	} else {
+		res.Settle(est)
+	}
 	if usage != nil {
 		s.recordUsage(m, *usage)
 		if c.Budget != nil {

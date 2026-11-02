@@ -53,6 +53,7 @@ func (s *Session) Compact(ctx context.Context, focus string) (CompactResult, err
 		model = s.model
 	}
 	text, usage, err := s.summarize(ctx, summaryRequest(model, span, prev, focus))
+	s.charge(usage)
 	if err != nil {
 		return CompactResult{}, err
 	}

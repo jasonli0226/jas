@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,8 @@ type runArgs struct {
 	name   string // --name: session title, logged on session_started
 	prompt string
 	flags  map[string]string // setting key -> value, only flags that were passed
+
+	maxTokens int // --max-tokens: total token cap; 0 = none
 }
 
 // reportRedactor masks the resolved API key in top-level error messages.
@@ -81,12 +84,23 @@ func runCmd(ctx context.Context, args []string) error {
 		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
-		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens,
+		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(),
 	})
 	if err == nil && !ra.json {
 		fmt.Println()
 	}
 	return err
+}
+
+// runOnlyFlags are jas run flags that are not stored settings.
+var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true}
+
+// tokenPool is the --max-tokens cap, or nil when none was given.
+func (ra runArgs) tokenPool() *core.TokenPool {
+	if ra.maxTokens <= 0 {
+		return nil
+	}
+	return core.NewTokenPool("run", ra.maxTokens, nil)
 }
 
 // homeDenyPattern denies file tools access to jas's own state (keys, config,
@@ -120,6 +134,7 @@ func parseRun(args []string) (runArgs, error) {
 	fs.BoolVar(&ra.json, "json", false, "emit the event stream as JSONL on stdout")
 	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
 	fs.StringVar(&ra.name, "name", "", "title for the session")
+	maxTokens := fs.String("max-tokens", "", "stop with exit 7 before a request that would cross this many total tokens")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
@@ -133,12 +148,17 @@ func parseRun(args []string) (runArgs, error) {
 	}
 	ra.prompt = fs.Arg(0)
 	var err error
+	if *maxTokens != "" {
+		if ra.maxTokens, err = strconv.Atoi(*maxTokens); err != nil || ra.maxTokens <= 0 {
+			return ra, usageErr("--max-tokens must be a positive integer, got %q", *maxTokens)
+		}
+	}
 	if ra.name, err = parseName(fs, ra.name); err != nil {
 		return ra, err
 	}
 	ra.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "json" && f.Name != "trust-project" && f.Name != "name" {
+		if !runOnlyFlags[f.Name] {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})

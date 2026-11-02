@@ -189,3 +189,14 @@ func TestCLI_RunPipedOutputHasNoDiff(t *testing.T) {
 		t.Fatalf("piped stdout has a diff row: %q (stderr %q)", out, errOut)
 	}
 }
+
+func TestRunCmd_MaxTokensFlag(t *testing.T) {
+	ra, err := parseRun([]string{"--max-tokens", "5000", "task"})
+	assert.NoErr(t, err)
+	assert.Eq(t, ra.maxTokens, 5000)
+	for _, bad := range []string{"-1", "0", "lots"} {
+		if _, err := parseRun([]string{"--max-tokens", bad, "task"}); err == nil {
+			t.Errorf("--max-tokens %s: want usage error", bad)
+		}
+	}
+}
