@@ -171,14 +171,55 @@ owner's decision is recorded — nothing merges without one — and farm beats
 plain `jas run` on wall-clock in the farm-vs-solo benchmark. Full design:
 [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
 
+## 4a. Spec-driven work, alone or with farm (proposed)
+
+**Who:** anyone starting a new app or a sizeable feature. **Job:** turn a
+vague idea into a checked spec, then build it section by section — with one
+agent, or with farm when the work splits cleanly.
+
+```sh
+jas spec spec.md                                    # grill-me interview → approved spec
+jas spec --check spec.md                            # CI: exit 0, or 2 with open questions
+jas run --spec spec.md --phase scaffold             # skeleton; jas runs `check`
+jas run --spec spec.md --section F-todos            # one feature, single agent
+jas farm plan --spec spec.md -o plan.yaml && jas farm run plan.yaml   # split by sections
+```
+
+In chat the same steps are `/spec`, `/spec scaffold`, `/spec section <id>`
+and `/farm --spec spec.md` (live row per part, `/farm attach <part>`).
+
+| Story | Front end | Outcome |
+|---|---|---|
+| As a solo dev, I want jas to grill me one question at a time, so that my spec is concrete enough to build and test. | chat | approved spec, hash logged |
+| As a CI maintainer, I want incomplete specs to fail without model calls, so that I don't pay for vague work. | CLI | exit 2 + open-question list |
+| As a CI maintainer, I want a nightly farm from an approved plan + spec, so that big work progresses without touching `main`. | CLI | exit 0, branch kept |
+| As a repo owner, I want hard caps on PR-triggered section runs, so that a runaway agent stops before overspending. | CLI | exit 7 |
+| As a developer, I want the planner to refuse a split that won't pay and fall back to `jas run`. | both | exit 8 / back to chat |
+| As a team lead, I want to audit a farm from its files. | CLI | manifest + `farm.jsonl` answer who/what/why |
+| As a developer, I want to unblock a stuck worker and scope approvals to one part. | chat | `/farm attach`, "always (part)" |
+| As a developer, I want to drop a failing part, merge the rest, and resume after a crash. | chat | unmet recorded; `/farm resume` |
+| As a developer in a second terminal, I want a warning before editing files a farm part owns. | both | overlap ask / warn / fail |
+
+Fourteen step-by-step walkthroughs (commands, what jas shows, events, exit
+codes) are in the spec-driven-flow spec's
+[User stories & scenarios](superpowers/specs/2026-11-02-spec-driven-flow.md#user-stories--scenarios).
+Speed-ups there (e.g. ~2–3× wall-clock for a web app's first cut with farm)
+are expectations until the farm benchmark gate measures them; total tokens
+are higher with farm than with one agent.
+
+**Done when:** a spec-driven `--section` run and a spec-driven farm both end
+with every acceptance criterion listed as met (with evidence) or explicitly
+unmet, and `check` run by jas passes.
+
 ## 5. Interactive attach (after farm)
 
 **Who:** the same contributor, mid-migration. **Job:** step into a running
 part when the model needs a human call.
 
 In the first farm version, a failed part offers **take over**: the farm
-prints the command to continue that part's session in its worktree. Later,
-`jas attach <part>` connects to the running farm over a Unix socket
+prints the command to continue that part's session in its worktree. In farm
+interactive mode, `/farm attach <part>` steers a running worker from the
+same chat (farm spec, Interactive mode). Later, `jas attach <part>` connects to the running farm over a Unix socket
 (`~/.jas/run/<farm-id>.sock`) and takes over at a turn boundary through the
 steering queue, without stopping the farm. If the supervisor has died,
 attach falls back to resuming the part's event log.

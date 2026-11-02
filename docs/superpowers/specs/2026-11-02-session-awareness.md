@@ -52,7 +52,7 @@ session only.
   "title": "first 80 chars of the first user message (redacted)",
   "branch": "feature/x",
   "worktree": "/abs/path",
-  "farm": {"id": "…", "part": "core"},
+  "farm": {"id": "…", "part": "core", "owns": ["core/**"], "target_branch": "main"},
   "touched": ["core/session.go", "core/trust.go"],
   "started": "2026-11-02T23:40:00+09:00",
   "heartbeat": "2026-11-02T23:52:10+09:00",
@@ -105,7 +105,11 @@ Before `write`/`edit` on path P, the tool checks active peers' `touched`
 | farm worker | n/a — farm ownership is disjoint by plan; overlaps are a validation bug and logged | — |
 
 Overlap on the same file in a **different** worktree/branch is reported as
-info only (it becomes a merge concern, not a clobber). **(author's call)**
+info only (it becomes a merge concern, not a clobber), **except** paths owned
+by a running farm part whose result targets this branch: farm-worker records
+carry the part's `owns` globs, and a write matching them is treated like a
+same-checkout overlap (ask in chat, warn/fail headless), because it will
+conflict when the farm is merged. **(author's call)**
 
 ## Security
 

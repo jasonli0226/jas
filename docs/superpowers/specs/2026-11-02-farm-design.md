@@ -12,6 +12,10 @@ Inputs:
 - Builds on [`2026-11-02-session-awareness.md`](2026-11-02-session-awareness.md)
   (per-repo session records, write-overlap warnings), which ships first and
   is a core-loop feature, not a farm feature.
+- Consumes specs from [`2026-11-02-spec-driven-flow.md`](2026-11-02-spec-driven-flow.md)
+  (`jas spec` interview, scaffold phase, acceptance criteria). User stories
+  and step-by-step CLI and interactive scenarios for spec-driven farm live
+  there ("User stories & scenarios") and in `docs/use-cases.md` §4a.
 
 ## Changes from the 2026-11-02 first draft
 
@@ -34,6 +38,8 @@ Driven by the branch review (findings N1–N18) and the research doc:
 - Budgets gated before each call; farm total, integrator reserve, rate
   limiter, timeouts.
 - Commit rule reconciled with design §8.2; plan hash approval for CI.
+- Added (owner, later on 2026-11-02): Spec-driven planning, Interactive mode
+  (inline, `/farm`), and the "web app from zero" worked scenario.
 - Discussion mode replaced by a future `reviewer` part.
 - Prerequisites in bet order and a farm-vs-solo benchmark gate.
 
@@ -117,8 +123,10 @@ needed: drafting the plan, doing a part, fixing merge seams.
   next version (see Next version). Debate rarely beats self-consistency at
   equal compute (*research*, "Evidence").
 - **Free agent-to-agent conversation.** The board is typed one-way posts.
-- **`jas attach` over a Unix socket, RPC mode, a live dashboard TUI, starting
-  a farm from inside the chat.** Later versions.
+- **`jas attach` from another terminal over a Unix socket, RPC mode, any
+  fullscreen dashboard.** Later versions. Running a farm from inside the
+  inline chat is **in scope** (see Interactive mode) but ships after the CI
+  path, on the same supervisor.
 - **Per-task containers.** Still v3 (design §3.1); the opt-in OS sandbox is a
   prerequisite instead.
 
@@ -185,6 +193,7 @@ planner must refuse and suggest `jas run`.
 
 | Command | Does |
 |---|---|
+| `jas farm plan --spec spec.md [--sections F-a,F-b] [-o plan.yaml]` | Plan from an approved spec, optionally limited to some feature sections (see Spec-driven planning). |
 | `jas farm plan "<task>" [-o plan.yaml]` | Draft, validate and (with a TTY) review the plan; on approval writes `plan.yaml` with `approved:` (hash). No workers. |
 | `jas farm run <plan.yaml> [--json] [--allow-dirty]` | Run an approved plan. CI path; no plan prompt. |
 | `jas farm "<task>"` | `plan` then `run` in one terminal. Without a TTY: usage error (exit 2) — use `plan` + `run`. |
@@ -193,6 +202,7 @@ planner must refuse and suggest `jas run`.
 | `jas farm clean [<farm-id>]` | Remove worktrees (and, with `--branches`, `jas/farm/<id>/*` branches); `git worktree prune`. |
 | `jas farm init` | Detect variables and draft `.jas/farm.yaml` for review. |
 | `jas farm vars` | Print each variable's value and its source. |
+| `/farm …` (inside `jas` chat) | Interactive mode; see Interactive mode. |
 
 ## Configuration
 
@@ -370,7 +380,8 @@ a **structured reason**:
 ```yaml
 refuse:
   reason: small_change     # small_change | single_package | overlapping_ownership |
-                           # serial_dependencies | no_check | unclear_task
+                           # serial_dependencies | no_check | unclear_task |
+                           # no_clear_contract (spec-driven; see Spec-driven planning)
   detail: "Single bug in one function; splitting would duplicate the investigation."
 suggest: "jas run \"...\""
 ```
@@ -417,6 +428,37 @@ plan cannot widen tools, `writes`, approval levels or ownership beyond what
 was approved. The hash, base and resolved role digests are recorded in
 `farm_started`. A plan file from an untrusted source (e.g. a fork PR) must be
 re-approved by a human. **(author's call)**
+
+## Spec-driven planning
+
+With `--spec spec.md` (an approved spec from
+[`jas spec`](2026-11-02-spec-driven-flow.md)), the planner splits **by spec
+sections** instead of free text:
+
+- `jas spec --check` runs first; an incomplete or unapproved spec stops with
+  exit 2 and the list of open problems (spec-driven-flow spec).
+- Each writing part maps to one or more feature sections (`F-…`) and carries
+  their acceptance criteria (`AC-…`) and the section's owned-path hints as
+  its `owns` (the planner may narrow, never widen, a hint without saying why
+  in `why_split`). The plan records `spec: {path, sha256, sections}`, so the
+  approved plan hash pins the spec hash too.
+- The spec's Data model and API contract become plan `contracts` and
+  `interfaces` verbatim. Generated clients, schema files and manifests
+  (`package.json`, `go.mod`, lockfiles) go to `shared:` (integrator-owned).
+- **Extra refuse rule:** `no_clear_contract` — features whose sections share
+  entities or routes with no API contract / data model entry between them
+  cannot be split; the planner refuses (exit 8) or merges them into one part.
+- **Part done-check:** besides the worker's final answer, a part is done only
+  when its criteria table (spec-driven-flow, Traceability) lists every
+  assigned `AC-` as met with evidence, and the part's own scoped test command
+  (`part_check`, derived from the criteria's `test:` references, e.g. one
+  e2e file) passes in its worktree, run by the supervisor. Unmet criteria
+  fail the part (normal failure flow).
+- **Final verdict:** the supervisor runs `check` **and** `contract_check`
+  (if the spec defines it) on the integrated branch; both must pass for exit
+  0. The manifest lists every `AC-` with status and evidence.
+- A scaffold phase (`jas run --spec … --phase scaffold`) normally precedes
+  the farm, so parts start from a building, tested skeleton with stubs.
 
 ## Worktrees
 
@@ -465,9 +507,10 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   workers are serialized and labelled with the part; other workers keep
   running. Without a TTY a gated call fails the part (exit 5 in the manifest),
   then `on_failure` applies.
-- Output: plain inline lines printed on change (part started / tool / done /
-  failed, tokens) and board posts as they arrive. No redraw, no fullscreen
-  (AGENTS.md constraints). With `--json`, see CI contract.
+- Output (`jas farm run`): plain inline lines printed on change (part
+  started / tool / done / failed, tokens) and board posts as they arrive. No
+  fullscreen (AGENTS.md constraints). In chat, live rows (see Interactive
+  mode). With `--json`, see CI contract.
 
 ### Board
 
@@ -603,8 +646,8 @@ never reuse 3/4/5 (those stay per-part, in the manifest).
 |---|---|---|
 | 0 | every required part done and the supervisor's `check` passed | plan written (and approved with a TTY) |
 | 1 | internal, provider-after-retries, or git failure | same |
-| 2 | usage/config error: bad flags, no `check`, invalid or unapproved plan, hash mismatch, dirty tree without `--allow-dirty` | same |
-| 6 | **farm unmet**: `check` failed, or a part failed/was dropped | — |
+| 2 | usage/config error: bad flags, no `check`, invalid or unapproved plan or spec, hash mismatch, dirty tree without `--allow-dirty` | same |
+| 6 | **farm unmet**: `check`/`contract_check` failed, or a part failed/was dropped (also `jas run --spec` scaffold/section when jas's `check` fails) | — |
 | 7 | **budget exceeded**: farm token pool + reserve or `farm_timeout` exhausted (also used by `jas run --max-tokens/--timeout`) | planner hit its budget |
 | 8 | — | **planner refused** to split (suggests `jas run`) |
 | 130 | interrupted | interrupted |
@@ -616,7 +659,8 @@ The same code appears in `farm_ended`. design §3's table gains rows 6, 7, 8.
 `--json` streams **only** `farm.jsonl` events to stdout (never interleaved
 worker events). Each farm event carries `farm_id`; worker detail is linked by
 `session_id` and log path. Event types (versioned per design §3):
-`farm_started` (plan hash, base, roles digest, config digest, trust decision),
+`farm_plan_refused` (planner log; reason, suggest), `farm_started` (plan hash,
+spec hash, base, roles digest, config digest, trust decision), `farm_resumed`,
 `part_started`, `part_setup`, `part_ended` (status, exit code, tokens,
 diffstat), `board_posted`, `board_delivered`, `owner_decision`,
 `integrate_started`, `integrate_ended`, `check_ran`, `budget_stop`,
@@ -628,6 +672,102 @@ Written atomically (temp + rename) on every part transition, under a lock:
 farm id, plan hash, base, per part {role, branch, worktree, session id, log
 path, status, exit code, tokens, diffstat, failure reason}, integrator result,
 `check` result, final choice, totals. `jas farm status` and CI read it.
+
+## Interactive mode
+
+Same supervisor, same logs, same exit-code semantics as `jas farm run`; only
+the front end differs. Ships after the CI path. Inline only (AGENTS.md): no
+alt-screen, no fullscreen dashboard.
+
+- **Launch:** `/farm "<task>"`, `/farm --spec spec.md`, or `/farm run plan.yaml`
+  from the chat. The chat agent may *suggest* a farm (a `suggest_farm` tool
+  that prints one line with `/farm …` prefilled) when a task looks big and
+  splittable; it never starts one itself. The planner gets the task text
+  (and spec), not the chat history, so the owner sees exactly what is sent.
+- **Plan review inline:** the plan summary is printed into scrollback;
+  `a` approve · `e` edit in `$EDITOR` · `r` replan with feedback · `q` quit.
+- **Refusal returns to chat:** the structured reason prints inline and the
+  task is offered as the next chat message (`run it here? y/n`); no farm
+  state is created beyond the planner's log.
+- **Live rows:** while the farm runs, the inline view (below scrollback,
+  re-rendered in place, height = parts + 1) shows one row per part —
+  status, current tool, tokens, last board post — plus a totals row
+  (tokens / budget, elapsed, `check` pending). Finished events (part done,
+  failures, board posts) are printed to scrollback once. Narrow terminals
+  truncate columns, never wrap.
+
+  ```
+  backend-auth   ● running  edit server/auth/session.go   61k   ready: POST /api/login
+  backend-api    ● running  shell go test ./server/api/... 74k   blocked: need user.id
+  frontend-pages ◌ paused   —                              38k   —
+  e2e-tests      · queued   —                               0k   —
+  farm 173k / 1.5M tok · 12m · check pending
+  ```
+- **Approvals:** prompts from parallel workers are serialized and labelled
+  `[backend-api] shell: npm install zod`; other parts keep running. Options:
+  yes · no · always **for this part** · always **for this farm**. "Always"
+  never outlives the farm and never applies to other sessions.
+- **Steering:** `/farm attach <part>` routes the input box to that running
+  worker (messages enter through `Session.Steer` — these are genuinely the
+  owner's words, so user role is correct, unlike board posts); `/farm back`
+  returns to the main chat. `/farm pause <part>` (stops at the next turn
+  boundary), `/farm resume <part>`, `/farm drop <part>` (drops it and its
+  dependents), `/farm status`. Attaching to a done part is refused (done
+  parts are never re-woken); use take-over on failure instead.
+- **Failures** prompt inline with the same retry / take over / drop / abort
+  choices as the TTY flow.
+- **Finish:** after the supervisor's `check`, an inline summary — per-part
+  status and diffstat, criteria met/unmet (spec runs), tokens and cost per
+  part and total, `check`/`contract_check` result — then `m` merge · `k` keep
+  · `d` discard. An unmet outcome (dropped part, failed check) still offers
+  merge; the choice and the unmet status are both recorded. The outcome code
+  is written to `farm_ended` (the chat process does not exit).
+- **Ctrl-C** in the farm view behaves as in CI (first: graceful stop; second:
+  hard cancel) and returns to the chat prompt; `/farm resume <farm-id>` or
+  `jas farm resume` continues later.
+
+## Worked scenario: web app from zero
+
+Expectations, not measurements — the benchmark gate decides.
+
+1. **Spec.** `jas spec spec.md`: grill-me interview → approved spec (stack:
+   Go API + TypeScript web; data model; OpenAPI contract; pages; features
+   F-auth, F-todos, F-pages with acceptance criteria and owned-path hints).
+2. **Scaffold (single agent).** `jas run --spec spec.md --phase scaffold`:
+   layout, build, test harness, CI, `check`/`contract_check`, generated API
+   stubs (501) and typed clients, empty pages. jas runs `check` → 0.
+3. **Plan.** `jas farm plan --spec spec.md -o plan.yaml` (or `/farm --spec
+   spec.md`):
+
+   | part | sections | owns | after |
+   |---|---|---|---|
+   | backend-auth | F-auth | `server/auth/**` | — |
+   | backend-api | F-todos (API) | `server/api/**`, `db/migrations/**` | — |
+   | frontend-pages | F-pages, F-todos (UI) | `web/pages/**`, `web/components/**` | — |
+   | e2e-tests | all AC with `test: tests/e2e/…` | `tests/e2e/**` | backend-auth, backend-api, frontend-pages |
+
+   `shared:` `package.json`, `go.mod`, lockfiles, `web/src/api/generated/**`
+   (owned by the integrator).
+4. **Parallel run.** Three parts at once (`max_workers: 3`). Typed board
+   posts carry the seams, e.g. backend-api `interface {name: "GET /api/todos",
+   note: "ready, returns Todo[]"}`; backend-api `blocked {on: backend-auth,
+   need: "user.id on request context"}`; backend-auth `interface {name:
+   "auth.UserID(ctx)"}` unblocks it. Each part finishes only when its scoped
+   tests and assigned AC pass.
+5. **Integrate.** The integrator merges, runs `codegen` to regenerate the
+   typed clients from the final contract, updates shared manifests and
+   lockfiles; the supervisor runs `check` + `contract_check` → 0; owner picks
+   merge/keep/discard with diffstat and cost shown.
+
+Where it is expected to help: roughly **2–3× faster wall-clock** for the first
+cut of the features than one agent doing them in sequence, and smaller,
+focused contexts per part (fewer compactions, less cross-feature confusion).
+Where it does not: the spec interview, scaffold, visual taste and final
+review stay single-threaded and human-paced; total tokens are **higher**
+than one agent (research: multi-agent ≈ several× tokens); and if the API is
+still churning (contract edits every part), parts collide on the seams —
+re-run the spec interview, or fall back to `jas run --spec --section` one
+feature at a time.
 
 ## Storage
 
@@ -669,8 +809,10 @@ floor); worktrees live in the repo.
   shared `.git` and `$HOME`. The threat model (design §9) gains a farm
   paragraph; the opt-in sandbox is the recommended mode for farm.
 
-Every owner decision (plan approval, failure choice, take-over, final
-choice) is an `owner_decision` event in `farm.jsonl`.
+Every owner decision (plan approval, failure choice, take-over, attach,
+pause/drop, scoped "always" approvals, final choice) is an `owner_decision`
+event in `farm.jsonl`; policy-made choices (no TTY ⇒ keep, `on_failure`)
+are recorded the same way with `by: "policy:…"`.
 
 ## Next version
 
@@ -680,12 +822,13 @@ choice) is an `owner_decision` event in `farm.jsonl`.
   fix round or to the owner. This is the shipped shape of "many agents
   propose, one answer" (parallel finders → verify → single writer;
   *research*, "Fit for jas").
-- `jas attach` over a Unix socket, approval inbox, live status board.
+- `jas attach` from another terminal over a Unix socket, approval inbox
+  across farms.
 
 ## Left to the builder
 
 - Planner and integrator prompt wording.
-- Status-line format.
+- Status-line and live-row format.
 - How detection walks a monorepo.
 - The small-change threshold for `small_change` refusals (tune with the
   benchmark gate).

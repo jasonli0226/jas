@@ -8,7 +8,7 @@
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 **Market research (2026-10):** [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md) — jas vs 15 harnesses; recommendations map to open issues.
 **Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
-**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (draft; waits for its prerequisites, §5) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm).
+**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (draft; waits for its prerequisites, §5) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it).
 
 ---
 
@@ -303,7 +303,7 @@ Reserved for upcoming features (not emitted by v1; see the farm spec's CI contra
 
 | code | meaning |
 |---|---|
-| 6 | farm finished but unmet: supervisor-run `check` failed, or a part failed / was dropped |
+| 6 | `check` run by jas failed, or required work unmet: farm (a part failed / was dropped) and spec runs (`jas run --spec --phase scaffold` / `--section`) |
 | 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals) |
 | 8 | farm planner refused to split (use `jas run`) |
 
@@ -404,6 +404,12 @@ per-task containers ship in v3).
 
 ## 5. v2 scope (weekend two+)
 
+- [ ] **Spec-driven flow** (proposed; core loop, works without farm) —
+      `jas spec` grill-me interview → approved spec (hash in the event log);
+      `jas spec --check` / `jas run --spec` fail headless with open questions
+      (exit 2); bounded `--phase scaffold`; single-agent `--section` runs that
+      cite acceptance criteria. Spec:
+      [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md)
 - [ ] **Session awareness** (proposed; core loop, not farm) — each chat /
       `jas run` session registers a small record in `<repo>/.jas/sessions/`
       (title, branch, touched files, heartbeat); read-only peers note and
@@ -433,7 +439,7 @@ per-task containers ship in v3).
       supervisor = no replay. If the supervisor is gone, attach falls back to
       `jas resume` (event-log replay, §3 side-effect rules)
 - [ ] MCP client support (stdio first, then HTTP)
-- [ ] Farm status in the inline UI (plain lines, no fullscreen board; AGENTS.md); after farm
+- [ ] Farm interactive mode (`/farm` in chat): inline plan approval, one live row per part updated in place, part-scoped approvals, `/farm attach <part>`; same supervisor and logs as CI; no fullscreen board (AGENTS.md); after the farm CI path
 - [x] **Auto-compaction** (pi parity): trigger at `window − reserve`
       (16k default); summarize older history with a cheap model into a summary
       entry; originals kept in the session file (v1 already elides tool results)
