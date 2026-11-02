@@ -133,8 +133,14 @@ func Run(ctx context.Context, b Backend, o Options, in io.Reader, out io.Writer)
 	return errors.Join(m.err, err, m.shutdown())
 }
 
-// Init opens the first session.
-func (m *Model) Init() tea.Cmd { return m.openFirst() }
+// Init opens the first session, after the start banner — a resumed
+// session (Continue) skips the banner.
+func (m *Model) Init() tea.Cmd {
+	if m.o.Continue {
+		return m.openFirst()
+	}
+	return tea.Batch(m.openFirst(), m.print(m.banner()...))
+}
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -31,11 +31,15 @@ stored config; `JAS_HOME` moves `~/.jas`.
 Keys: Enter sends (typing while a reply runs steers it), Esc stops the run,
 Ctrl-C clears the input (twice on an empty box quits), Alt/Shift+Enter is a
 newline, Up/Down recalls input, `/` opens the command menu (Tab completes).
+A start banner (version, key hints, loaded context files and skills; a
+context file the trust decision declined is marked `not loaded`) shows
+when the chat opens fresh and again on `/new`; resuming (`--continue`,
+`/resume`) does not show it.
 
 | command | what it does |
 |---|---|
 | `/model [name]` | switch model (bare form: picker; Ctrl+S also sets the default) |
-| `/new` | fresh conversation (model, thinking, approval level and grants kept) |
+| `/new` | fresh conversation (model, thinking, approval level and grants kept; reprints the start banner) |
 | `/name [title]` | name this session, for `/resume` |
 | `/resume` | continue a session here (grants and level reset) |
 | `/compact [focus]` | summarize older messages to free context |

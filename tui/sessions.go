@@ -60,13 +60,21 @@ func openOrContinue(b Backend, gate core.Gate, o Options, ui core.UI) sessionMsg
 	return sessionMsg{live: live, notices: notices, err: err}
 }
 
+// banner renders the start banner for this chat (see the banner function).
+func (m *Model) banner() []string {
+	return banner(m.o.Version, m.b.ContextFiles(), m.b.SkillNames(), m.width)
+}
+
 // newSession replaces the current session with a fresh one on m.model.
+// The start banner prints again: everything it showed may have changed.
 func (m *Model) newSession() tea.Cmd {
 	b, gate, model := m.b, m.gate, m.model
-	return m.beginOpen(func(ui core.UI) sessionMsg {
+	// print queues into the outbox, so the banner precedes the new
+	// session's blocks even though the open runs concurrently.
+	return tea.Batch(m.print(m.banner()...), m.beginOpen(func(ui core.UI) sessionMsg {
 		live, err := b.NewSession(model, ui, gate)
 		return sessionMsg{live: live, err: err}
-	})
+	}))
 }
 
 // resumeSession replaces the current session with the saved one at path.
