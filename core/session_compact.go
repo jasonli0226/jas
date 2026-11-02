@@ -53,6 +53,7 @@ func (s *Session) Compact(ctx context.Context, focus string) (CompactResult, err
 		model = s.model
 	}
 	text, usage, err := s.summarize(ctx, summaryRequest(model, span, prev, focus))
+	s.charge(usage)
 	if err != nil {
 		return CompactResult{}, err
 	}
@@ -125,7 +126,7 @@ func (s *Session) autoCompact(ctx context.Context) (done bool, status string, co
 	if errors.Is(err, ErrNothingToCompact) {
 		return false, "", 0, ""
 	}
-	return compactFailed(ctx, err)
+	return s.compactFailed(ctx, err)
 }
 
 // retryAfterOverflow reports whether a request that failed with err should be
@@ -135,12 +136,13 @@ func (s *Session) retryAfterOverflow(ctx context.Context, err error) bool {
 }
 
 // compactFailed maps a Compact error to a turn ending (none when err is nil).
-func compactFailed(ctx context.Context, err error) (bool, string, int, string) {
+func (s *Session) compactFailed(ctx context.Context, err error) (bool, string, int, string) {
 	switch {
 	case err == nil:
 		return false, "", 0, ""
 	case ctx.Err() != nil || errors.Is(err, context.Canceled):
-		return true, endInterrupted, ExitInterrupted, "interrupted"
+		st, code, reason := s.ctxEnd(ctx)
+		return true, st, code, reason
 	default:
 		return true, endContextFull, ExitContextFull, err.Error()
 	}

@@ -164,47 +164,7 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 
 	limit := p.OutputLimit()
 	out := &cappedBuffer{max: limit * captureFactor}
-	// Own the pipe (instead of cmd.Stdout = writer) so Wait returns as soon as
-	// the shell exits, even when a background grandchild still holds the pipe.
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return errResult("could not run command: %v", err)
-	}
-	defer pr.Close()
-	cmd, tree, err := shellSpawn(tctx, a.Command)
-	if err != nil {
-		return errResult("could not run command: %v", err)
-	}
-	defer tree.close()
-	cmd.Dir = p.Root
-	cmd.Env = ShellEnv(p.Env)
-	cmd.Stdout = pw
-	cmd.Stderr = pw
-	cmd.WaitDelay = shellWaitDelay
-
-	copied := make(chan struct{})
-	go func() {
-		defer close(copied)
-		_, _ = io.Copy(out, pr)
-	}()
-	startErr := cmd.Start()
-	pw.Close()
-	if startErr != nil {
-		return errResult("could not run command: %v", startErr)
-	}
-	if err := tree.attach(cmd.Process); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return errResult("could not run command: %v", err)
-	}
-	runErr := cmd.Wait()
-	// Grandchildren must not outlive the call: kill the tree on every path
-	// (already gone is fine), which also closes the pipe.
-	tree.kill()
-	select {
-	case <-copied:
-	case <-time.After(shellWaitDelay):
-	}
+	_, runErr := RunShell(tctx, p.Root, a.Command, ShellEnv(p.Env), out)
 	if ctx.Err() != nil {
 		return core.Result{}, fmt.Errorf("shell: cancelled: %w", ctx.Err())
 	}
@@ -223,4 +183,65 @@ func (Shell) Call(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 		text += fmt.Sprintf("\n[exit status %d]", exitErr.ExitCode())
 	}
 	return core.Result{Output: text}, nil
+}
+
+// RunShell runs cmd through the platform shell in dir with env, writing
+// stdout and stderr to out. The whole process tree is killed when the shell
+// exits or ctx ends, so grandchildren never outlive the call. It returns the
+// exit code (-1 when the command did not run to an exit), and an error that
+// is an *exec.ExitError for a non-zero exit, or why the command could not run.
+func RunShell(ctx context.Context, dir, cmdline string, env []string, out io.Writer) (int, error) {
+	// Own the pipe (instead of cmd.Stdout = writer) so Wait returns as soon as
+	// the shell exits, even when a background grandchild still holds the pipe.
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return -1, err
+	}
+	defer pr.Close()
+	cmd, tree, err := shellSpawn(ctx, cmdline)
+	if err != nil {
+		pw.Close()
+		return -1, err
+	}
+	defer tree.close()
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+	cmd.WaitDelay = shellWaitDelay
+
+	copied := make(chan struct{})
+	go func() {
+		defer close(copied)
+		_, _ = io.Copy(out, pr)
+	}()
+	startErr := cmd.Start()
+	pw.Close()
+	if startErr != nil {
+		return -1, startErr
+	}
+	if err := tree.attach(cmd.Process); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return -1, err
+	}
+	runErr := cmd.Wait()
+	// Grandchildren must not outlive the call: kill the tree on every path
+	// (already gone is fine), which also closes the pipe.
+	tree.kill()
+	select {
+	case <-copied:
+	case <-time.After(shellWaitDelay):
+	}
+	if ctx.Err() != nil {
+		return -1, ctx.Err()
+	}
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) {
+		return exitErr.ExitCode(), runErr
+	}
+	if runErr != nil {
+		return -1, runErr
+	}
+	return 0, nil
 }

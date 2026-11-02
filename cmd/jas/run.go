@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,10 @@ type runArgs struct {
 	name   string // --name: session title, logged on session_started
 	prompt string
 	flags  map[string]string // setting key -> value, only flags that were passed
+
+	maxTokens int           // --max-tokens: total token cap; 0 = none
+	timeout   time.Duration // --timeout: wall-clock cap; 0 = none
+	compact   bool          // --compact: auto-compaction as in the chat
 }
 
 // reportRedactor masks the resolved API key in top-level error messages.
@@ -43,6 +48,11 @@ func runCmd(ctx context.Context, args []string) error {
 	e, err := prepare(ctx, ra.flags, ra.trust)
 	if err != nil {
 		return err
+	}
+	if ra.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, ra.timeout)
+		defer cancel()
 	}
 	red := e.red
 
@@ -62,6 +72,15 @@ func runCmd(ctx context.Context, args []string) error {
 	}
 	defer log.Close()
 	log = core.NewUILog(log, ui)
+	title := ra.name
+	if title == "" {
+		title = ra.prompt
+	}
+	rec, recErr := registerRecord(ctx, e.root, "run", path, title, red.Redact)
+	if recErr != nil {
+		fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: session record: "+recErr.Error())))
+	}
+	defer rec.Close()
 
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
@@ -71,22 +90,48 @@ func runCmd(ctx context.Context, args []string) error {
 		},
 		Log: log, Filter: red.Filter, Redact: red.Redact,
 	}
+	if rec != nil {
+		exec.Touched = touchHook(rec, e.root)
+	}
 	e.warnUnknownWindow(e.cfg.Model)
 	meta := e.sessionMeta(e.cfg.Model)
 	if ra.name != "" {
 		meta["title"] = ra.name
+	}
+	if rec != nil {
+		meta["record_path"] = rec.Path()
 	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: e.provider,
 		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
-		SessionMeta: meta,
+		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(),
+		Compact: ra.compactConfig(e.cfg),
 	})
 	if err == nil && !ra.json {
 		fmt.Println()
 	}
 	return err
+}
+
+// runOnlyFlags are jas run flags that are not stored settings.
+var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true, "compact": true}
+
+// tokenPool is the --max-tokens cap, or nil when none was given.
+func (ra runArgs) tokenPool() *core.TokenPool {
+	if ra.maxTokens <= 0 {
+		return nil
+	}
+	return core.NewTokenPool("run", ra.maxTokens, nil)
+}
+
+// compactConfig is the chat's compaction config when --compact was given.
+func (ra runArgs) compactConfig(cfg settings.Run) *core.CompactConfig {
+	if !ra.compact {
+		return nil
+	}
+	return &core.CompactConfig{Reserve: cfg.CompactReserve, Keep: cfg.CompactKeep, Model: cfg.CompactModel}
 }
 
 // homeDenyPattern denies file tools access to jas's own state (keys, config,
@@ -120,6 +165,9 @@ func parseRun(args []string) (runArgs, error) {
 	fs.BoolVar(&ra.json, "json", false, "emit the event stream as JSONL on stdout")
 	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
 	fs.StringVar(&ra.name, "name", "", "title for the session")
+	maxTokens := fs.String("max-tokens", "", "stop with exit 7 before a request that would cross this many total tokens")
+	timeout := fs.String("timeout", "", "stop with exit 7 after this wall-clock duration (e.g. 30m)")
+	fs.BoolVar(&ra.compact, "compact", false, "summarize older history when the context fills up, as the chat does")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
@@ -133,12 +181,22 @@ func parseRun(args []string) (runArgs, error) {
 	}
 	ra.prompt = fs.Arg(0)
 	var err error
+	if *maxTokens != "" {
+		if ra.maxTokens, err = strconv.Atoi(*maxTokens); err != nil || ra.maxTokens <= 0 {
+			return ra, usageErr("--max-tokens must be a positive integer, got %q", *maxTokens)
+		}
+	}
+	if *timeout != "" {
+		if ra.timeout, err = time.ParseDuration(*timeout); err != nil || ra.timeout <= 0 {
+			return ra, usageErr("--timeout must be a positive duration such as 30m, got %q", *timeout)
+		}
+	}
 	if ra.name, err = parseName(fs, ra.name); err != nil {
 		return ra, err
 	}
 	ra.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "json" && f.Name != "trust-project" && f.Name != "name" {
+		if !runOnlyFlags[f.Name] {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})

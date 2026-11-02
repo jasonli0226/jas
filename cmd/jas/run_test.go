@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
@@ -188,4 +189,40 @@ func TestCLI_RunPipedOutputHasNoDiff(t *testing.T) {
 	if strings.Contains(out, " + ") {
 		t.Fatalf("piped stdout has a diff row: %q (stderr %q)", out, errOut)
 	}
+}
+
+func TestRunCmd_MaxTokensFlag(t *testing.T) {
+	ra, err := parseRun([]string{"--max-tokens", "5000", "task"})
+	assert.NoErr(t, err)
+	assert.Eq(t, ra.maxTokens, 5000)
+	for _, bad := range []string{"-1", "0", "lots"} {
+		if _, err := parseRun([]string{"--max-tokens", bad, "task"}); err == nil {
+			t.Errorf("--max-tokens %s: want usage error", bad)
+		}
+	}
+}
+
+func TestRunCmd_TimeoutFlag(t *testing.T) {
+	ra, err := parseRun([]string{"--timeout", "30m", "task"})
+	assert.NoErr(t, err)
+	assert.Eq(t, ra.timeout, 30*time.Minute)
+	for _, bad := range []string{"0", "-1s", "soon"} {
+		if _, err := parseRun([]string{"--timeout", bad, "task"}); err == nil {
+			t.Errorf("--timeout %s: want usage error", bad)
+		}
+	}
+}
+
+// With --compact the same over-threshold run compacts before its next request.
+func TestRunCmd_CompactFlagCompacts(t *testing.T) {
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "ls", Args: `{}`}}, Usage: providers.Usage{PromptTokens: 120000}},
+		{Text: "## Goal\nsummary"},
+		{Text: "done"},
+	})
+	out, errOut, code := runJas(t, []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=k", "JAS_COMPACT_KEEP_TOKENS=1"}, "run", "--json", "--compact", "task")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, `"type":"compaction"`)
+	assert.Eq(t, len(bodies()), 3)
+	_ = errOut
 }

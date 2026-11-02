@@ -19,6 +19,13 @@ const (
 	endApprovalNeeded = "approval_needed"
 	endInterrupted    = "interrupted"
 	endFailed         = "failed"
+	endBudget         = "budget_exceeded"
+)
+
+// Budget-stop reasons (session_ended / turn_ended reason for exit 7).
+const (
+	reasonTokens  = "tokens"
+	reasonTimeout = "timeout"
 )
 
 // RunConfig is everything Run needs. Log should be the same log the Executor
@@ -34,6 +41,9 @@ type RunConfig struct {
 	MaxTurns    int
 	Budget      *Budget        // nil = no context budget
 	SessionMeta map[string]any // merged into session_started
+	MaxOutput   int            // max_tokens per model request; 0 omits it
+	Tokens      *TokenPool     // nil = no token cap
+	Compact     *CompactConfig // nil = compaction off (the jas run default)
 }
 
 // Summary describes a finished run.
@@ -50,7 +60,7 @@ type Summary struct {
 func Run(ctx context.Context, c RunConfig) (Summary, error) {
 	sess, err := NewSession(SessionConfig{
 		Provider: c.Provider, Model: c.Model, System: c.System, Exec: c.Exec,
-		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta,
+		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta, MaxOutput: c.MaxOutput, Tokens: c.Tokens, Compact: c.Compact,
 	})
 	if err != nil {
 		return Summary{}, err

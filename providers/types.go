@@ -52,6 +52,8 @@ type Request struct {
 	System   string
 	Tools    []ToolSpec
 	Messages []Message
+	// MaxTokens caps the response's output tokens; 0 leaves it to the provider.
+	MaxTokens int
 }
 
 // Usage reports token counts for a request.

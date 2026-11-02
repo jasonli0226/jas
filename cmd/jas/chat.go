@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 	"github.com/jasonli0226/jas/tools"
@@ -139,12 +140,14 @@ func (b *chatBackend) NewSession(model string, ui core.UI, gate core.Gate) (*tui
 	if err != nil {
 		return nil, err
 	}
+	rec := b.record(path)
 	c := b.config(model, log, ui, gate)
+	rec.attach(&c, b.e.root)
 	s, err := core.NewSession(c)
 	if err != nil {
-		return nil, errors.Join(err, log.Close())
+		return nil, errors.Join(err, rec.close(), log.Close())
 	}
-	return b.live(path, model, log, s, c.Budget), nil
+	return b.live(path, model, log, s, c.Budget, rec), nil
 }
 
 // Resume reopens a saved session. The log is opened first: its lock tells
@@ -163,16 +166,18 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 		return nil, nil, errors.Join(err, log.Close())
 	}
 	model, notice := core.ResumeModel(st, b.e.cfg.BaseURL, b.e.cfg.Model)
+	rec := b.record(path)
 	c := b.config(model, log, ui, gate)
+	rec.attach(&c, b.e.root)
 	s, err := core.ResumeSession(c, st)
 	if err != nil {
-		return nil, nil, errors.Join(err, log.Close())
+		return nil, nil, errors.Join(err, rec.close(), log.Close())
 	}
 	notices := slices.Clone(st.Notices)
 	if notice != "" {
 		notices = append(notices, notice)
 	}
-	return b.live(path, model, log, s, c.Budget), notices, nil
+	return b.live(path, model, log, s, c.Budget, rec), notices, nil
 }
 
 // config is the session setup shared by NewSession and Resume. The system
@@ -190,17 +195,54 @@ func (b *chatBackend) config(model string, log core.EventLog, ui core.UI, gate c
 		Provider: e.provider, Model: model, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget: e.budget(model), Meta: e.sessionMeta(model),
-		Compact: &core.CompactConfig{Reserve: e.cfg.CompactReserve, Keep: e.cfg.CompactKeep, Model: e.cfg.CompactModel},
+		Compact:   &core.CompactConfig{Reserve: e.cfg.CompactReserve, Keep: e.cfg.CompactKeep, Model: e.cfg.CompactModel},
+		MaxOutput: e.cfg.MaxOutputTokens,
 	}
 }
 
-func (b *chatBackend) live(path, model string, log core.EventLog, s *core.Session, bud *core.Budget) *tui.Live {
+func (b *chatBackend) live(path, model string, log core.EventLog, s *core.Session, bud *core.Budget, rec chatRecord) *tui.Live {
 	return &tui.Live{
 		Session: s, ID: filepath.Base(filepath.Dir(path)), Path: path, Model: model, Budget: bud,
 		Close: func(status string, code int) error {
-			return errors.Join(s.Close(status, code), log.Close())
+			return errors.Join(s.Close(status, code), rec.close(), log.Close())
 		},
 	}
+}
+
+// chatRecord is a chat session's record and its heartbeat. A zero value (the
+// record could not be written) does nothing: records are advisory, and the
+// chat has no stderr line to report the failure on.
+type chatRecord struct {
+	h    *sessions.Handle
+	stop context.CancelFunc
+}
+
+// record registers the chat session whose log is path.
+func (b *chatBackend) record(path string) chatRecord {
+	ctx, stop := context.WithCancel(context.Background())
+	h, err := registerRecord(ctx, b.e.root, "chat", path, "", b.e.red.Redact)
+	if err != nil {
+		stop()
+		return chatRecord{}
+	}
+	return chatRecord{h: h, stop: stop}
+}
+
+// attach wires the record into a session config.
+func (r chatRecord) attach(c *core.SessionConfig, root string) {
+	if r.h == nil {
+		return
+	}
+	c.Exec.Touched = touchHook(r.h, root)
+	c.Meta["record_path"] = r.h.Path()
+}
+
+func (r chatRecord) close() error {
+	if r.h == nil {
+		return nil
+	}
+	r.stop()
+	return r.h.Close()
 }
 
 // Sessions lists this project's saved sessions, newest first, leaving out

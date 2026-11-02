@@ -10,6 +10,8 @@ const (
 	ExitContextFull    = 3
 	ExitTurnCap        = 4
 	ExitApprovalNeeded = 5
+	ExitUnmet          = 6 // a check run by jas failed, or required work is unmet
+	ExitBudget         = 7 // a token or wall-clock cap was reached
 	ExitInterrupted    = 130
 )
 

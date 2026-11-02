@@ -28,6 +28,8 @@ const (
 	EvTurnStarted      = "turn_started"
 	EvTurnEnded        = "turn_ended"
 	EvSessionResumed   = "session_resumed"
+	EvBudgetStop       = "budget_stop"
+	EvCheckRan         = "check_ran"
 	EvModelChanged     = "model_changed"
 	EvCompaction       = "compaction"
 	EvSessionTitled    = "session_titled"

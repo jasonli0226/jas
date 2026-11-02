@@ -64,12 +64,18 @@ jas run --approve=mutating "..."                    # confirm shell + file edits
 jas run --model z-ai/glm-5.3 "..."                  # one-run override
 jas run --json "..."                                # event stream on stdout as JSONL
 jas run --trust-project "..."                       # load AGENTS.md without asking
+jas run --max-tokens 200000 --timeout 30m "..."     # hard caps for CI (exit 7)
+jas run --compact "..."                             # compact long runs like the chat
+jas sessions                                        # other jas sessions in this repo
 ```
 
 Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
-`jas auth add|list|rm|rotate`, `jas --version`. Run flags: `--json`,
-`--model`, `--provider`, `--base-url`, `--approve`, `--max-turns`,
-`--trust-project`, `--name` (session title). The chat takes the same flags
+`jas auth add|list|rm|rotate`, `jas sessions [--prune]`, `jas --version`.
+Run flags: `--json`, `--model`, `--provider`, `--base-url`, `--approve`,
+`--max-turns`, `--max-output-tokens`, `--trust-project`, `--name` (session
+title), and the run-only `--max-tokens N` (stop before a request that would
+cross N total tokens), `--timeout D` (wall-clock cap, e.g. `30m`) and
+`--compact`. The chat takes the same flags
 except `--json`, plus `--continue`; it needs a terminal, so scripts use
 `jas run`. `jas run` prints diffs only on a terminal. There is deliberately
 no `--api-key` flag (argv leaks via shell history and `ps`).
@@ -116,8 +122,9 @@ jas config list                                 # value + source of every key
 
 Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,
-`compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`, and
-per-model `models.<name>.context_window`.
+`compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`,
+`max_output_tokens` (default 16000, sent as `max_tokens` on every request),
+and per-model `models.<name>.context_window`.
 
 The chat compacts its context: once the prompt passes the window minus
 `compact_reserve_tokens` (default 16384; never below half the window), older
@@ -125,7 +132,7 @@ messages are replaced by a summary, keeping about `compact_keep_tokens` (default
 20000) of recent messages verbatim; on small windows that amount is capped at
 half the compaction threshold. `compact_model` picks the summary model
 (default: the session's). `/compact [focus]` compacts on demand. `jas run`
-does not compact.
+does not compact unless given `--compact`.
 
 API keys come from `auth.json` (literal, mode 0600), a `$ENV_NAME` reference
 stored there, or `JAS_API_KEY`. `jas auth list` shows names and sources,
@@ -234,9 +241,17 @@ Grant only what you would approve with any arguments.
 | 3 | context full |
 | 4 | turn cap (`max_turns`) hit |
 | 5 | approval required but no TTY to ask |
+| 7 | budget exceeded: `--max-tokens` or `--timeout` reached (`reason` is `tokens` or `timeout`) |
 | 130 | interrupted (Ctrl-C / SIGTERM) |
 
-Tool errors are results the model sees; they never set the exit code. Every
+Tool errors are results the model sees; they never set the exit code.
+Exit 7 is preceded by a `budget_stop` event, and `session_ended` carries the
+`reason` for every non-zero exit.
+
+Each session also writes a small status record to
+`<repo>/.jas/sessions/<id>.json` (git-excluded; file tools can't touch it),
+so `jas sessions` lists the other jas sessions working in the same repo,
+including linked worktrees. Every
 run that gets past setup appends a versioned JSONL event log at
 `~/.jas/sessions/<id>/events.jsonl`; the same code appears in its
 `session_ended` event.

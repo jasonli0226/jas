@@ -136,7 +136,9 @@ conflict when the farm is merged. **(author's call)**
 
 New `events.jsonl` types (versioned per design §3, additive):
 
-- `session_registered{record_path}`
+- `record_path` on `session_started` (as built: `session_started` must be
+  the first event, so the record path rides on it instead of a separate
+  `session_registered` event)
 - `peers_seen{peers:[{session_id, branch, state, touched_count}]}` (start-up)
 - `overlap_detected{path, peer_session_id, peer_branch, action: asked|warned|denied|allowed}`
 
