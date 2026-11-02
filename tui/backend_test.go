@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -148,6 +149,18 @@ func (b *testBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 
 func (b *testBackend) Models() []string         { return []string{"m", "m2"} }
 func (b *testBackend) ProviderOf(string) string { return b.provider }
+
+// BareModel mirrors the real backend: a known provider prefix is stripped,
+// anything else is already a bare id.
+func (b *testBackend) BareModel(ref string) string {
+	if name, rest, found := strings.Cut(ref, "/"); found {
+		switch name {
+		case "openrouter", "ollama", "custom", "vllm":
+			return rest
+		}
+	}
+	return ref
+}
 func (b *testBackend) SkillNames() []string     { return []string{"review"} }
 func (b *testBackend) SkillFiles() map[string]string {
 	return map[string]string{"/skills/review/SKILL.md": "review"}

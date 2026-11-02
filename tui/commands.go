@@ -321,8 +321,9 @@ func (m *Model) setModel(name string) tea.Cmd {
 	if prov := m.b.ProviderOf(name); prov != "" && m.live.Provider != "" && prov != m.live.Provider {
 		return m.notice(fmt.Sprintf("%s runs on %s — /new for a %s session", m.clean(name), prov, prov))
 	}
-	m.model, m.live.Model = name, name
-	if w := m.b.Window(name); w > 0 { // a zero window would make every request too big
+	bare := m.b.BareModel(name) // requests carry the bare id, never the provider prefix
+	m.model, m.live.Model = name, bare
+	if w := m.b.Window(bare); w > 0 { // a zero window would make every request too big
 		m.window = w
 		if m.live.Budget != nil {
 			m.live.Budget.Window = w
@@ -331,7 +332,7 @@ func (m *Model) setModel(name string) tea.Cmd {
 	live := m.live
 	return tea.Batch(
 		func() tea.Msg {
-			if err := live.Session.SetModel(name); err != nil {
+			if err := live.Session.SetModel(bare); err != nil {
 				return noticeMsg{"event log error: " + m.clean(err.Error())}
 			}
 			return nil

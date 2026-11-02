@@ -335,6 +335,18 @@ func (b *chatBackend) ProviderOf(model string) string {
 	return name
 }
 
+// BareModel resolves a model reference to the bare id on the provider it
+// names; a ref with no known provider is a bare id itself (OpenRouter ids
+// carry slashes). Unresolvable refs come back unchanged, so a bad switch
+// fails at the provider instead of silently here.
+func (b *chatBackend) BareModel(ref string) string {
+	_, _, bare, err := b.providerFor(ref)
+	if err != nil {
+		return ref
+	}
+	return bare
+}
+
 // Window is model's context window, DefaultContextWindow when unknown.
 func (b *chatBackend) Window(model string) int {
 	w, _ := b.e.window(model)

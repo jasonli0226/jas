@@ -184,6 +184,15 @@ func TestChatBackend_ModelsUnion(t *testing.T) {
 	assert.Eq(t, b.Window("zz"), 1000)
 }
 
+// BareModel strips a known provider prefix and leaves OpenRouter-style ids
+// ("z-ai/glm-5.3-flash" names no provider) and bare ids alone.
+func TestChatBackend_BareModel(t *testing.T) {
+	b := &chatBackend{e: testEnv(t)}
+	assert.Eq(t, b.BareModel("openrouter/z-ai/glm-5.3-flash"), "z-ai/glm-5.3-flash")
+	assert.Eq(t, b.BareModel("z-ai/glm-5.3-flash"), "z-ai/glm-5.3-flash")
+	assert.Eq(t, b.BareModel("glm-5.3-flash"), "glm-5.3-flash")
+}
+
 // captureStderr runs fn with os.Stderr sent to a temp file and returns what it wrote.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()

@@ -171,6 +171,21 @@ func TestChat_ModelSwitchAcrossProvidersRefused(t *testing.T) {
 	assert.NotContains(t, string(before), "model_changed")
 }
 
+// Regression: /model with a qualified reference ("openrouter/m2") sent
+// the whole reference as the model id — the provider answered 400 for
+// "openrouter/m2 is not a valid model ID". The switch must store the bare id.
+func TestChat_ModelSwitchStripsProviderPrefix(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "ok"})
+	b.provider = "openrouter"
+	c := newTestChat(t, b)
+	c.submit("/model openrouter/m2")
+	assert.Eq(t, c.m.live.Model, "m2")
+	c.submit("go")
+	c.pump()
+	assert.Eq(t, b.prov.Requests[0].Model, "m2")
+	assert.Contains(t, c.printedText(), "model openrouter/m2")
+}
+
 // Regression: /model logged model_changed synchronously inside Update. The
 // log forwards every event to the chat's own message queue, and posting
 // there from Update blocks forever on the program's unbuffered Send — the

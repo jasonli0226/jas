@@ -13,6 +13,11 @@ type Backend interface {
 	// when unknown. The chat uses it to refuse switching a live session
 	// to another provider.
 	ProviderOf(model string) string
+	// BareModel is the model id a reference resolves to on the provider it
+	// names; the reference itself when it names none. Switching models
+	// stores this, not the reference, so requests never carry a provider
+	// prefix.
+	BareModel(ref string) string
 	SkillNames() []string
 	SkillFiles() map[string]string                // SKILL.md path -> skill name
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
