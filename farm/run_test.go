@@ -312,11 +312,14 @@ func TestRunFarm_ConflictGoesToIntegrator(t *testing.T) {
 			return writes(map[string]string{"a.txt": strings.ToUpper(ws.Part.ID) + "\n"}, "done")
 		}
 		br := branchPrefix + ws.Meta["farm_id"].(string) + "/b"
-		cmd := "git merge --no-ff --no-verify --no-edit " + br + "; printf 'AB\\n' > a.txt && git add a.txt && git commit --no-verify -q -m resolve"
-		args, _ := json.Marshal(map[string]string{"command": cmd})
-		first := call("shell", string(args))
+		merge, _ := json.Marshal(map[string]string{"command": "git merge --no-ff --no-verify --no-edit " + br})
+		// Resolve by overwriting the conflicted file: a plain write works on
+		// every OS (cmd /d /s /c has no printf and no `;` separator).
+		write, _ := json.Marshal(map[string]string{"path": "a.txt", "content": "AB\n"})
+		commit, _ := json.Marshal(map[string]string{"command": "git add a.txt && git commit --no-verify -q -m resolve"})
 		intMsg = ws.System
-		return []fake.Turn{first, final("merged b, fixed a.txt")}
+		return []fake.Turn{call("shell", string(merge)), call("write", string(write)),
+			call("shell", string(commit)), final("merged b, fixed a.txt")}
 	})
 	r.opts.Cfg.Split.DisjointFiles = false
 	code, reason := r.run(context.Background())

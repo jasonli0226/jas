@@ -183,6 +183,9 @@ func workerContext(main projectContext, mainRoot, worktree string) (system strin
 // workerBundleHash hashes what a worker loads from root: the context file and
 // every project skill. Unlike the trust-prompt bundle it excludes farm.yaml.
 func workerBundleHash(root string) string {
+	if r, err := filepath.EvalSymlinks(root); err == nil { // Rel needs the root resolved too
+		root = r
+	}
 	_, content, _ := core.FindContextFile(root)
 	project, _ := skills.Discover(skills.ProjectSources(root), func(string) bool { return false })
 	for i := range project { // locations are absolute; compare them relative to root

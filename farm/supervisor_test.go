@@ -581,7 +581,7 @@ func TestSupervisor_Timeouts(t *testing.T) {
 	}
 
 	cfg = testCfg()
-	cfg.Budget.FarmTimeout = 50 * time.Millisecond
+	cfg.Budget.FarmTimeout = 3 * time.Second // slow Windows git must not blow the farm deadline mid-prepare
 	r = newSup(t, plan, cfg, block)
 	out = r.run(t, context.Background())
 	if out.BudgetStop != "timeout" || len(out.Failed) != 0 {

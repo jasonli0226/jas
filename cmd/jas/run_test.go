@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -31,7 +32,10 @@ func runJasIn(t *testing.T, dir string, env []string, args ...string) (stdout, s
 	cmd := exec.Command(testutil.JasBinary(t), args...)
 	cmd.Dir = dir
 	home := t.TempDir() // isolated from the real user skills on every OS
-	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "USERPROFILE=" + home, "JAS_HOME=" + testutil.TempHome(t)}, env...)
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "USERPROFILE=" + home,
+		// AppData so os.UserConfigDir (Windows) resolves inside the temp home;
+		// a stray name on the other platforms is harmless.
+		"AppData=" + filepath.Join(home, "AppData"), "JAS_HOME=" + testutil.TempHome(t)}, env...)
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
 	err := cmd.Run()

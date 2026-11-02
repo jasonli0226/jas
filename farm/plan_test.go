@@ -18,7 +18,7 @@ func readPlan(t *testing.T, name string) []byte {
 }
 
 func TestCanonicalHash_IgnoresApprovedBlockAndCRLF(t *testing.T) {
-	base := string(readPlan(t, "valid.yaml"))
+	base := strings.ReplaceAll(string(readPlan(t, "valid.yaml")), "\r\n", "\n") // checkout may be CRLF
 	want := CanonicalHash([]byte(base))
 	approved := base + "approved:\n  sha256: abc\n  by: me\n  at: 2026-11-02T23:30:00+09:00\n"
 	assert.Eq(t, CanonicalHash([]byte(approved)), want)
