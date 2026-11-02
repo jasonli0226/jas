@@ -33,6 +33,9 @@ type projectContext struct {
 	system string         // full system prompt
 	skills []skills.Skill // skills listed to the model
 	files  []contextFileMeta
+	// trusted is the project trust decision: the context file and project
+	// skills were loaded (or --trust-project was given). farm config follows it.
+	trusted bool
 }
 
 // loadProjectContext finds the project context file, applies the trust gate
@@ -45,7 +48,7 @@ type projectContext struct {
 func loadProjectContext(ctx context.Context, root, home string, project, user []skills.Skill, interactive, flagTrust bool,
 	in *bufio.Reader, out io.Writer, redact func(string) string, warn func(string)) (projectContext, error) {
 	path, content, hasFile := core.FindContextFile(root)
-	pc := projectContext{skills: user, files: []contextFileMeta{}}
+	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: flagTrust}
 	instructions := ""
 	if hasFile || len(project) > 0 {
 		store := core.TrustStore{Path: filepath.Join(home, trustFile)}
@@ -54,6 +57,7 @@ func loadProjectContext(ctx context.Context, root, home string, project, user []
 		if err != nil {
 			return projectContext{}, err
 		}
+		pc.trusted = load
 		if hasFile {
 			pc.files = append(pc.files, contextFileMeta{Path: path, Loaded: load, SHA256: core.ContentHash(content)})
 			if load {
@@ -139,4 +143,28 @@ func askLine(ctx context.Context, in *bufio.Reader, out io.Writer, prompt string
 	case line := <-ch:
 		return line
 	}
+}
+
+// workerContext is the system prompt and trust decision for a farm worker in
+// worktree. The supervisor decided trust once for the main checkout; the
+// worker inherits it only when its context file and project skills hash-equal
+// main's. Otherwise it gets the base prompt with no project context.
+func workerContext(main projectContext, mainRoot, worktree string) (system string, trusted bool) {
+	if main.trusted && projectBundleHash(mainRoot) == projectBundleHash(worktree) {
+		return main.system, true
+	}
+	return core.BuildSystem(core.BasePrompt, ""), false
+}
+
+// projectBundleHash hashes what the trust store hashes for root: the context
+// file and every project skill.
+func projectBundleHash(root string) string {
+	_, content, _ := core.FindContextFile(root)
+	project, _ := skills.Discover(skills.ProjectSources(root), func(string) bool { return false })
+	for i := range project { // locations are absolute; compare them relative to root
+		if rel, err := filepath.Rel(root, project[i].Location); err == nil {
+			project[i].Location = filepath.ToSlash(rel)
+		}
+	}
+	return core.ContentHash(trustBundle(content, project))
 }
