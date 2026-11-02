@@ -295,16 +295,18 @@ exit code by themselves. The process exit code reflects how the *run* ended:
 | 3 | context full (`context_length_exceeded`, or over the window after elision) |
 | 4 | turn cap (`max_turns`) hit |
 | 5 | approval required but no TTY to ask |
+| 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals); `reason` is `tokens` or `timeout`, after a `budget_stop` event |
 | 130 | interrupted (Ctrl-C / SIGTERM) |
 
-The same code appears in the `session_ended` event.
+The same code appears in the `session_ended` event, with a `reason` on every
+non-zero exit.
 
-Reserved for upcoming features (not emitted by v1; see the farm spec's CI contract):
+Reserved for upcoming features (see the farm spec's CI contract; `core`
+already defines 6 for the farm and spec runs):
 
 | code | meaning |
 |---|---|
 | 6 | `check` run by jas failed, or required work unmet: farm (a part failed / was dropped) and spec runs (`jas run --spec --phase scaffold` / `--section`); the final event's `reason` says which |
-| 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals); `reason` is `tokens` or `timeout` |
 | 8 | farm planner refused to split (use `jas run`) |
 
 ### The Tool interface (the whole extensibility story)
@@ -737,7 +739,8 @@ Settings keys (v1): `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`
 (the per-path redaction opt-out, §9), the chat's compaction keys
 `compact_reserve_tokens` (default 16384), `compact_keep_tokens` (default
-20000) and `compact_model` (default: the session's model), and per-model
+20000) and `compact_model` (default: the session's model), `max_output_tokens`
+(default 16000, sent as `max_tokens` on every request), and per-model
 `models.<name>.context_window`. Each key `k` has a matching `JAS_<K>` env var
 and, for the per-run ones, a `--<k>` flag. There is deliberately **no
 `--api-key` flag**: argv shows up in shell history and `ps`. Keys come from
