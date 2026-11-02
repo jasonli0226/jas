@@ -28,8 +28,22 @@ type Run struct {
 	MaxOutputTokens int    // sent as max_tokens on every model request
 }
 
+// providersFile rebuilds the stored provider map from the keys Resolve
+// injected, as a File whose ResolveModel resolves model refs.
+func (e Effective) providersFile() File {
+	f := File{Providers: map[string]ProviderEntry{}}
+	for k, v := range e {
+		if name, ok := providerKey(k); ok {
+			f.Providers[name] = ProviderEntry{BaseURL: v.Raw} // an empty URL still counts as configured: ResolveModel fails loudly
+		}
+	}
+	return f
+}
+
 // Build validates e and returns typed settings. Missing model or base_url
-// yields an error naming the setting and how to set it.
+// yields an error naming the setting and how to set it. A qualified model
+// reference ("openrouter/z-ai/glm-5.3") picks its provider, which supplies
+// the base URL and the auth name.
 func (e Effective) Build() (Run, error) {
 	if err := e.Validate(); err != nil {
 		return Run{}, err
@@ -41,8 +55,11 @@ func (e Effective) Build() (Run, error) {
 	if r.Provider == "" {
 		r.Provider = ProviderCustom
 	}
-	if r.BaseURL == "" {
-		r.BaseURL = Presets[r.Provider]
+	r.BaseURL = e["base_url"].Raw
+	var rerr error
+	r.Provider, r.BaseURL, r.Model, rerr = e.providersFile().ResolveModel(r.Model, r.Provider, r.BaseURL)
+	if rerr != nil {
+		return r, rerr
 	}
 	if r.Model == "" {
 		return r, fmt.Errorf("missing model: run `jas config set model z-ai/glm-5.3`, set JAS_MODEL, or pass --model")

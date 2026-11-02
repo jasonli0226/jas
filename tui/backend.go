@@ -9,6 +9,10 @@ type Backend interface {
 	Sessions(exclude string) ([]core.SessionInfo, error)                     // this project, newest first
 	Models() []string
 	Window(model string) int
+	// ProviderOf names the provider a model reference resolves to; ""
+	// when unknown. The chat uses it to refuse switching a live session
+	// to another provider.
+	ProviderOf(model string) string
 	SkillNames() []string
 	SkillFiles() map[string]string                // SKILL.md path -> skill name
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
@@ -18,6 +22,7 @@ type Backend interface {
 type Live struct {
 	Session         *core.Session
 	ID, Path, Model string
+	Provider        string // provider name the session's requests go to; "" in tests
 	Budget          *core.Budget
 	Close           func(status string, code int) error // session_ended, then closes the log
 }
