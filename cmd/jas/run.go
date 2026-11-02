@@ -72,6 +72,15 @@ func runCmd(ctx context.Context, args []string) error {
 	}
 	defer log.Close()
 	log = core.NewUILog(log, ui)
+	title := ra.name
+	if title == "" {
+		title = ra.prompt
+	}
+	rec, recErr := registerRecord(ctx, e.root, "run", path, title, red.Redact)
+	if recErr != nil {
+		fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: session record: "+recErr.Error())))
+	}
+	defer rec.Close()
 
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
@@ -81,10 +90,16 @@ func runCmd(ctx context.Context, args []string) error {
 		},
 		Log: log, Filter: red.Filter, Redact: red.Redact,
 	}
+	if rec != nil {
+		exec.Touched = touchHook(rec, e.root)
+	}
 	e.warnUnknownWindow(e.cfg.Model)
 	meta := e.sessionMeta(e.cfg.Model)
 	if ra.name != "" {
 		meta["title"] = ra.name
+	}
+	if rec != nil {
+		meta["record_path"] = rec.Path()
 	}
 	_, err = core.Run(ctx, core.RunConfig{
 		Provider: e.provider,

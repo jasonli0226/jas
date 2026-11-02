@@ -53,6 +53,8 @@ func dispatch(ctx context.Context, args []string) int {
 		return report(configCmd(args[1:]))
 	case "auth":
 		return report(authCmd(args[1:]))
+	case "sessions":
+		return report(sessionsCmd(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "jas: unknown command %q\n%s\n", args[0], usage)
 		return core.ExitUsage

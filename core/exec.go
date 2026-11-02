@@ -34,6 +34,10 @@ type Executor struct {
 	Log    EventLog
 	Filter func(Result) Result // redaction hook; nil means identity
 	Redact func(string) string // applied to each shown diff line; nil is identity
+	// Touched, when set, hears about writes for session records: the resolved
+	// path after a successful write or edit, and tool "shell" with path ""
+	// after any shell call that ran (its writes can't be tracked).
+	Touched func(tool, path string)
 }
 
 type slot struct {
@@ -278,6 +282,30 @@ func (r *run) execute(ctx context.Context, s *slot) {
 		s.settle(res, statusError)
 	default:
 		s.settle(res, statusOK)
+	}
+	r.touched(s, err == nil && !res.IsError)
+}
+
+// touched reports a finished call to Executor.Touched.
+func (r *run) touched(s *slot, ok bool) {
+	hook := r.e.Touched
+	if hook == nil {
+		return
+	}
+	switch s.call.Name {
+	case "shell":
+		hook("shell", "")
+	case "write", "edit":
+		if !ok {
+			return
+		}
+		var a struct{ Path string }
+		if json.Unmarshal(s.call.Input, &a) != nil || a.Path == "" {
+			return
+		}
+		if full, err := r.e.Policy.Resolve(a.Path); err == nil {
+			hook(s.call.Name, full)
+		}
 	}
 }
 

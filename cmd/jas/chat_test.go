@@ -245,3 +245,17 @@ func TestChatBackend_EnablesCompaction(t *testing.T) {
 	assert.Eq(t, settings.DefaultCompactReserve, core.DefaultCompactReserve)
 	assert.Eq(t, settings.DefaultCompactKeep, core.DefaultCompactKeep)
 }
+
+func TestChatBackend_RegistersRecord(t *testing.T) {
+	b := &chatBackend{e: testEnv(t, fake.Turn{Text: "a"})}
+	saved := saveSession(t, b, "m")
+	ev := testutil.ReadEvents(t, saved.Path)[0]
+	recPath, _ := ev["record_path"].(string)
+	if recPath == "" {
+		t.Fatal("session_started has no record_path")
+	}
+	raw, err := os.ReadFile(recPath)
+	assert.NoErr(t, err)
+	assert.Contains(t, string(raw), `"mode": "chat"`)
+	assert.Contains(t, string(raw), `"state": "ended"`)
+}
