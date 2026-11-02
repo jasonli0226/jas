@@ -9,6 +9,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.9
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 )
