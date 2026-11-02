@@ -115,6 +115,9 @@ func (c *testChat) run(cmd tea.Cmd) {
 		c.quit = true
 		return
 	}
+	if _, ok := msg.(tickMsg); ok {
+		return // a real 130 ms timer; spinner tests post ticks by hand
+	}
 	if v := reflect.ValueOf(msg); v.Kind() == reflect.Slice && v.Type().Elem() == reflect.TypeFor[tea.Cmd]() {
 		for i := range v.Len() {
 			c.run(v.Index(i).Interface().(tea.Cmd))
@@ -203,7 +206,8 @@ func TestChat_BlankLineAboveInput(t *testing.T) {
 
 	c.submit("hi")
 	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(textMsg); return ok })
-	assert.Contains(t, c.view(), "● partial\n\n"+strings.Repeat("─", defaultWidth)+"\n›")
+	// The loader line belongs to the input area, under the blank line.
+	assert.Contains(t, c.view(), "● partial\n\n⠋ working…\n"+strings.Repeat("─", defaultWidth)+"\n›")
 }
 
 func TestChat_SendStreamsAndPrints(t *testing.T) {

@@ -21,10 +21,8 @@ type statusInfo struct {
 	Root    string
 	Branch  string // git branch of Root, "" outside a repo
 	Title   string // session title, "" when unset
-	Running bool
-	Queued  int // steering texts waiting for the run
+	Queued  int    // steering texts waiting for the run
 
-	Thinking     bool // the model is reasoning right now
 	ShowThinking bool // /thinking is on
 }
 
@@ -49,12 +47,6 @@ func (s statusInfo) Render(width int) string {
 	}
 	if s.ShowThinking {
 		tail += " · thinking shown"
-	}
-	switch {
-	case s.Running && s.Thinking:
-		tail += " · thinking…"
-	case s.Running:
-		tail += " · working…"
 	}
 	if s.Queued > 0 {
 		tail += fmt.Sprintf(" · %d queued", s.Queued)

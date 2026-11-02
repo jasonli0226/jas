@@ -15,15 +15,15 @@ func TestStatus_Format(t *testing.T) {
 	s := statusInfo{Model: "glm", Level: core.ShellOnly, Prompt: 5000, Window: 10000, In: 10000, Out: 2345, Root: "/x/jas"}
 	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 50% · ↑10.0k ↓2.3k · jas")
 
-	s.Branch, s.Running, s.Queued = "main", true, 2
-	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 50% · ↑10.0k ↓2.3k · jas (main) · working… · 2 queued")
+	s.Branch, s.Queued = "main", 2
+	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 50% · ↑10.0k ↓2.3k · jas (main) · 2 queued")
 }
 
-func TestStatus_ThinkingCues(t *testing.T) {
-	s := statusInfo{Model: "glm", Level: core.ShellOnly, Root: "/x/jas", Running: true, Thinking: true}
-	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 0% · ↑0 ↓0 · jas · thinking…")
+func TestStatus_ThinkingShown(t *testing.T) {
+	s := statusInfo{Model: "glm", Level: core.ShellOnly, Root: "/x/jas"}
+	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 0% · ↑0 ↓0 · jas")
 
-	s.Running, s.Thinking, s.ShowThinking = false, false, true
+	s.ShowThinking = true
 	assert.Eq(t, ansi.Strip(s.Render(0)), "glm · shell · 0% · ↑0 ↓0 · jas · thinking shown")
 }
 

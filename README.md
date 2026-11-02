@@ -84,7 +84,9 @@ no `--api-key` flag (argv leaks via shell history and `ps`).
 
 `jas` opens an inline chat. Replies stream into the terminal's own scrollback
 (no full-screen mode), above the input box and a status line showing the
-model, approval level, context use and token counts.
+model, approval level, context use and token counts. While a reply runs, a
+dim spinner line above the input shows the run in progress (`working…`, or
+`thinking…` while the model reasons).
 
 - **Enter** sends; **Alt+Enter** or **Shift+Enter** adds a newline. Typing
   while a reply runs steers it: the text reaches the model at its next step.

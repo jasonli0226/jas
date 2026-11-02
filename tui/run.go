@@ -41,6 +41,7 @@ func (m *Model) spawn(compact bool, work func(context.Context) tea.Msg) {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &activeRun{cancel: cancel, done: make(chan struct{}), compact: compact}
 	m.run = r
+	m.frame = 0 // the loader starts from the first frame
 	send := m.send
 	go func() {
 		msg := work(ctx)
@@ -57,7 +58,7 @@ func (m *Model) startRun(text string, shown []string) tea.Cmd {
 		res, err := s.Send(ctx, text)
 		return runDoneMsg{gen: gen, res: res, err: err}
 	})
-	return m.print(shown...)
+	return tea.Batch(m.print(shown...), m.armTick())
 }
 
 // startCompact compacts the session on a goroutine, which posts
@@ -68,7 +69,7 @@ func (m *Model) startCompact(focus string) tea.Cmd {
 		res, err := s.Compact(ctx, focus)
 		return compactDoneMsg{gen: gen, res: res, err: err}
 	})
-	return m.notice("compacting…")
+	return tea.Batch(m.notice("compacting…"), m.armTick())
 }
 
 // onEvent tracks usage, steering delivery and compaction, and prints tool

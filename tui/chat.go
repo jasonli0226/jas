@@ -56,6 +56,8 @@ type Model struct {
 	branch   string // git branch of the root, refreshed per session and run
 	usage    usage
 	run      *activeRun
+	frame    int          // loader frame while a run is active
+	tickPend bool         // a loader tick timer is armed
 	queued   []string     // steering sent during the current run
 	approval *approvalMsg // the open approval prompt
 	picker   *picker      // the open picker, shown in place of the input
@@ -179,6 +181,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == m.gen {
 			return m, m.onCompactDone(msg)
 		}
+	case tickMsg:
+		return m, m.onTick()
 	case approvalMsg:
 		return m, m.onApproval(msg)
 	case noticeMsg:
@@ -205,6 +209,9 @@ func (m *Model) View() tea.View {
 	for _, q := range m.queued {
 		line := "↳ " + strings.Join(strings.Fields(q), " ")
 		parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
+	}
+	if l := m.loader(); l != "" {
+		parts = append(parts, l)
 	}
 	if p := m.prompt(); p != "" {
 		parts = append(parts, p)
@@ -246,8 +253,7 @@ func (m *Model) statusLine() string {
 	return statusInfo{
 		Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
 		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch, Title: m.title(),
-		Running: m.running(), Queued: len(m.queued),
-		Thinking: m.tr.thinking, ShowThinking: m.tr.ShowThinking,
+		Queued: len(m.queued), ShowThinking: m.tr.ShowThinking,
 	}.Render(m.width)
 }
 
