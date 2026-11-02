@@ -82,10 +82,11 @@ jas (single Go binary)
 │   ├── loader.go            .jas/scenario.yaml discovery, layer-merge
 │   └── bootstrap.go         deterministic project scan → draft scenario.yaml
 │
-├── farm/                    parallel tasks (v2)
-│   ├── worktree.go          one git worktree + branch per task
-│   ├── runner.go            goroutine per task (in-process), errgroup supervision
-│   └── queue.go             task queue + review queue (diff/merge/discard)
+├── farm/                    split one task into parts (v2, spec: superpowers/specs/2026-11-02-farm-design.md)
+│   ├── plan.go              planner agent drafts plan.yaml; validation in code
+│   ├── supervisor.go        runs parts in DAG order, one worktree + branch + session each
+│   ├── board.go             append-only board.jsonl, injected at turn boundaries
+│   └── integrate.go         integrator agent merges branches, runs `check`
 │
 ├── ui/                      visibility (v2, minimal stdout in v1)
 │   ├── tui.go               Bubble Tea dashboard: N live sessions, status, last event
@@ -93,7 +94,7 @@ jas (single Go binary)
 │
 └── cmd/jas/
     ├── main.go              single binary entry
-    └── commands.go          jas run | jas config | jas auth (v1) · jas farm | attach | tasks (v2)
+    └── commands.go          jas run | jas config | jas auth (v1) · jas farm (v2) · attach | tasks (later)
 ```
 
 ### The six interfaces
@@ -394,11 +395,17 @@ per-task containers ship in v3).
 
 ## 5. v2 scope (weekend two+)
 
-- [ ] `jas farm --n 3` — git worktree per task, parallel run, review queue.
-      The `jas farm` process is the supervisor: tasks are goroutines inside
-      it (one worktree root each, §3), and it lives until the review queue is
-      drained
-- [ ] `jas attach <task>` — connects to the farm's Unix socket
+- [ ] `jas farm "<task>"` — split one task into parts: a planner agent
+      drafts `plan.yaml` (parts, roles, owned files, order, contracts), the
+      owner approves it, the supervisor (code, no LLM) runs parts in parallel
+      in their own worktrees, workers post to a shared append-only board, and
+      an integrator agent merges the branches and runs `check`. Roles and
+      variables are data; nothing merges without the owner. Replaces the
+      earlier best-of-N `--n` design. Spec:
+      [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md)
+- [ ] Farm discussion mode (propose / critique / decide on one task): same
+      machinery with roles instead of parts; after farm
+- [ ] `jas attach <task>` (after farm) — connects to the farm's Unix socket
       (`~/.jas/run/<farm-id>.sock`, 0600) and speaks the RPC protocol. Attach
       waits for the task's current turn to finish (no mid-stream handoff), then
       routes the human's messages in through the steering queue. Live
@@ -512,7 +519,7 @@ mcp:
 
 `pre_apply` runs before any file-mutation tool result is applied to disk
 (renamed from the earlier `pre_commit` — jas never commits; commits stay with
-the human / farm review queue). See #10.
+the human / farm integration step). See #10.
 
 ### 8.3 `jas bootstrap` — scenario from an existing project (no LLM)
 
@@ -720,8 +727,9 @@ Persistent config lives in `~/.jas/` and is managed with `jas config` /
 `jas auth`.
 
 **Session storage** stays simple: `~/.jas/sessions/<id>/events.jsonl` (§3) is
-the whole story — no DB, replay = tail the file. Farm task state (v2) lives in
-`~/.jas/farm.json`.
+the whole story — no DB, replay = tail the file. Farm state (v2) lives in
+`~/.jas/farms/<farm-id>/` (plan, supervisor log, board, one event log per
+part); see the farm spec.
 
 ## 11. Security acceptance: v1, and project trust
 
@@ -882,6 +890,6 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 | Project trust | `--approve`/`-a` trusts project-local files; `--no-context-files` | trust gate on `AGENTS.md`/`CLAUDE.md` (v1), extended to scenarios (v2); `--trust-project` | note the flag clash: pi's `--approve` means *trust*, jas's means *tool gating* |
 | Context | auto-compaction (summary at `window − reserve`) | v1: chunked tool-result elision + clean stop; v2: same compaction | elision is the cheap v1 floor |
 | Sessions | JSONL tree, `--continue` / `--resume` / `--fork` | versioned JSONL events with `parent_id`; resume and fork in v2 | write-ahead `tool_started` for at-most-once side effects |
-| Parallelism | one session per process (tmux for more) | `jas farm --n N`: worktree per task, review queue (v2) | core jas bet |
+| Parallelism | one session per process (tmux for more) | `jas farm`: one task split into parts, worktree per part, integrator (v2) | core jas bet |
 | Extensibility | TS extensions, npm/git packages, skills, prompt templates, MCP | `Tool` interface, MCP (v2), hooks + scenarios (v2), `SKILL.md` skills | no plugin ABI in Go; scenarios are data |
 | Secrets | `auth.json`, keys out of settings | four layers (§9): deny floor, output redaction, blind access (v2), redacted log | redaction is the backstop for YOLO shell |

@@ -130,44 +130,51 @@ fine for your own repo, think twice for third-party PRs.
 **Done when:** the secrets fixture test from design §11 passes under `--json`
 in CI — zero secret values in the transcript and event log.
 
-## 4. Farm: N parallel worktree agents (v2)
+## 4. Farm: one big task split into parts (v2)
 
-**Who:** an experiments-heavy contributor. **Job:** get N attempts at the
-same fix and pick the one to keep.
+**Who:** a contributor with a cross-cutting change. **Job:** get it done
+faster than one agent would, without paying several times for it.
 
 ```sh
-jas farm --n 3 "fix all failing tests in pkg/store"
+jas farm "migrate logging to slog across all packages"
 ```
 
-- Non-overlapping git worktrees per task (they won't clobber each other's
-  working trees). Worktrees still share the host FS and `$HOME` — not a
-  sandbox. Isolation answer is bubblewrap/Docker in v1 docs, and per-task
-  containers in v3 (design.md §3.1 / §9).
-- Review queue: diffs come back side by side; accept / merge / discard.
-- Built on the v1 core. Tasks are goroutines inside the `jas farm` process,
-  each with its worktree as its project root, and each emitting the same
-  event stream as `jas run --json`.
+- A planner agent drafts `plan.yaml`: parts, a role per part (coder, tester,
+  researcher, reviewer, or the project's own), the files each part owns, the
+  order between parts, and the contracts they share. It refuses to split when
+  splitting doesn't pay and suggests `jas run`.
+- The owner reviews and approves (or edits, or asks for a new plan) before
+  any worker starts.
+- The supervisor (plain code, no LLM) runs parts in parallel, each in its own
+  worktree and branch. Workers post facts to a shared append-only board and
+  read new posts at each turn boundary.
+- A failed part pauses the parts that depend on it and asks the owner:
+  retry, take over, drop, or abort.
+- An integrator agent merges the branches, fixes the seams, and runs the
+  project's `check` command. The owner decides whether to merge, keep or
+  discard the result.
+- Worktrees still share the host FS and `$HOME` — not a sandbox. Per-task
+  containers are v3 (design.md §3.1 / §9).
 
-**Done when:** N diffs are returned, and the human's accept/merge/discard
-decision is recorded — nothing merges without one.
+Good fits: cross-cutting migrations, a feature across layers (core, CLI,
+UI, docs), a batch of small issues grouped by the files they touch. Poor
+fits: debugging one bug, tightly coupled refactors, small tasks.
 
-## 5. Interactive attach (v2)
+**Done when:** the integrated branch passes `check` and the owner's merge
+decision is recorded — nothing merges without one. Full design:
+[superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
+
+## 5. Interactive attach (after farm)
 
 **Who:** the same contributor, mid-migration. **Job:** step into a running
-agent when the model needs a human call.
+part when the model needs a human call.
 
-```sh
-jas farm --n 2 "migrate the config schema"   # supervisor + workers
-jas attach 2   # from another terminal: connects to the farm's Unix socket
-               # and takes over task 2's session
-```
-
-`jas farm` is the supervisor and stays up until its review queue is drained.
-`attach` is a client on its Unix socket (`~/.jas/run/<farm-id>.sock`), not a
-shell background job. Attach waits for the task's current turn to finish, then
-your messages enter through the steering queue. If the supervisor has died,
-attach falls back to `jas resume`: replay the event log and continue — the
-same primitive crash recovery uses.
+In the first farm version, a failed part offers **take over**: the farm
+prints the command to continue that part's session in its worktree. Later,
+`jas attach <part>` connects to the running farm over a Unix socket
+(`~/.jas/run/<farm-id>.sock`) and takes over at a turn boundary through the
+steering queue, without stopping the farm. If the supervisor has died,
+attach falls back to resuming the part's event log.
 
 **Done when:** attach takes over at a turn boundary, and no mutating tool call
 is re-executed on takeover or on the resume fallback (design §3 side-effect
