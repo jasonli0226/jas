@@ -10,8 +10,7 @@ behind it. Each section names who it's for, the job to be done, and what
 **Who:** a solo dev in a weekend loop. **Job:** get a reviewed change without
 leaving the terminal.
 
-Task in, files changed, you `git diff` — review stays with the human, as it
-should until the v2 review queue.
+Task in, files changed, you `git diff` — review stays with the human.
 
 ```sh
 jas run "add a header comment to main.go explaining the retry logic"
@@ -130,29 +129,36 @@ fine for your own repo, think twice for third-party PRs.
 **Done when:** the secrets fixture test from design §11 passes under `--json`
 in CI — zero secret values in the transcript and event log.
 
-## 4. Farm: one big task split into parts (v2)
+## 4. Farm: one big task split into parts (after its prerequisites)
 
-**Who:** a contributor with a cross-cutting change. **Job:** get it done
-faster than one agent would, without paying several times for it.
+**Who:** a contributor with a change too big or too slow for one agent.
+**Job:** get it done in parallel, safely and auditably. Farm is not "better
+than one agent" and costs more tokens than one; it pays on decomposable work
+([research](research/farm-multi-agent-community-2026-11.md)).
 
 ```sh
-jas farm "migrate logging to slog across all packages"
+jas farm plan "migrate logging to slog across all packages" -o plan.yaml
+jas farm run plan.yaml          # CI path; `jas farm "<task>"` in one terminal
 ```
 
 - A planner agent drafts `plan.yaml`: parts, a role per part (coder, tester,
   researcher, reviewer, or the project's own), the files each part owns, the
-  order between parts, and the contracts they share. It refuses to split when
-  splitting doesn't pay and suggests `jas run`.
+  order between parts, and the contracts they share. Refusing is the
+  default: small or single-package changes, overlapping ownership or purely
+  serial work get a structured reason, exit 8 and a `jas run` suggestion.
 - The owner reviews and approves (or edits, or asks for a new plan) before
-  any worker starts.
-- The supervisor (plain code, no LLM) runs parts in parallel, each in its own
-  worktree and branch. Workers post facts to a shared append-only board and
-  read new posts at each turn boundary.
+  any worker starts; the approved plan hash is what CI runs.
+- The supervisor (plain code, no LLM) runs 2–3 parts at a time, each in its
+  own worktree (`<repo>/.jas/worktrees/`) and branch. Workers post typed
+  commitments (owns, interface, blocked, done) to an append-only board,
+  delivered as labelled context, a few rounds at most.
 - A failed part pauses the parts that depend on it and asks the owner:
-  retry, take over, drop, or abort.
-- An integrator agent merges the branches, fixes the seams, and runs the
-  project's `check` command. The owner decides whether to merge, keep or
-  discard the result.
+  retry, take over, drop, or abort. In CI, `on_failure: drop|abort` decides.
+- An integrator agent merges the branches and fixes the seams; the
+  supervisor then runs the project's `check` — that is the verdict. With a
+  TTY the owner merges, keeps or discards; without one the result is kept.
+- Budgets are checked before each model call (per worker, farm total,
+  integrator reserve, time limits).
 - Worktrees still share the host FS and `$HOME` — not a sandbox. Per-task
   containers are v3 (design.md §3.1 / §9).
 
@@ -160,8 +166,9 @@ Good fits: cross-cutting migrations, a feature across layers (core, CLI,
 UI, docs), a batch of small issues grouped by the files they touch. Poor
 fits: debugging one bug, tightly coupled refactors, small tasks.
 
-**Done when:** the integrated branch passes `check` and the owner's merge
-decision is recorded — nothing merges without one. Full design:
+**Done when:** the integrated branch passes the supervisor's `check` and the
+owner's decision is recorded — nothing merges without one — and farm beats
+plain `jas run` on wall-clock in the farm-vs-solo benchmark. Full design:
 [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
 
 ## 5. Interactive attach (after farm)

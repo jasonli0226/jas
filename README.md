@@ -10,9 +10,10 @@ jas is a single static Go binary that is:
 
 - **lean** — fewer turns and tokens per task: cache-friendly prompts, parallel
   reads, capped and elided tool output; streaming loop in ~200 lines
-- **parallel** — one agent per git worktree, N tasks at once *(planned v2)*
-- **visible** — every step is a JSONL event (audit + resume); live status
-  board *(planned v2)*
+- **parallel** — *(proposed)* session awareness for agents running side by
+  side; later `jas farm`, one too-big task split into parts across worktrees
+  with a verified merge, after its prerequisites
+- **visible** — every step is a JSONL event (audit + resume)
 - **pluggable** — Tool interface; OpenAI-compatible endpoints (OpenRouter,
   vLLM, ollama); MCP client *(planned v2)*
 
