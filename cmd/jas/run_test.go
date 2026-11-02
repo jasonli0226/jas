@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
@@ -197,6 +198,17 @@ func TestRunCmd_MaxTokensFlag(t *testing.T) {
 	for _, bad := range []string{"-1", "0", "lots"} {
 		if _, err := parseRun([]string{"--max-tokens", bad, "task"}); err == nil {
 			t.Errorf("--max-tokens %s: want usage error", bad)
+		}
+	}
+}
+
+func TestRunCmd_TimeoutFlag(t *testing.T) {
+	ra, err := parseRun([]string{"--timeout", "30m", "task"})
+	assert.NoErr(t, err)
+	assert.Eq(t, ra.timeout, 30*time.Minute)
+	for _, bad := range []string{"0", "-1s", "soon"} {
+		if _, err := parseRun([]string{"--timeout", bad, "task"}); err == nil {
+			t.Errorf("--timeout %s: want usage error", bad)
 		}
 	}
 }

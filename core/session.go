@@ -306,7 +306,7 @@ func (s *Session) note(err error) {
 func (s *Session) loop(ctx context.Context, m *msgState) (status string, code int, reason string) {
 	for m.turns < s.c.MaxTurns {
 		if ctx.Err() != nil {
-			return endInterrupted, ExitInterrupted, "interrupted"
+			return s.ctxEnd(ctx)
 		}
 		m.turns++
 		s.turns++
@@ -334,7 +334,7 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	}
 	if err != nil && s.retryAfterOverflow(ctx, err) {
 		_, cerr := s.Compact(ctx, "")
-		if done, st, code, reason := compactFailed(ctx, cerr); done {
+		if done, st, code, reason := s.compactFailed(ctx, cerr); done {
 			return true, st, code, reason
 		}
 		msg, uses, err = s.request(ctx, m)
@@ -357,6 +357,10 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	results, err := c.Exec.Run(ctx, uses)
 	s.push(providers.Message{Role: providers.RoleUser, Content: results}, "")
 	if err != nil { // queued steering stays queued for the caller
+		if ctx.Err() != nil {
+			st, code, reason := s.ctxEnd(ctx)
+			return true, st, code, reason
+		}
 		st, code := classify(err)
 		return true, st, code, err.Error()
 	}
@@ -444,7 +448,8 @@ func (s *Session) streamFailed(ctx context.Context, err error, msg providers.Mes
 			s.push(msg, s.logAssistant(msg, false))
 			s.push(providers.Message{Role: providers.RoleUser, Content: s.cancelUses(uses)}, "")
 		}
-		return true, endInterrupted, ExitInterrupted, "interrupted"
+		st, code, reason := s.ctxEnd(ctx)
+		return true, st, code, reason
 	case errors.Is(err, providers.ErrContextLength):
 		return true, endContextFull, ExitContextFull, "context window full"
 	default:

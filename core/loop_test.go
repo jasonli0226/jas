@@ -1,6 +1,8 @@
 package core_test
 
 import (
+	"time"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -401,4 +403,27 @@ func TestRun_RedactsAssistantContentAndToolInput(t *testing.T) {
 	if !found {
 		t.Fatal("redaction marker missing from assistant_message.content")
 	}
+}
+
+func TestRun_DeadlineIsBudgetTimeout(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Block: true}})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := core.Run(ctx, r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitBudget)
+	evs := r.events(t)
+	assert.Eq(t, count(evs, "budget_stop"), 1)
+	end := lastEnded(t, evs)
+	assert.Eq(t, end["status"], any("budget_exceeded"))
+	assert.Eq(t, end["reason"], any("timeout"))
+}
+
+func TestRun_CancelStillInterrupted(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Block: true}})
+	ctx, cancelDeadline := context.WithTimeout(context.Background(), time.Hour)
+	defer cancelDeadline()
+	ctx, cancel := context.WithCancel(ctx)
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+	_, err := core.Run(ctx, r.cfg)
+	assert.Eq(t, exitCode(t, err), core.ExitInterrupted)
 }

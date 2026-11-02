@@ -32,7 +32,8 @@ type runArgs struct {
 	prompt string
 	flags  map[string]string // setting key -> value, only flags that were passed
 
-	maxTokens int // --max-tokens: total token cap; 0 = none
+	maxTokens int           // --max-tokens: total token cap; 0 = none
+	timeout   time.Duration // --timeout: wall-clock cap; 0 = none
 }
 
 // reportRedactor masks the resolved API key in top-level error messages.
@@ -46,6 +47,11 @@ func runCmd(ctx context.Context, args []string) error {
 	e, err := prepare(ctx, ra.flags, ra.trust)
 	if err != nil {
 		return err
+	}
+	if ra.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, ra.timeout)
+		defer cancel()
 	}
 	red := e.red
 
@@ -93,7 +99,7 @@ func runCmd(ctx context.Context, args []string) error {
 }
 
 // runOnlyFlags are jas run flags that are not stored settings.
-var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true}
+var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true}
 
 // tokenPool is the --max-tokens cap, or nil when none was given.
 func (ra runArgs) tokenPool() *core.TokenPool {
@@ -135,6 +141,7 @@ func parseRun(args []string) (runArgs, error) {
 	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
 	fs.StringVar(&ra.name, "name", "", "title for the session")
 	maxTokens := fs.String("max-tokens", "", "stop with exit 7 before a request that would cross this many total tokens")
+	timeout := fs.String("timeout", "", "stop with exit 7 after this wall-clock duration (e.g. 30m)")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
@@ -151,6 +158,11 @@ func parseRun(args []string) (runArgs, error) {
 	if *maxTokens != "" {
 		if ra.maxTokens, err = strconv.Atoi(*maxTokens); err != nil || ra.maxTokens <= 0 {
 			return ra, usageErr("--max-tokens must be a positive integer, got %q", *maxTokens)
+		}
+	}
+	if *timeout != "" {
+		if ra.timeout, err = time.ParseDuration(*timeout); err != nil || ra.timeout <= 0 {
+			return ra, usageErr("--timeout must be a positive duration such as 30m, got %q", *timeout)
 		}
 	}
 	if ra.name, err = parseName(fs, ra.name); err != nil {

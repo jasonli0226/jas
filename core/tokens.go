@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -148,4 +149,14 @@ func (s *Session) budgetStopped(err error) (done bool, status string, code int, 
 		"reason": reasonTokens, "pool": be.Pool, "limit": be.Limit, "used": be.Used, "want": be.Want,
 	}))
 	return true, endBudget, ExitBudget, reasonTokens
+}
+
+// ctxEnd is how a turn ends once ctx is done: a deadline is the wall-clock
+// cap (exit 7, after budget_stop), anything else is an interrupt.
+func (s *Session) ctxEnd(ctx context.Context) (status string, code int, reason string) {
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return endInterrupted, ExitInterrupted, "interrupted"
+	}
+	s.note(s.c.Log.Append(EvBudgetStop, map[string]any{"reason": reasonTimeout}))
+	return endBudget, ExitBudget, reasonTimeout
 }
