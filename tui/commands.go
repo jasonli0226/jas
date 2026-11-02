@@ -275,7 +275,9 @@ func (m *Model) cmdHelp(string) tea.Cmd {
 	return m.notice(strings.Split(helpText, "\n")...)
 }
 
-// cmdName sets the session title, or with no argument shows it.
+// cmdName sets the session title, or with no argument shows it. The
+// session-log append runs in a Cmd (see setModel: posting the forwarded
+// event from inside Update would hang the program).
 func (m *Model) cmdName(title string) tea.Cmd {
 	if title == "" {
 		if t := m.live.Session.Title(); t != "" {
@@ -283,11 +285,16 @@ func (m *Model) cmdName(title string) tea.Cmd {
 		}
 		return m.notice("no title; /name <title> sets one")
 	}
-	var cmds []tea.Cmd
-	if err := m.live.Session.SetTitle(title); err != nil {
-		cmds = append(cmds, m.print(errStyle.Render(m.clean(err.Error()))))
-	}
-	return tea.Batch(append(cmds, m.notice("session named "+m.live.Session.Title()))...)
+	live := m.live
+	return tea.Batch(
+		func() tea.Msg {
+			if err := live.Session.SetTitle(title); err != nil {
+				return noticeMsg{"event log error: " + m.clean(err.Error())}
+			}
+			return nil
+		},
+		m.notice("session named "+m.clean(title)),
+	)
 }
 
 func (m *Model) cmdModel(name string) tea.Cmd {
@@ -302,12 +309,11 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 	return nil
 }
 
-// setModel switches the current session's model and its context window.
+// setModel switches the current session's model and its context window. The
+// session-log append runs in a Cmd: the log forwards model_changed to the
+// chat's own message queue, and posting a message from inside Update would
+// block on the program's unbuffered Send and hang it.
 func (m *Model) setModel(name string) tea.Cmd {
-	var cmds []tea.Cmd
-	if err := m.live.Session.SetModel(name); err != nil {
-		cmds = append(cmds, m.print(errStyle.Render(m.clean(err.Error()))))
-	}
 	m.model, m.live.Model = name, name
 	if w := m.b.Window(name); w > 0 { // a zero window would make every request too big
 		m.window = w
@@ -315,7 +321,16 @@ func (m *Model) setModel(name string) tea.Cmd {
 			m.live.Budget.Window = w
 		}
 	}
-	return tea.Batch(append(cmds, m.notice("model "+name))...)
+	live := m.live
+	return tea.Batch(
+		func() tea.Msg {
+			if err := live.Session.SetModel(name); err != nil {
+				return noticeMsg{"event log error: " + m.clean(err.Error())}
+			}
+			return nil
+		},
+		m.notice("model "+name),
+	)
 }
 
 func (m *Model) cmdThinking(string) tea.Cmd {
