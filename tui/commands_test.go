@@ -350,18 +350,19 @@ func TestChat_ApprovalClosesPicker(t *testing.T) {
 	assert.Eq(t, c.m.picker == nil, true)
 }
 
-// compactBackend is a test backend with a small window and a Keep small
+// compactBackend is a test backend with a small window (room for the system
+// prompt and tool schemas below the auto-compaction trigger) and a Keep small
 // enough that three exchanges have something to compact.
 func compactBackend(t *testing.T, turns ...fake.Turn) *testBackend {
 	b := newTestBackend(t, turns...)
-	b.window, b.keep = 1000, 1
+	b.window, b.keep = 2000, 1
 	return b
 }
 
 func TestChat_CompactCommand(t *testing.T) {
 	b := compactBackend(t,
 		fake.Turn{Text: "a1"}, fake.Turn{Text: "a2"},
-		fake.Turn{Text: "a3", Usage: providers.Usage{PromptTokens: 600}},
+		fake.Turn{Text: "a3", Usage: providers.Usage{PromptTokens: 1200}},
 		fake.Turn{Text: "## Goal\nthe summary"})
 	c := newTestChat(t, b)
 	for _, q := range []string{"q1", "q2", "q3"} {
@@ -380,7 +381,7 @@ func TestChat_CompactCommand(t *testing.T) {
 	assert.Contains(t, out, "compacted 4 messages · ")
 	assert.Contains(t, out, " → ")
 	assert.NotContains(t, out, "· compacted earlier messages") // the command's own line is enough
-	if c.m.usage.prompt >= 600 {
+	if c.m.usage.prompt >= 1200 {
 		t.Fatalf("ctx%% did not drop: prompt %d", c.m.usage.prompt)
 	}
 	assert.NotContains(t, c.view(), " 60% ")
@@ -449,7 +450,7 @@ func TestChat_CompactListedAndInHelp(t *testing.T) {
 
 func TestChat_AutoCompactionPrintsRow(t *testing.T) {
 	b := compactBackend(t,
-		fake.Turn{Text: "a1", Usage: providers.Usage{PromptTokens: 600}},
+		fake.Turn{Text: "a1", Usage: providers.Usage{PromptTokens: 1200}},
 		fake.Turn{Text: "the summary"}, fake.Turn{Text: "a2"})
 	c := newTestChat(t, b)
 	c.submit("q1")

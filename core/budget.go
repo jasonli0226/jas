@@ -40,6 +40,10 @@ type Budget struct {
 	Window  int
 	ElideAt float64 // fraction of Window that triggers elision
 	Keep    int     // most recent tool results always kept verbatim
+	// Overhead is the estimated tokens of the system prompt and tool schemas.
+	// Count adds it only before an observation, whose reported prompt tokens
+	// already include it.
+	Overhead int
 
 	obsTokens int // prompt tokens reported for the first obsMsgs messages
 	obsMsgs   int
@@ -62,8 +66,13 @@ func (b *Budget) Rebase() {
 }
 
 // Count estimates the prompt tokens msgs would use: the last observation plus
-// len(bytes)/4 for messages after it (all estimate before any observation).
+// len(bytes)/4 for messages after it (all estimate, plus Overhead, before any
+// observation).
 func (b *Budget) Count(msgs []providers.Message) int {
+	base := b.obsTokens
+	if b.obsMsgs == 0 {
+		base = b.Overhead
+	}
 	n := b.obsMsgs
 	if n > len(msgs) {
 		n = len(msgs)
@@ -72,7 +81,17 @@ func (b *Budget) Count(msgs []providers.Message) int {
 	for _, m := range msgs[n:] {
 		est += msgBytes(m)
 	}
-	return b.obsTokens + est/bytesPerToken
+	return base + est/bytesPerToken
+}
+
+// PromptOverhead estimates the tokens a request spends on the system prompt
+// and tool schemas, which Count cannot see in the messages.
+func PromptOverhead(system string, specs []providers.ToolSpec) int {
+	n := len(system)
+	for _, s := range specs {
+		n += len(s.Name) + len(s.Description) + len(s.Schema)
+	}
+	return n / bytesPerToken
 }
 
 // WouldExceed reports whether msgs no longer fit in the window.

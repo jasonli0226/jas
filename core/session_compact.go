@@ -35,7 +35,7 @@ func (s *Session) Compact(ctx context.Context, focus string) (CompactResult, err
 	if len(s.messages) > 0 {
 		prev, hasPrev = IsSummary(s.messages[0])
 	}
-	cut := cutIndex(s.messages, compactKeep(c.Budget.Window, c.Compact.Reserve, c.Compact.Keep))
+	cut := cutIndex(s.messages, compactKeep(c.Budget.Window, c.Compact.Reserve, c.Compact.Keep, c.Budget.Overhead))
 	if cut == 0 {
 		return CompactResult{}, ErrNothingToCompact
 	}
@@ -61,7 +61,7 @@ func (s *Session) Compact(ctx context.Context, focus string) (CompactResult, err
 
 	msgs := append([]providers.Message{summaryMessage(summary)}, s.messages[cut:]...)
 	before := c.Budget.Count(s.messages)
-	after := (&Budget{}).Count(msgs) // what Count gives after Rebase
+	after := (&Budget{Overhead: c.Budget.Overhead}).Count(msgs) // what Count gives after Rebase
 	// Log before changing anything, so a failed write leaves history intact.
 	id, err := c.Log.AppendID(EvCompaction, map[string]any{
 		"summary": summary, "first_kept_id": firstKept,

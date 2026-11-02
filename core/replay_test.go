@@ -276,7 +276,7 @@ func TestListSessions_MissingDirIsEmpty(t *testing.T) {
 func TestResumeSession_ReElidesLongHistory(t *testing.T) {
 	r := newRig(t, nil)
 	log := r.cfg.Log
-	big := strings.Repeat("x", 1000)
+	big := strings.Repeat("x", 2000)
 	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
 	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": "go"}}}))
@@ -294,7 +294,7 @@ func TestResumeSession_ReElidesLongHistory(t *testing.T) {
 
 	st, err := core.Replay(r.logPath)
 	assert.NoErr(t, err)
-	newBudget := func() *core.Budget { return &core.Budget{Window: 600, ElideAt: 0.6, Keep: 1} }
+	newBudget := func() *core.Budget { return &core.Budget{Window: 1100, ElideAt: 0.6, Keep: 1} }
 	assert.Eq(t, newBudget().WouldExceed(st.Messages), true) // unelided history does not fit
 
 	log, err = core.OpenEventLog(r.logPath, nil, nil)

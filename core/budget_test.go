@@ -144,3 +144,18 @@ func TestBudget_RebaseForgetsObservation(t *testing.T) {
 	b.Rebase()
 	assert.Eq(t, b.Count(msgs), 1100)
 }
+
+func TestBudget_OverheadCountsUntilObserved(t *testing.T) {
+	b := &core.Budget{Window: 100000, Overhead: 3000}
+	msgs := []providers.Message{textMsg(providers.RoleUser, 4000), textMsg(providers.RoleAssistant, 400)}
+	assert.Eq(t, b.Count(msgs), 4100)
+	b.Observe(5000, 1) // reported prompt tokens already include the overhead
+	assert.Eq(t, b.Count(msgs), 5100)
+	b.Rebase()
+	assert.Eq(t, b.Count(msgs), 4100)
+}
+
+func TestPromptOverhead_SystemAndSchemas(t *testing.T) {
+	specs := []providers.ToolSpec{{Name: "read", Description: strings.Repeat("d", 96), Schema: json.RawMessage(strings.Repeat("s", 300))}}
+	assert.Eq(t, core.PromptOverhead(strings.Repeat("p", 400), specs), 200)
+}

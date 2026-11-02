@@ -126,6 +126,9 @@ func newSession(c SessionConfig) *Session {
 	if c.UI == nil {
 		c.UI = NewQuietUI()
 	}
+	if c.Budget != nil && c.Exec != nil {
+		c.Budget.Overhead = PromptOverhead(c.System, c.Exec.Reg.Specs())
+	}
 	return &Session{c: c, model: c.Model}
 }
 

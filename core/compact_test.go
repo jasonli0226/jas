@@ -36,13 +36,15 @@ func TestCompactThreshold(t *testing.T) {
 }
 
 func TestCompactKeep(t *testing.T) {
-	tests := []struct{ window, reserve, keep, want int }{
-		{200000, 16384, 20000, 20000},
-		{32768, 16384, 20000, 8192},
-		{2000, 16384, 1200, 500},
+	tests := []struct{ window, reserve, keep, overhead, want int }{
+		{200000, 16384, 20000, 0, 20000},
+		{32768, 16384, 20000, 0, 8192},
+		{2000, 16384, 1200, 0, 500},
+		{2000, 16384, 1200, 400, 300}, // overhead shares the room under the trigger
+		{2000, 16384, 1200, 5000, 0},
 	}
 	for _, tc := range tests {
-		assert.Eq(t, compactKeep(tc.window, tc.reserve, tc.keep), tc.want)
+		assert.Eq(t, compactKeep(tc.window, tc.reserve, tc.keep, tc.overhead), tc.want)
 	}
 }
 
