@@ -34,6 +34,7 @@ type runArgs struct {
 
 	maxTokens int           // --max-tokens: total token cap; 0 = none
 	timeout   time.Duration // --timeout: wall-clock cap; 0 = none
+	compact   bool          // --compact: auto-compaction as in the chat
 }
 
 // reportRedactor masks the resolved API key in top-level error messages.
@@ -91,6 +92,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
 		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(),
+		Compact: ra.compactConfig(e.cfg),
 	})
 	if err == nil && !ra.json {
 		fmt.Println()
@@ -99,7 +101,7 @@ func runCmd(ctx context.Context, args []string) error {
 }
 
 // runOnlyFlags are jas run flags that are not stored settings.
-var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true}
+var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true, "compact": true}
 
 // tokenPool is the --max-tokens cap, or nil when none was given.
 func (ra runArgs) tokenPool() *core.TokenPool {
@@ -107,6 +109,14 @@ func (ra runArgs) tokenPool() *core.TokenPool {
 		return nil
 	}
 	return core.NewTokenPool("run", ra.maxTokens, nil)
+}
+
+// compactConfig is the chat's compaction config when --compact was given.
+func (ra runArgs) compactConfig(cfg settings.Run) *core.CompactConfig {
+	if !ra.compact {
+		return nil
+	}
+	return &core.CompactConfig{Reserve: cfg.CompactReserve, Keep: cfg.CompactKeep, Model: cfg.CompactModel}
 }
 
 // homeDenyPattern denies file tools access to jas's own state (keys, config,
@@ -142,6 +152,7 @@ func parseRun(args []string) (runArgs, error) {
 	fs.StringVar(&ra.name, "name", "", "title for the session")
 	maxTokens := fs.String("max-tokens", "", "stop with exit 7 before a request that would cross this many total tokens")
 	timeout := fs.String("timeout", "", "stop with exit 7 after this wall-clock duration (e.g. 30m)")
+	fs.BoolVar(&ra.compact, "compact", false, "summarize older history when the context fills up, as the chat does")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")
