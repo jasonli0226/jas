@@ -361,3 +361,22 @@ func TestFinishPlan_ReplanRefusalExit8(t *testing.T) {
 	ev := testutil.ReadEvents(t, logPath)
 	assert.Eq(t, ev[len(ev)-1]["type"].(string), farm.EvFarmPlanRefused)
 }
+
+func TestWorkerContext_IgnoresFarmYAML(t *testing.T) {
+	mk := func(farm string) string {
+		d := t.TempDir()
+		assert.NoErr(t, os.WriteFile(filepath.Join(d, "AGENTS.md"), []byte("rules\n"), 0o644))
+		if farm != "" {
+			assert.NoErr(t, os.MkdirAll(filepath.Join(d, ".jas"), 0o755))
+			assert.NoErr(t, os.WriteFile(filepath.Join(d, ".jas", "farm.yaml"), []byte(farm), 0o644))
+		}
+		return d
+	}
+	// An uncommitted farm.yaml lives only in main; workers never run it, so
+	// it must not strip the project context from every worker.
+	mainRoot, worktree := mk("check: go test ./...\n"), mk("")
+	main := projectContext{system: "MAIN SYSTEM", trusted: true}
+	sys, ok := workerContext(main, mainRoot, worktree)
+	assert.Eq(t, ok, true)
+	assert.Eq(t, sys, "MAIN SYSTEM")
+}

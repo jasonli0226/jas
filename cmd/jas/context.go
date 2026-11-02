@@ -171,16 +171,18 @@ func askLine(ctx context.Context, in *bufio.Reader, out io.Writer, prompt string
 // worktree. The supervisor decided trust once for the main checkout; the
 // worker inherits it only when its context file and project skills hash-equal
 // main's. Otherwise it gets the base prompt with no project context.
+// .jas/farm.yaml is left out of the comparison: workers never run it, and an
+// uncommitted farm.yaml in main would otherwise strip every worker's context.
 func workerContext(main projectContext, mainRoot, worktree string) (system string, trusted bool) {
-	if main.trusted && projectBundleHash(mainRoot) == projectBundleHash(worktree) {
+	if main.trusted && workerBundleHash(mainRoot) == workerBundleHash(worktree) {
 		return main.system, true
 	}
 	return core.BuildSystem(core.BasePrompt, ""), false
 }
 
-// projectBundleHash hashes what the trust store hashes for root: the context
-// file and every project skill.
-func projectBundleHash(root string) string {
+// workerBundleHash hashes what a worker loads from root: the context file and
+// every project skill. Unlike the trust-prompt bundle it excludes farm.yaml.
+func workerBundleHash(root string) string {
 	_, content, _ := core.FindContextFile(root)
 	project, _ := skills.Discover(skills.ProjectSources(root), func(string) bool { return false })
 	for i := range project { // locations are absolute; compare them relative to root
@@ -188,5 +190,5 @@ func projectBundleHash(root string) string {
 			project[i].Location = filepath.ToSlash(rel)
 		}
 	}
-	return core.ContentHash(trustBundle(content, project, readFarmConfig(root)))
+	return core.ContentHash(trustBundle(content, project, nil))
 }
