@@ -1,0 +1,234 @@
+package farm
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+func mustGit(t *testing.T, g GitRunner, dir string, args ...string) string {
+	t.Helper()
+	out, err := g.Run(context.Background(), dir, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(out)
+}
+
+func writeFile(t *testing.T, p, s string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newRepo(t *testing.T) (*Worktrees, string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	main := filepath.Join(root, "main")
+	if err := os.MkdirAll(main, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	g := NewGit()
+	mustGit(t, g, main, "init", "-q", "-b", "main")
+	writeFile(t, filepath.Join(main, "a.txt"), "one\ntwo\nthree\n")
+	writeFile(t, filepath.Join(main, ".gitignore"), ".env\n.env.test\n")
+	mustGit(t, g, main, "add", "-A")
+	mustGit(t, g, main, "commit", "-q", "-m", "init")
+	w := &Worktrees{Git: g, Main: main, Dir: filepath.Join(root, "wt"), FarmID: "f1"}
+	return w, mustGit(t, g, main, "rev-parse", "HEAD")
+}
+
+func TestWorktrees_CreateFromBase(t *testing.T) {
+	w, base := newRepo(t)
+	path, branch, err := w.Create(context.Background(), "core", base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "jas/farm/f1/core" || path != filepath.Join(w.Dir, "f1", "core") {
+		t.Fatalf("path=%s branch=%s", path, branch)
+	}
+	if got := mustGit(t, w.Git, w.Main, "rev-parse", branch); got != base {
+		t.Fatalf("branch at %s, want %s", got, base)
+	}
+	if _, err := os.Stat(filepath.Join(path, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorktrees_DepsMerged(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	p, _, err := w.Create(ctx, "dep", base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(p, "x.txt"), "X\n")
+	if _, err := w.Commit(ctx, p, "dep", "add x"); err != nil {
+		t.Fatal(err)
+	}
+	p2, _, err := w.Create(ctx, "next", base, []string{"dep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(p2, "x.txt")); err != nil {
+		t.Fatalf("dep commit missing: %v", err)
+	}
+}
+
+func TestWorktrees_DepConflict(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	for _, part := range []string{"d1", "d2"} {
+		p, _, err := w.Create(ctx, part, base, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(p, "a.txt"), "one\n"+part+"\nthree\n")
+		if _, err := w.Commit(ctx, p, part, "edit"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := w.Create(ctx, "next", base, []string{"d1", "d2"})
+	var mc *MergeConflictError
+	if !errors.As(err, &mc) {
+		t.Fatalf("err = %v", err)
+	}
+	if mc.Part != "next" || mc.Dep != "d2" || len(mc.Files) != 1 || mc.Files[0] != "a.txt" {
+		t.Fatalf("%+v", mc)
+	}
+}
+
+func TestWorktrees_CommitIdentityAndTrailers(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	p, _, _ := w.Create(ctx, "core", base, nil)
+	writeFile(t, filepath.Join(p, "b.txt"), "b\n")
+	writeFile(t, filepath.Join(p, ".jas", "tmp", "junk"), "j\n")
+	sha, err := w.Commit(ctx, p, "core", "feat: b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustGit(t, w.Git, p, "log", "-1", "--format=%an <%ae>|%cn <%ce>"); got != "jas farm <jas-farm@localhost>|jas farm <jas-farm@localhost>" {
+		t.Fatal(got)
+	}
+	body := mustGit(t, w.Git, p, "log", "-1", "--format=%B")
+	if !strings.Contains(body, "Jas-Farm: f1") || !strings.Contains(body, "Jas-Part: core") {
+		t.Fatal(body)
+	}
+	if files := mustGit(t, w.Git, p, "show", "--name-only", "--format=", "HEAD"); files != "b.txt" {
+		t.Fatalf("committed %q", files)
+	}
+	again, err := w.Commit(ctx, p, "core", "noop")
+	if err != nil || again != sha {
+		t.Fatalf("noop commit = %s, %v; want %s", again, err, sha)
+	}
+}
+
+func TestWorktrees_ParallelCommitsNoLockError(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	parts := []string{"p1", "p2", "p3", "p4"}
+	paths := map[string]string{}
+	for _, part := range parts {
+		p, _, err := w.Create(ctx, part, base, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		paths[part] = p
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 64)
+	for _, part := range parts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				writeFile(t, filepath.Join(paths[part], fmt.Sprintf("f%d.txt", i)), part)
+				if _, err := w.Commit(ctx, paths[part], part, "c"); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+}
+
+func TestWorktrees_CopyRefusesDenied(t *testing.T) {
+	w, base := newRepo(t)
+	p, _, _ := w.Create(context.Background(), "core", base, nil)
+	writeFile(t, filepath.Join(w.Main, ".env"), "S=1\n")
+	writeFile(t, filepath.Join(w.Main, ".env.test"), "T=1\n")
+	w.Deny = func(abs string) bool { return filepath.Base(abs) == ".env" }
+	w.Copy = []string{".env"}
+	if err := w.CopyFiles(p); err == nil || !strings.Contains(err.Error(), ".env") {
+		t.Fatalf("err = %v", err)
+	}
+	w.Copy = []string{".env.test"}
+	if err := w.CopyFiles(p); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(p, ".env.test")); err != nil || string(b) != "T=1\n" {
+		t.Fatalf("%q %v", b, err)
+	}
+	w.Copy = []string{"a.txt"} // tracked, not ignored
+	if err := w.CopyFiles(p); err == nil {
+		t.Fatal("copied a non-ignored file")
+	}
+	w.Copy = []string{"missing"}
+	if err := w.CopyFiles(p); err == nil {
+		t.Fatal("copied a missing file")
+	}
+}
+
+func TestWorktrees_SetupAndRemove(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	p, branch, _ := w.Create(ctx, "core", base, nil)
+	if res, err := w.RunSetup(ctx, p); err != nil || res.ExitCode != 0 {
+		t.Fatal(res, err)
+	}
+	w.Setup = "exit 3"
+	if res, err := w.RunSetup(ctx, p); err == nil || res.ExitCode != 3 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if err := w.Remove(ctx, "core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Fatal("worktree still present")
+	}
+	mustGit(t, w.Git, w.Main, "rev-parse", "--verify", branch)
+	if err := Prune(ctx, w.Git, w.Main); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDirty(t *testing.T) {
+	w, _ := newRepo(t)
+	ctx := context.Background()
+	if d, err := Dirty(ctx, w.Git, w.Main); err != nil || d {
+		t.Fatal(d, err)
+	}
+	writeFile(t, filepath.Join(w.Main, "new.txt"), "x")
+	if d, err := Dirty(ctx, w.Git, w.Main); err != nil || !d {
+		t.Fatal(d, err)
+	}
+}
