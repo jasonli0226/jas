@@ -135,6 +135,15 @@ func firstMessage(part Part, retry string) string {
 
 // workerTools returns the role's tools plus board_post.
 func workerTools(role Role, post core.Tool) ([]core.Tool, error) {
+	out, err := roleTools(role)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, post), nil
+}
+
+// roleTools returns the built-in tools the role names.
+func roleTools(role Role) ([]core.Tool, error) {
 	all := map[string]core.Tool{}
 	for _, t := range append(tools.ReadOnly(), tools.Mutating()...) {
 		all[t.Name()] = t
@@ -147,7 +156,7 @@ func workerTools(role Role, post core.Tool) ([]core.Tool, error) {
 		}
 		out = append(out, t)
 	}
-	return append(out, post), nil
+	return out, nil
 }
 
 // relevance is the board filter for part: posts from its transitive deps,

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -379,4 +380,77 @@ func TestWorkerContext_IgnoresFarmYAML(t *testing.T) {
 	sys, ok := workerContext(main, mainRoot, worktree)
 	assert.Eq(t, ok, true)
 	assert.Eq(t, sys, "MAIN SYSTEM")
+}
+
+// approvedPlan writes an approved two-part plan on HEAD outside the repo.
+func approvedPlan(t *testing.T, repo string) string {
+	t.Helper()
+	head, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+	assert.NoErr(t, err)
+	raw := strings.Replace(farmPlan, "task: t\n", "task: t\nbase: "+strings.TrimSpace(string(head))+"\n", 1)
+	path := filepath.Join(t.TempDir(), "plan.yaml")
+	assert.NoErr(t, os.WriteFile(path, farm.Approve([]byte(raw), "owner", time.Now()), 0o644))
+	return path
+}
+
+func farmRunEnv(url, home string, t *testing.T) []string {
+	return append(farmEnv(url, home), "XDG_CACHE_HOME="+t.TempDir())
+}
+
+func TestFarmRun_JSONOnlyFarmEvents(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	plan := approvedPlan(t, repo)
+	url, reqs := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a done"}, {Text: "b done"}})
+	out, errOut, code := runJasIn(t, repo, farmRunEnv(url, home, t), "farm", "run", plan, "--json", "--trust-project")
+	if code != 0 {
+		t.Fatalf("exit %d; stderr %s; stdout %s", code, errOut, out)
+	}
+	assert.Eq(t, len(reqs()), 2)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var types []string
+	for _, l := range lines {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatalf("stdout line is not JSON: %q", l)
+		}
+		if m["farm_id"] == nil || m["farm_id"] == "" {
+			t.Fatalf("line without farm_id: %q", l)
+		}
+		types = append(types, m["type"].(string))
+	}
+	for _, typ := range types {
+		if strings.HasPrefix(typ, "session_") || typ == core.EvAssistantMessage || typ == core.EvUserMessage {
+			t.Fatalf("session event %s on stdout", typ)
+		}
+	}
+	assert.Eq(t, types[0], farm.EvFarmStarted)
+	assert.Eq(t, types[len(types)-1], farm.EvFarmEnded)
+	dirs := farmDirs(t, home)
+	assert.Eq(t, len(dirs), 1)
+	for _, f := range []string{"plan.yaml", "farm.jsonl", "manifest.json", filepath.Join("parts", "a", "events.jsonl")} {
+		if _, err := os.Stat(filepath.Join(dirs[0], f)); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
+}
+
+func TestFarmRun_HashMismatchExit2(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	plan := approvedPlan(t, repo)
+	b, err := os.ReadFile(plan)
+	assert.NoErr(t, err)
+	assert.NoErr(t, os.WriteFile(plan, []byte(strings.Replace(string(b), "goal: g", "goal: h", 1)), 0o644))
+	url, reqs := testutil.FakeOpenAI(t, nil)
+	_, errOut, code := runJasIn(t, repo, farmRunEnv(url, home, t), "farm", "run", plan, "--trust-project")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "hash")
+	assert.Eq(t, len(reqs()), 0)
+	assert.Eq(t, len(farmDirs(t, home)), 0)
+}
+
+func TestFarmRun_UsageNeedsOnePlan(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	_, errOut, code := runJasIn(t, repo, farmEnv("http://127.0.0.1:1", home), "farm", "run")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "plan.yaml")
 }

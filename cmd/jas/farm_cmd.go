@@ -34,6 +34,7 @@ var farmOnlyFlags = map[string]bool{"o": true, "allow-dirty": true, "trust-proje
 type planArgs struct {
 	task       string
 	out        string
+	outSet     bool // -o was given
 	allowDirty bool
 	trust      bool
 	flags      map[string]string
@@ -41,6 +42,7 @@ type planArgs struct {
 
 const farmUsage = `usage:
   jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
+  jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project]
   jas farm "<task>"          (needs a terminal; otherwise use plan + run)`
 
 // farmCmd dispatches jas farm subcommands, or runs plan then run for a task.
@@ -52,16 +54,23 @@ func farmCmd(ctx context.Context, args []string) error {
 	case "plan":
 		_, _, err := farmPlanCmd(ctx, args[1:])
 		return err
-	case "run", "status", "clean", "vars":
+	case "run":
+		return farmRunCmd(ctx, args[1:])
+	case "status", "clean", "vars":
 		return usageErr("jas farm %s is not implemented yet", args[0])
 	}
 	if !isTerminal(int(os.Stdin.Fd())) || !isTerminal(int(os.Stderr.Fd())) {
 		return usageErr(`jas farm "<task>" needs a terminal: use jas farm plan "<task>" then jas farm run <plan.yaml>`)
 	}
-	if _, approved, err := farmPlanCmd(ctx, args); err != nil || !approved {
+	pa, err := parsePlanArgs(args)
+	if err != nil {
 		return err
 	}
-	return errors.New("jas farm run is not implemented yet")
+	e, path, approved, err := planFarm(ctx, pa, true)
+	if err != nil || !approved {
+		return err
+	}
+	return runPlan(ctx, e, path, false, pa.allowDirty)
 }
 
 // parsePlanArgs reads flags and the single task, accepting flags on either
@@ -95,6 +104,9 @@ func parsePlanArgs(args []string) (planArgs, error) {
 	pa.task = rest[0]
 	pa.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "o" {
+			pa.outSet = true
+		}
 		if !farmOnlyFlags[f.Name] {
 			pa.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
@@ -109,10 +121,24 @@ func farmPlanCmd(ctx context.Context, args []string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
+	_, path, approved, err := planFarm(ctx, pa, false)
+	return path, approved, err
+}
+
+// planFarm plans pa.task and returns the env, the plan path and whether the
+// plan was approved. For jas farm "<task>" (direct) without -o the plan is
+// written to the farm dir rather than into the repository, where it would
+// make the tree dirty for the run that follows.
+func planFarm(ctx context.Context, pa planArgs, direct bool) (*env, string, bool, error) {
 	e, err := prepare(ctx, pa.flags, pa.trust)
 	if err != nil {
-		return "", false, err
+		return nil, "", false, err
 	}
+	path, approved, err := planWith(ctx, e, pa, direct)
+	return e, path, approved, err
+}
+
+func planWith(ctx context.Context, e *env, pa planArgs, direct bool) (string, bool, error) {
 	cfg, base, files, err := farmPreflight(ctx, e, pa)
 	if err != nil {
 		return "", false, err
@@ -120,6 +146,9 @@ func farmPlanCmd(ctx context.Context, args []string) (string, bool, error) {
 	now := time.Now()
 	farmID := farm.NewFarmID(now)
 	dir := filepath.Join(e.home, farmsDir, farmID)
+	if direct && !pa.outSet {
+		pa.out = filepath.Join(dir, farmPlanFile)
+	}
 	flog, err := core.OpenEventLog(filepath.Join(dir, farmLogFile), nil, e.red.Redact)
 	if err != nil {
 		return "", false, err

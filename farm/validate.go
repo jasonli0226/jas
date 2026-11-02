@@ -33,7 +33,16 @@ func writingParts(p Plan, cfg Config) []Part {
 // Validate checks roles, after references, cycles, owns and ownership
 // overlap of concurrently runnable writing parts.
 func Validate(p Plan, cfg Config, filesAtBase []string) []Problem {
-	var probs []Problem
+	probs, cyclic := validateStructure(p, cfg)
+	if cyclic {
+		return probs
+	}
+	return append(probs, overlaps(p, cfg, filesAtBase)...)
+}
+
+// validateStructure checks everything Validate does except ownership
+// overlap; cyclic reports a dependency cycle.
+func validateStructure(p Plan, cfg Config) (probs []Problem, cyclic bool) {
 	add := func(part, msg string) { probs = append(probs, Problem{part, msg}) }
 	avail, bad := Available(cfg)
 	ids := map[string]bool{}
@@ -64,10 +73,9 @@ func Validate(p Plan, cfg Config, filesAtBase []string) []Problem {
 	}
 	if id, cyclic := findCycle(p); cyclic {
 		add(id, "dependency cycle through after")
-		return probs
+		return probs, true
 	}
-	probs = append(probs, overlaps(p, cfg, filesAtBase)...)
-	return probs
+	return probs, false
 }
 
 // findCycle reports the first part (plan order) that lies on a cycle.
