@@ -1,144 +1,253 @@
 # jas farm — design
 
-Date: 2026-11-02. Status: draft for owner review.
+Date: 2026-11-02 (Asia/Tokyo). Status: **draft, owner-approved direction;
+not to be built before the prerequisites below land.**
 Replaces the best-of-N farm in `docs/design.md` §5 and `docs/use-cases.md` §4.
 Calls marked **(author's call)** were not made by the owner and may be
 overturned.
 
+Inputs:
+- Community research: [`docs/research/farm-multi-agent-community-2026-11.md`](../../research/farm-multi-agent-community-2026-11.md)
+  (cited below as *research*).
+- Builds on [`2026-11-02-session-awareness.md`](2026-11-02-session-awareness.md)
+  (per-repo session records, write-overlap warnings), which ships first and
+  is a core-loop feature, not a farm feature.
+
+## Changes from the 2026-11-02 first draft
+
+Driven by the branch review (findings N1–N18) and the research doc:
+
+- Positioning: dropped the "close to one agent's tokens" success criterion.
+- Planner refuses by default; structured reasons; code-enforced refuse rules; exit 8.
+- `max_workers` default 3 (was 4).
+- Worktrees moved from `~/.jas/farms/<id>/worktrees` (inside the deny floor)
+  to `<repo>/.jas/worktrees/<farm>/<part>`; copy list, setup command, dirty-tree refusal.
+- Board: typed topics, redacted, rounds-capped, delivered as fenced
+  informational context at the tool-results boundary and recorded per
+  delivery. This **revises the owner's earlier "auto-inject through
+  `Session.Steer`" decision**: Steer enters as a user-role message and, after
+  a final answer, re-wakes a finished worker with a fresh turn count. Same
+  intent (auto-injected, no polling), different mechanism — owner to confirm.
+- Verdict: supervisor runs `check` (was: integrator self-reports).
+- CI: pinned exit codes 6/7/8, `--json`, `manifest.json`, no-TTY = keep;
+  `on_failure: drop|abort` (was: any failure ends the farm in CI).
+- Budgets gated before each call; farm total, integrator reserve, rate
+  limiter, timeouts.
+- Commit rule reconciled with design §8.2; plan hash approval for CI.
+- Discussion mode replaced by a future `reviewer` part.
+- Prerequisites in bet order and a farm-vs-solo benchmark gate.
+
+## Positioning
+
+Farm is **not** "better than one agent". The evidence says the opposite for
+most coding work: cooperating agents succeed less often than one agent doing
+both halves (CooperBench: ~30% lower; 2→4 agents 68.6% → 46.5% → 30.0%),
+blackboard-style coordination is slower overall and writes more code
+(CodeCRDT), and multi-agent systems spend far more tokens (Anthropic: ~15× chat
+tokens vs ~4× for one agent; Claude Code agent teams ~7×). See *research*,
+"Evidence".
+
+Farm is for **tasks too big or too slow for one agent** — cross-cutting
+migrations, codemods, test backfill per package, a feature across layers — and
+its value is doing them **safely and auditably**: a human-approved plan, code
+(not an LLM) coordinating, disjoint file ownership enforced in code, one
+verified result to review, budgets, exit codes and a complete JSONL trail.
+That headless-CI, audit-first packaging is the gap in the landscape
+(*research*, "CI angle"). Farm is marketed as "faster and more reviewable on
+decomposable work, at higher token cost" — never "near one agent's tokens".
+
+The default answer of the planner is **don't split** (see Refusal).
+
 ## Intent
 
 The old farm ran the **same** prompt in N worktrees and let the human keep the
-best diff. It pays N times for one result. The owner wants a farm that pays
-for one job's worth of work and finishes faster: **split one big task into
-parts, run the parts in parallel, then integrate them.**
+best diff. It pays N times for one result. The owner wants a farm that
+**splits one big task into parts, runs the parts in parallel, then
+integrates them.**
 
 Flow:
 
 ```
-jas farm "task"
-  → planner agent drafts plan.yaml        (LLM, once)
-  → jas validates the plan                (code)
-  → owner reviews / edits / approves      (human)
-  → supervisor runs parts in DAG order    (code, no LLM)
+jas farm plan "task" -o plan.yaml
+  → planner agent drafts plan.yaml or refuses        (LLM, once)
+  → jas validates the plan + refuse rules             (code)
+  → owner reviews / edits / approves (plan hash)      (human)
+jas farm run plan.yaml
+  → supervisor runs parts in DAG order                (code, no LLM)
       each part = one worker agent, own worktree + branch, one role
-      workers share an append-only board
-  → integrator agent merges branches, runs `check`, fixes seams   (LLM)
-  → owner decides what happens to the integrated branch           (human)
+      workers post typed commitments to a board
+  → integrator agent merges branches, fixes seams     (LLM)
+  → supervisor runs `check` — the verdict             (code)
+  → owner decides what happens to the integrated branch (human; no TTY = keep)
 ```
 
+`jas farm "<task>"` is a thin interactive wrapper over the two commands.
 Coordination is code, not an LLM. LLMs are used only where judgment is
 needed: drafting the plan, doing a part, fixing merge seams.
 
 ### What success looks like
 
 - The three acceptance scenarios below work end to end.
-- Total tokens for a farm run are close to one agent doing the whole task
-  serially, plus the planner and integrator; not N× like best-of-N.
+- The benchmark gate (below) shows farm beating plain `jas run` on wall-clock
+  for decomposable fixtures at equal or better `check` pass rate, with its
+  token multiplier measured and reported (target ≤ 2× a serial `jas run`
+  **(author's call)**).
 - Nothing merges into the owner's branch without the owner saying so.
-- A farm run can be audited and replayed from its files.
+- A farm run can be **audited** from its files, and an interrupted farm can be
+  **resumed** with at-most-once side effects. (LLM output is not replayable;
+  decisions, deliveries and verdicts are.)
 
 ## Goals
 
-1. `jas farm "<task>"`: plan → review → run → integrate, in one terminal.
+1. `jas farm plan` + `jas farm run`: plan → review → run → integrate → verify,
+   CI-first; `jas farm "<task>"` for one terminal.
 2. A planner agent drafts the plan; the owner reviews it before any worker
-   starts.
-3. The planner **refuses to split** when splitting does not pay (rules
-   below), and suggests `jas run` instead.
-4. Roles (coder, tester, researcher, reviewer built in) define each worker's
+   starts. The planner **refuses by default** unless a split clearly helps.
+3. Roles (coder, tester, researcher, reviewer built in) define each worker's
    tools, write limits, prompt, model and budget. Roles are data.
-5. Workers communicate one way through a shared board, auto-injected at turn
-   boundaries.
-6. On a worker failure, dependents pause and the owner is asked.
+4. Workers communicate one way through a **typed** board of commitments.
+5. The supervisor, not a model, decides success by running `check`.
+6. A pinned CI contract: exit codes, `--json` stream, `manifest.json`.
 7. Works for any language: nothing language-specific is built into roles.
 
 ## Non-goals (this version)
 
 - **Best-of-N.** Dropped from the roadmap.
-- **Discussion mode** (propose / critique / decide on one task). Planned for
-  the next version on the same machinery: roles instead of parts.
-- **Free agent-to-agent conversation.** The board is one-way posts.
+- **Discussion / debate mode.** Replaced by an optional `reviewer` part in the
+  next version (see Next version). Debate rarely beats self-consistency at
+  equal compute (*research*, "Evidence").
+- **Free agent-to-agent conversation.** The board is typed one-way posts.
 - **`jas attach` over a Unix socket, RPC mode, a live dashboard TUI, starting
-  a farm from inside the chat.** Later versions. This version runs in the
-  foreground of one terminal.
-- **Per-task containers.** Still v3 (design §3.1).
+  a farm from inside the chat.** Later versions.
+- **Per-task containers.** Still v3 (design §3.1); the opt-in OS sandbox is a
+  prerequisite instead.
 
 ## Anti-goals (would make it a failure even if it works)
 
 - An LLM orchestrator that re-reads farm state on every decision.
 - An agent defining or widening policy: roles, tools, approval levels, write
-  limits. Agents may only **draft** these for the owner to approve.
-- Auto-merging into the owner's branch.
+  limits, ownership. Agents may only **draft** these for the owner to approve.
+- Auto-merging into the owner's branch, or jas committing on a branch it did
+  not create.
 - Language-specific behaviour hard-coded into built-in roles.
-- Silently running a farm without a `check` gate.
+- Running a farm without a `check` gate, or letting a model report the
+  verdict.
+- A board that becomes chat.
+
+## Prerequisites and benchmark gate
+
+Farm is built **after** these land, in bet order (design §5 / §13):
+
+1. **Event-log spec published** (JSON Schema for `events.jsonl`). The farm and
+   board logs extend it; publish their schemas together.
+2. **Provider fidelity** (#29 fixtures, Foundry matrix). N workers multiply
+   any stream-reassembly bug; the shared rate limiter lives in the provider
+   layer.
+3. **Token and time caps in `jas run`**: `--max-tokens` checked **before**
+   each request (estimated input + `max_tokens` output), and `--timeout`
+   wall-clock; both end with exit **7** (CI contract below).
+4. **Opt-in OS sandbox** for shell (the real answer for parallel YOLO shells;
+   worktrees are not isolation).
+5. **Supervisor-run success check + success-verified benchmarks**: the same
+   `check` mechanism, built once.
+6. **Session awareness** (separate spec) — records, overlap warnings, the
+   `.jas/` git-exclude plumbing farm reuses.
+7. Small core changes: trust injection (§Trust), opt-in compaction for headless
+   sessions (§Context), provenance meta in `session_started` (§Provenance).
+
+**Benchmark gate.** Before farm is promoted in the README (beyond
+"experimental"), a farm-vs-solo harness runs the acceptance scenarios on jas
+fixtures, CooperBench-style: same task, same model, `jas farm run` vs
+`jas run`, reporting `check` pass rate, wall-clock, tokens, merge conflicts and
+contract violations. Defaults (`max_workers`, refuse thresholds) are tuned
+from it; scenarios where farm does not beat solo stay "refuse".
 
 ## Acceptance scenarios
 
 1. **Cross-cutting migration** — e.g. `log` → `slog` across packages.
    Planner splits by package, all `coder` parts, contract = the new call
-   shape. Done when: each part's branch exists, the integrated branch passes
-   `check`, and the owner's merge decision is recorded.
+   shape. Done when: each part's branch exists, the supervisor's `check` on
+   the integrated branch passes, and the owner's (or default `keep`) decision
+   is recorded.
 2. **Feature across layers** — e.g. a field added end to end (core, CLI/API,
    UI, docs). Optional `researcher` part first; `coder` part per layer;
-   `tester` or `reviewer` after. Contract (types, names) in `plan.yaml`.
-   Done when: as above, and at least one board post was injected into
-   another worker during the run (the board is exercised).
+   `tester` after. Contract (types, names) in `plan.yaml`. Done when: as
+   above, and at least one `interface` board post was delivered to another
+   part (the board is exercised).
 3. **Batch of small issues** — e.g. several open `[Low]` issues. Planner
    groups issues by the files they touch; issues touching the same files go
-   in the same part. Done when: as above; each issue is mapped to exactly
-   one part in the plan.
+   in the same part. Done when: as above; each issue maps to exactly one part.
+
+Each scenario also has a **refusal twin** (a single-package bug fix) where the
+planner must refuse and suggest `jas run`.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `jas farm "<task>"` | Draft plan, review, run, integrate (interactive). |
-| `jas farm plan "<task>" [-o plan.yaml]` | Draft + validate the plan only; no workers. |
-| `jas farm run <plan.yaml>` | Run an already-approved plan file (for CI; no plan review prompt). |
-| `jas farm init` | Detect variables and draft `.jas/farm.yaml` for review (below). |
-| `jas farm vars` | Print each variable's value and its source (project / user / detected / unset). |
-
-Without a TTY, `jas farm "<task>"` cannot get plan approval and stops
-(same rule as approvals, design §3.1). CI uses `jas farm plan` +
-human-approved file + `jas farm run`. **(author's call)**
+| `jas farm plan "<task>" [-o plan.yaml]` | Draft, validate and (with a TTY) review the plan; on approval writes `plan.yaml` with `approved:` (hash). No workers. |
+| `jas farm run <plan.yaml> [--json] [--allow-dirty]` | Run an approved plan. CI path; no plan prompt. |
+| `jas farm "<task>"` | `plan` then `run` in one terminal. Without a TTY: usage error (exit 2) — use `plan` + `run`. |
+| `jas farm status [<farm-id>]` | Print parts, status, tokens, check result from `manifest.json` (works offline / in CI). |
+| `jas farm resume <farm-id>` | Continue an interrupted farm (see Failure, cancel, resume). |
+| `jas farm clean [<farm-id>]` | Remove worktrees (and, with `--branches`, `jas/farm/<id>/*` branches); `git worktree prune`. |
+| `jas farm init` | Detect variables and draft `.jas/farm.yaml` for review. |
+| `jas farm vars` | Print each variable's value and its source. |
 
 ## Configuration
 
 `.jas/farm.yaml` (project) over `~/.jas/farm.yaml` (user) over built-in
 defaults, merged key by key, most specific wins — the same layering as
-design §10. The project file is subject to the existing project trust gate
-(design §11): an untrusted project's `farm.yaml` is ignored with a notice.
-**(author's call)**
+design §10. The project file is subject to the project trust gate
+(design §11): an untrusted project's `farm.yaml` is ignored with a notice
+(it can define `check`, `setup` and role prompts, i.e. code execution and
+instructions).
 
 ```yaml
-check: "go build ./... && go test ./..."   # required; see below
-vars:                                       # override or add variables
+check: "go build ./... && go test ./..."   # required; supervisor runs it
+vars:
   test_globs: ["*_test.go"]
-  migrations_dir: db/migrations             # custom variable
+  migrations_dir: db/migrations
 split:
+  max_workers: 3          # default 3; 2 is fine; >4 warns
   min_parts: 2
-  max_workers: 4
   disjoint_files: true
-  min_turns_per_part: 8
+worktree:
+  dir: .jas/worktrees     # relative to repo root; git-excluded
+  copy: [".env.test"]     # gitignored files copied in (deny floor still applies)
+  setup: "go mod download" # run once per worktree before the worker starts
 budget:
   per_worker_tokens: 400000
-  farm_tokens: 2000000
+  farm_tokens: 1500000
+  integrator_reserve: 0.2  # fraction of farm_tokens held back for the integrator
+  per_worker_timeout: 30m
+  farm_timeout: 2h
+  requests_per_minute: 0   # 0 = provider default; shared across workers
+board:
+  max_rounds: 3            # see Board
+  post_chars: 500
+  deliver_chars: 2000
+on_failure: drop           # drop | abort (non-TTY policy)
 models:
-  planner: ""        # "" = session model
+  planner: ""              # "" = session model
   integrator: ""
-roles:               # add or override; see Roles
+roles:
   migrator:
     tools: [read, grep, edit, write, shell]
     writes: ["${migrations_dir}/**"]
     prompt: "Write database migrations only."
 ```
 
-Numbers above are the defaults **(author's call; tune after first runs)**.
+Numbers above are defaults **(author's call; tune with the benchmark gate)**.
+`max_workers` defaults to 3, not 4: success falls as agents are added and
+practitioners report a 3–5 ceiling (*research*, "Risks").
 
 ### `check` is required
 
-The integrator's gate. If `check` is unset after all layers and detection,
-**the farm refuses to start** and tells the owner to set it
-(`jas config` / `.jas/farm.yaml`). (owner's decision)
+The verdict. If `check` is unset after all layers and detection, **the farm
+refuses to start** (exit 2) and tells the owner to set it. (owner's decision)
+jas warns when `check` looks trivial (e.g. build only, or no test files under
+the packages the plan owns).
 
 ### Variables
 
@@ -146,15 +255,13 @@ A small fixed set of built-in names, plus owner-defined names under `vars:`.
 
 | Name | Meaning |
 |---|---|
-| `check` | integrator gate command (also settable top-level) |
+| `check` | verdict command (also settable top-level) |
 | `test_globs` | test file patterns |
 | `src_globs` | non-test source patterns |
 | `build` | build command (optional) |
 | `lint` | lint command (optional) |
 
-Resolution, highest wins: project `vars:` → user `vars:` → detection →
-unset.
-
+Resolution, highest wins: project `vars:` → user `vars:` → detection → unset.
 Detection is deterministic (no LLM), from marker files:
 
 | Marker | check | test_globs |
@@ -164,22 +271,18 @@ Detection is deterministic (no LLM), from marker files:
 | `pyproject.toml` / `requirements.txt` | `pytest` | `**/test_*.py`, `**/*_test.py`, `tests/**` |
 | `Cargo.toml` | `cargo build && cargo test` | `tests/**` (unit tests live in source; see tester role) |
 
-Monorepos: markers found in subdirectories produce per-path entries
-(`check` per directory); the integrator runs the checks for directories its
-diff touches. **(author's call)** Builder may extend the marker table.
+Monorepos: markers in subdirectories produce per-path `check` entries; the
+supervisor runs the checks for directories the integrated diff touches.
+**(author's call)**
 
-Validation at load time:
-- A `${name}` that is neither built in nor defined under `vars:` is a config
-  error; the farm does not start.
-- A known but unset variable makes every role that uses it **unavailable**;
-  the planner is not offered unavailable roles.
+Validation at load time: an unknown `${name}` is a config error (exit 2); a
+known but unset variable makes every role using it **unavailable**, and the
+planner is not offered unavailable roles.
 
 ### `jas farm init`
 
-Runs detection, then an agent drafts `.jas/farm.yaml` (check, vars, and any
-suggested roles from the repo's shape). The draft is shown to the owner and
-saved only on approval. Owners should rarely need it: built-in roles plus
-detection cover the acceptance scenarios with zero config.
+Runs detection, then an agent drafts `.jas/farm.yaml`. The draft is shown to
+the owner and saved only on approval.
 
 ## Roles
 
@@ -187,38 +290,39 @@ A role is data: `tools`, `writes` (globs), `prompt`, `approve` level,
 `model`, `budget`. Layers: built-in → user → project (most specific wins,
 whole-role replacement **(author's call)**).
 
-Built-in roles (language-neutral):
-
 | Role | tools | writes | Notes |
 |---|---|---|---|
-| `coder` | read, grep, write, edit, shell | the part's `owns` globs | default role |
-| `tester` | read, grep, write, edit, shell | `${test_globs}` ∩ part's `owns` | "Write and fix tests only; if non-test code must change, post to the board." Unavailable if `test_globs` unset. |
-| `researcher` | read, grep (+ web tools once shipped, design §12.1) | none | output is board posts and its final answer |
-| `reviewer` | read, grep | none | output is a board post / final answer; may use a cheaper model |
+| `coder` | read, grep, write, edit, shell | the part's `owns` | default role |
+| `tester` | read, grep, write, edit, shell | paths matching **both** `${test_globs}` and `owns` | "Write and fix tests only; if non-test code must change, post `blocked`." Unavailable if `test_globs` unset. |
+| `researcher` | read, grep (+ web tools once shipped, design §12.1) | none | output: `interface`/`note` posts and its final answer |
+| `reviewer` | read, grep | none | clean context, may use a different/cheaper model; output: findings in its final answer |
 
-Rust and similar (tests inside source files): when a part's tester cannot be
-limited by `test_globs`, the planner gives it the coder's `owns` and orders
-it `after` that coder. **(author's call)**
+Rust and similar: when a tester cannot be limited by `test_globs`, the planner
+gives it the coder's `owns` and orders it `after` that coder.
+**(author's call)**
 
-**Who defines roles:** the owner (config). The planner only assigns
-existing, available roles. It may *propose* a new role inside the draft plan
-(`proposed_roles:`); the owner approves or drops it during plan review, and
-may save an approved one to `.jas/farm.yaml`. Agents never create policy.
+**Who defines roles:** the owner (config). The planner only assigns existing,
+available roles. It may *propose* a new role in the draft (`proposed_roles:`);
+the owner approves or drops it during review. `jas farm run` rejects any plan
+whose roles are not in trusted config or approved in that plan's hash (§Plan
+trust). Agents never create policy.
 
 ### Write limits are enforced in code
 
-`writes:` is enforced by the file tools (`write`, `edit`), like the existing
-project-root confinement: a call outside the limit gets a `denied` tool
-result. `shell` cannot be confined in-process (design §3.1), so the
-supervisor also checks each part's final diff against its limit; files
-changed outside it pause the part and ask the owner (same flow as a failure).
+`writes:` is enforced by the file tools (`write`, `edit`) as a new
+`ExecPolicy` allow-list, like project-root confinement: a call outside the
+limit gets a `denied` tool result. Matching: repo-relative paths; a delete or
+rename counts as a write on both old and new paths. `shell` cannot be
+confined in-process (design §3.1), so the supervisor also checks each part's
+final diff (`git diff --name-status base..branch`, untracked files included)
+against its limit; files changed outside it fail the part (policy violation).
 
 ## The plan
 
-The planner is an LLM agent with read-only tools (read, grep) run on the
-repo at the base commit. `base` is the current `HEAD`; uncommitted changes
-are not part of the farm, and jas warns when the tree is dirty.
-**(author's call)** It outputs `plan.yaml`:
+The planner is an LLM agent with read-only tools (read, grep) on the repo at
+the base commit. `base` is the current `HEAD`. **A dirty tree is refused**
+(exit 2) unless `--allow-dirty`, in which case uncommitted changes are *not*
+part of the farm and the warning is logged. **(author's call)**
 
 ```yaml
 task: "migrate logging to slog"
@@ -226,6 +330,10 @@ base: <commit sha>
 contracts: |
   All packages call slog.Default(); no package-level loggers.
   Logger keys are snake_case.
+interfaces:              # structured contracts the integrator checks
+  - name: logging.New
+    owner: core
+    shape: "func New(level slog.Level) *slog.Logger"
 parts:
   - id: research
     role: researcher
@@ -245,34 +353,96 @@ parts:
     goal: "Update core tests for the new log output."
     owns: ["core/**"]
     after: [core]
+shared: ["go.mod", "go.sum"]   # owned by the integrator only
+why_split: "4 packages, no shared files beyond go.mod; ~2x wall-clock expected"
 proposed_roles: {}
+approved:                # written by `jas farm plan` on owner approval
+  sha256: <hash of the plan above this key>
+  by: owner
+  at: 2026-11-02T23:30:00+09:00
 ```
 
-Or a refusal:
+### Refusal (the default)
+
+The planner must either split with a `why_split` justification or refuse with
+a **structured reason**:
 
 ```yaml
-refuse: "Single bug in one function; splitting would duplicate the investigation."
+refuse:
+  reason: small_change     # small_change | single_package | overlapping_ownership |
+                           # serial_dependencies | no_check | unclear_task
+  detail: "Single bug in one function; splitting would duplicate the investigation."
 suggest: "jas run \"...\""
 ```
+
+Code enforces refusal too, even if the planner splits:
+
+- fewer than `split.min_parts` writing parts, or all writing parts under one
+  package/directory root → `single_package`;
+- concurrently runnable writing parts whose `owns` overlap → `overlapping_ownership`;
+- the DAG's longest chain covers every writing part (no two can run at once) →
+  `serial_dependencies`;
+- no `check` resolved → `no_check`;
+- planner estimate below a small-change threshold (files touched)
+  **(author's call)** → `small_change`.
+
+A refusal exits **8** and prints the `jas run` suggestion. Refusal is a
+normal, cheap outcome, not an error.
 
 ### Validation (code, before the owner sees it)
 
 - Every `role` exists and is available; every `after` id exists; no cycles.
-- `owns` is non-empty for writing roles. With `disjoint_files: true`, no two
-  parts that can run at the same time own overlapping paths. Parts ordered by
-  `after` may overlap (e.g. tester after coder).
-- At least `split.min_parts` writing parts. No upper limit on the number of
-  parts; concurrency is capped by `max_workers`.
-- A plan that fails validation goes back to the planner once with the
-  errors; a second failure is shown to the owner. **(author's call)**
-- The refuse rule is enforced in code too: a plan that does not meet
-  `min_parts` is treated as a refusal.
+- `owns` is non-empty for writing roles. Overlap is checked by expanding globs
+  against the file list at `base`, plus a prefix rule for new files (a new
+  file belongs to the part whose `owns` literal prefix is longest).
+- `shared` files are writable only by the integrator; workers that need a
+  change there post `blocked` or `interface`.
+- A plan that fails validation goes back to the planner once with the errors;
+  a second failure is shown to the owner (or exits 2 without a TTY).
 
 ### Review
 
-The owner sees a summary (parts, roles, owns, order, contracts, proposed
-roles) and chooses: **approve**, **edit** (opens `$EDITOR` on `plan.yaml`,
-re-validates), **replan** with feedback text, or **quit**.
+The owner sees a summary (parts, roles, owns, shared, order, contracts,
+interfaces, proposed roles, `why_split`) and chooses: **approve** (writes
+`approved:`), **edit** (opens `$EDITOR`, re-validates), **replan** with
+feedback, or **quit**.
+
+### Plan trust in CI
+
+`jas farm run` recomputes the plan hash and requires it to equal
+`approved.sha256`; otherwise exit 2. It also requires `base` to be an ancestor
+of (or equal to) `HEAD`, rejects `proposed_roles` unless they are inside the
+approved hash, and resolves role definitions from **trusted** config only — a
+plan cannot widen tools, `writes`, approval levels or ownership beyond what
+was approved. The hash, base and resolved role digests are recorded in
+`farm_started`. A plan file from an untrusted source (e.g. a fork PR) must be
+re-approved by a human. **(author's call)**
+
+## Worktrees
+
+- Location: `<repo>/.jas/worktrees/<farm-id>/<part-id>` (configurable
+  `worktree.dir`), added to `.git/info/exclude` on first use. **Not** under
+  `~/.jas`: the deny floor (`~/.jas/**` and `<JAS_HOME>/**`) would refuse
+  every file tool inside its own root.
+- Sessions whose root is the main checkout deny file-tool access to
+  `.jas/worktrees/**` and `.jas/sessions/**` (added to the policy deny list),
+  so a normal chat does not grep into farm worktrees.
+- Branch: `jas/farm/<farm-id>/<part-id>`; integrator `jas/farm/<farm-id>/integrate`.
+- A part with no deps branches from `base`; a part with deps branches from
+  `base` with its deps' branches merged in. A conflict there fails the part.
+- Worktrees are created serially by the supervisor; `git worktree prune` runs
+  at start.
+- `worktree.copy` copies listed gitignored files from the main checkout; each
+  path still passes the deny floor (so `.env`, keys and `secrets/` cannot be
+  copied unless the owner's deny overrides allow it — they don't by default).
+- `worktree.setup` runs once per worktree (logged, with its exit code) before
+  the worker starts; failure fails the part.
+- Each worker gets its own `TMPDIR` (`<worktree>/.jas/tmp`) and
+  `GIT_CONFIG_NOSYSTEM=1`; repo hooks do not run on jas's own commits
+  (`--no-verify`). Ports and shared services are the project's problem
+  (document; sandbox prerequisite).
+- Cleanup: worktrees are removed after the final choice; kept on failure or
+  interrupt until `jas farm clean`.
 
 ## Running
 
@@ -282,103 +452,246 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
 (goroutine) with its own event log, worktree and role policy.
 
 - Starts parts whose `after` deps are done, up to `max_workers` at a time.
-- Each part gets a worktree on branch `farm/<farm-id>/<part-id>`. A part with
-  no deps branches from `base`; a part with deps branches from `base` with
-  its deps' branches merged in. A conflict there pauses the part (failure
-  flow). **(author's call)**
-- Worker system prompt = role prompt + part goal + plan `contracts` + the
-  list of other parts and what they own.
-- When a worker gives its final answer, the supervisor commits any
-  uncommitted changes on the part branch and checks the diff against
-  `writes`. **(author's call)**
-- Tracks tokens per worker and per farm from usage events; hitting a cap is
-  a failure. Planner and integrator tokens count toward `farm_tokens`.
+- Worker system prompt = role prompt + part goal + plan `contracts` +
+  `interfaces` + the list of other parts and what they own.
+- **Worker lifecycle:** a worker is *done* when it gives its final answer.
+  The supervisor then closes the session (no steering is drained after the
+  final answer), commits its changes on the part branch (see Commits), runs
+  the write-limit diff check and marks the part done. A done part is never
+  re-woken by board posts.
+- Tracks tokens per worker and per farm (see Budgets).
 - Approvals: each worker's approval level comes from its role (`approve`),
-  defaulting to the configured level. Approval prompts from parallel workers
-  are serialized in the farm's terminal, each labelled with its part; other
-  workers keep running while one waits. Without a TTY a gated call fails
-  the part (failure flow). **(author's call)**
-- Output in the terminal: one status line per part (queued / running /
-  done / paused / dropped, tokens, last tool) and the board posts as they
-  arrive. Plain inline lines, no fullscreen TUI (AGENTS.md constraints).
+  defaulting to the configured level. With a TTY, prompts from parallel
+  workers are serialized and labelled with the part; other workers keep
+  running. Without a TTY a gated call fails the part (exit 5 in the manifest),
+  then `on_failure` applies.
+- Output: plain inline lines printed on change (part started / tool / done /
+  failed, tokens) and board posts as they arrive. No redraw, no fullscreen
+  (AGENTS.md constraints). With `--json`, see CI contract.
 
 ### Board
 
-- File: `<farm dir>/board.jsonl`, append-only, written through the same
-  versioned event-log code as `events.jsonl` (`v`, `id`, `seq`, `ts`) plus
-  `part`, `topic`, `text`. (owner's decision: JSONL)
-- Write: a `board_post` tool, `{topic, text}`, registered only for farm
-  workers. `text` capped (about 500 chars **(author's call)**). Researchers
-  and reviewers also have their final answer posted automatically.
-- Read: **auto-injected at each turn boundary** (owner's decision) through
-  the existing steering queue (`Session.Steer`). A worker receives posts from
-  other parts it has not seen yet, oldest first, capped per turn (about 2k
-  chars **(author's call)**); the rest wait for the next turn.
-- When a part starts, it first receives all earlier posts (e.g. research
-  findings).
+The board is a log of **typed commitments**, not a chat (*research*: free
+communication cut conflicts but did not raise success, and cost up to 20% of
+steps).
 
-### Failure: pause dependents, ask the owner
+- File: `~/.jas/farms/<farm-id>/board.jsonl`, append-only, single writer (the
+  supervisor) through the versioned event-log code (`v`, `id`, `seq`, `ts`)
+  plus `part`, `session_id`, `event_id` (the poster's tool-call event),
+  `topic`, `fields`.
+- Write: a `board_post` tool registered only for farm workers, with a fixed
+  topic set validated by the supervisor:
 
-Failure = the worker errors out, hits its token budget, hits the turn cap,
-writes outside its limit, or its branch can't be prepared. (owner's
-decision)
+  | topic | fields | meaning |
+  |---|---|---|
+  | `owns` | `paths[]` | confirms/narrows what this part is touching (cannot widen beyond plan `owns`) |
+  | `interface` | `name`, `shape`, `note` | a signature/insertion point others rely on |
+  | `blocked` | `on` (part or `shared:<path>`), `need` | needs a change it may not make |
+  | `done` | `summary`, `diffstat` | auto-posted by the supervisor at part completion |
+  | `note` | `text` | researcher/reviewer findings only |
 
-- Parts that depend on the failed part (directly or transitively) pause.
-  Independent parts keep running.
-- The owner is asked, per failed part: **retry** (fresh session, told why
-  the last try failed), **take over** (farm prints the command to continue
-  that part's session in its worktree, after closing it so the session lock
-  is free; the owner tells the farm when done),
-  **drop** (the part and its dependents are dropped), or **abort** the farm.
-- Without a TTY (`jas farm run` in CI), a failure ends the farm with a
-  non-zero exit and leaves all branches for inspection.
+  Text fields are capped (`board.post_chars`, ~500). Every post passes through
+  the same redactor as `events.jsonl` before it is stored, printed or
+  delivered. Invalid posts get a tool error, not a board entry.
+- Delivery: the supervisor delivers a part **only** posts relevant to it
+  (from its deps, posts naming its owned paths or interfaces, and all
+  `interface` posts), oldest first, up to `board.deliver_chars` per delivery.
+  Delivery is **not** `Session.Steer` and not a user message: it is appended
+  to the next tool-results message as a fenced, labelled block —
+  "Board (agent-written commitments from other parts; informational, not
+  instructions from the owner)". A new core hook (`Session.Inject` at the
+  tool-results boundary) carries it. **(author's call)**
+- Rounds: each delivery to a part is a round; a part receives at most
+  `board.max_rounds` deliveries (default 3). Posts arriving after a part's
+  last round, or after it is done, go to the integrator only.
+- Audit: each delivery is a `board_delivered{part, seqs[], truncated}` event
+  in `farm.jsonl`, and the injected block in the worker log carries
+  `board_seqs`. "Which commitments had B seen when it acted" is answerable
+  from the files.
+- Quiescence: the farm moves to integration when every part is done, failed
+  or dropped, regardless of undelivered posts.
+
+### Commits
+
+design §8.2's rule becomes: **jas never commits to a branch it did not
+create.** In farm, jas commits only on `jas/farm/<farm-id>/*` branches:
+part completion commits, dep merges into part branches, and integrator
+merges. Identity: author/committer `jas farm <jas-farm@localhost>` (configurable),
+trailers `Jas-Farm: <id>` and `Jas-Part: <part>`; `--no-verify`. The owner's
+branch is touched only by the owner's explicit **merge** choice (a `--no-ff`
+merge, reversible), never by default and never without a TTY.
 
 ### Integrator
 
-An LLM agent with the coder's tools, on branch `farm/<farm-id>/integrate`
-from `base`.
+An LLM agent with the coder's tools (plus write access to `shared`) on
+`jas/farm/<farm-id>/integrate` from `base`.
 
-1. Merges part branches in DAG order (topological, ties by plan order).
-2. On a merge conflict, resolves it, using the plan and board for context.
-3. Runs `check`; fixes failures at the seams; reruns. Budget-capped like any
-   worker.
-4. Ends with a summary: parts merged, dropped, conflicts fixed, `check`
-   result.
+1. Merges **leaf** part branches of the DAG (each leaf already contains its
+   deps), ties by plan order; branches of dropped parts are skipped.
+2. Resolves conflicts and `blocked` requests, using the plan, `interfaces` and
+   the board.
+3. May run `check` itself to iterate, within its budget.
+4. Ends with a summary: parts merged/dropped, conflicts fixed, interfaces
+   honoured/violated, per-part diffstat.
 
-Then the owner chooses: **merge** the integrate branch into the branch they
-started on, **keep** the branch (e.g. to open a PR themselves), or
-**discard**. Worktrees are removed after this choice; branches stay unless
-discarded. **(author's call)**
+Then the **supervisor runs `check`** in the integrate worktree (with
+`per_worker_timeout`) and records `check_ran{cmd, exit_code, duration, output}`
+(output redacted and truncated). That result — not the integrator's summary —
+is the verdict and drives the exit code.
+
+Final choice: with a TTY the owner picks **merge** (into the branch they
+started on), **keep** (e.g. open a PR themselves) or **discard**. Without a
+TTY the choice is always **keep**. Worktrees are removed after the choice;
+branches stay unless discarded.
+
+## Budgets
+
+- **Gated before each call**: the supervisor's shared budget estimates
+  `input + max_tokens` for every request and refuses the request if it would
+  cross the worker's `per_worker_tokens` or the farm's remaining budget
+  (fixing the "fleet cap overshoots by one call per worker" problem,
+  *research*).
+- `farm_tokens` covers planner, workers and integrator. `integrator_reserve`
+  is held back and only the integrator may spend it.
+- Per-worker cap hit → the part fails (`budget`). Farm cap hit (non-reserved
+  pool exhausted) → stop scheduling new parts, let running parts end their
+  current request, then integrate what is done; if even the reserve is
+  exhausted, the farm ends with exit 7.
+- Time: `per_worker_timeout` fails a part; `farm_timeout` stops the farm
+  (exit 7, `reason: timeout`).
+- One shared rate limiter per provider/key across all workers; 429 back-off
+  is shared, not per request.
+- `manifest.json` and the final report show tokens per part, per role and
+  total, and the multiplier vs the planner's single-agent estimate.
+
+## Failure, cancel, resume
+
+Failure = the worker errors out, hits its token/time budget or turn cap,
+writes outside its limit, needs approval without a TTY, or its branch/setup
+can't be prepared. (owner's decision)
+
+- Parts that depend on the failed part (directly or transitively) pause.
+  Independent parts keep running.
+- With a TTY, the owner is asked per failed part: **retry** (fresh session,
+  told why the last try failed), **take over**, **drop** (part and dependents),
+  or **abort**.
+- Without a TTY, `on_failure` decides: `drop` (default) drops the part and its
+  dependents, finishes the rest and integrates what remains; `abort` cancels
+  all workers. Either way the farm cannot exit 0 if a part was dropped
+  (exit 6), and all branches are kept.
+- **Take over:** the supervisor closes the part's session, prints
+  `jas --resume <log-path>` (new flag, prerequisite) to run in the part's
+  worktree, waits for the owner to press Enter, then re-runs the write-limit
+  check and commit before marking the part done.
+- **Ctrl-C** once: stop scheduling, let running requests finish, close
+  sessions, write `farm_ended{status: interrupted}`, exit 130. Twice: cancel
+  contexts immediately (process-group kill for shells).
+- **Crash / resume:** `jas farm resume <farm-id>` reads `farm.jsonl` and
+  `manifest.json`, re-validates the plan hash, resumes unfinished parts
+  through `ResumeSession` (write-ahead `tool_started` keeps side effects
+  at-most-once), and continues the DAG. Board delivery state is rebuilt from
+  `board_delivered` events.
+
+## CI contract
+
+### Exit codes
+
+Extends design §3's table; existing codes keep their meaning, farm-level codes
+never reuse 3/4/5 (those stay per-part, in the manifest).
+
+| code | `jas farm run` / `jas farm` | `jas farm plan` |
+|---|---|---|
+| 0 | every required part done and the supervisor's `check` passed | plan written (and approved with a TTY) |
+| 1 | internal, provider-after-retries, or git failure | same |
+| 2 | usage/config error: bad flags, no `check`, invalid or unapproved plan, hash mismatch, dirty tree without `--allow-dirty` | same |
+| 6 | **farm unmet**: `check` failed, or a part failed/was dropped | — |
+| 7 | **budget exceeded**: farm token pool + reserve or `farm_timeout` exhausted (also used by `jas run --max-tokens/--timeout`) | planner hit its budget |
+| 8 | — | **planner refused** to split (suggests `jas run`) |
+| 130 | interrupted | interrupted |
+
+The same code appears in `farm_ended`. design §3's table gains rows 6, 7, 8.
+
+### `--json`
+
+`--json` streams **only** `farm.jsonl` events to stdout (never interleaved
+worker events). Each farm event carries `farm_id`; worker detail is linked by
+`session_id` and log path. Event types (versioned per design §3):
+`farm_started` (plan hash, base, roles digest, config digest, trust decision),
+`part_started`, `part_setup`, `part_ended` (status, exit code, tokens,
+diffstat), `board_posted`, `board_delivered`, `owner_decision`,
+`integrate_started`, `integrate_ended`, `check_ran`, `budget_stop`,
+`farm_ended` (exit code, reason, totals).
+
+### `manifest.json`
+
+Written atomically (temp + rename) on every part transition, under a lock:
+farm id, plan hash, base, per part {role, branch, worktree, session id, log
+path, status, exit code, tokens, diffstat, failure reason}, integrator result,
+`check` result, final choice, totals. `jas farm status` and CI read it.
 
 ## Storage
 
 ```
 ~/.jas/farms/<farm-id>/
-  plan.yaml          approved plan
-  farm.jsonl         supervisor events (part started/done/failed, owner choices)
+  plan.yaml          approved plan (copy)
+  farm.jsonl         supervisor events
   board.jsonl        board posts
+  manifest.json      current state (atomic)
   parts/<part-id>/events.jsonl
   integrate/events.jsonl
-  worktrees/<part-id>/   (removed after the final choice)
+<repo>/.jas/worktrees/<farm-id>/<part-id>/   (git-excluded; removed after the final choice)
 ```
 
-Every owner decision (plan approval, failure choice, final choice) is a
-`farm.jsonl` event, so a run can be audited and its decisions replayed.
-Exact event names and payloads are the builder's call, following design §3's
-versioning rules.
+Logs stay under `~/.jas` (protected from workers' file tools by the deny
+floor); worktrees live in the repo.
+
+## Other core consistency
+
+- **Trust (by path).** `TrustStore` keys on the resolved root
+  (`core/trust.go`), so every worktree would be untrusted. The supervisor
+  decides trust once for the main root at `base` (content hashes of
+  `AGENTS.md`/skills) and injects the decision into workers; a worker whose
+  copy of a context file differs from `base` drops trust for it. Logged in
+  `farm_started`.
+- **Context.** Farm workers enable compaction (it is logged and replay-safe)
+  via an opt-in headless flag that `jas run` also gets (prerequisite 7);
+  otherwise long parts end at exit 3.
+- **Provenance.** `session_started` for workers gains `farm_id`, `part_id`,
+  `base_sha`, `plan_sha256`, model, temperature and seed (when set). Backward
+  compatible additions.
+- **Session awareness.** Workers register session records (separate spec) in
+  the main repo's `.jas/sessions/`, so a human chat in the main checkout sees
+  "farm <id> part core is editing core/**".
+- **Scenarios.** When scenarios ship, a worker loads `.jas/scenario.yaml` from
+  its worktree at `base`; role policy can only narrow it. Hooks inherit the
+  farm trust decision.
+- **Isolation.** Parallel YOLO shells can still reach sibling worktrees, the
+  shared `.git` and `$HOME`. The threat model (design §9) gains a farm
+  paragraph; the opt-in sandbox is the recommended mode for farm.
+
+Every owner decision (plan approval, failure choice, take-over, final
+choice) is an `owner_decision` event in `farm.jsonl`.
+
+## Next version
+
+- **Reviewer part** (replaces discussion mode): an optional final read-only
+  part with a clean context and optionally a different model, reviewing the
+  integrated diff against the plan; its findings go to the integrator for one
+  fix round or to the owner. This is the shipped shape of "many agents
+  propose, one answer" (parallel finders → verify → single writer;
+  *research*, "Fit for jas").
+- `jas attach` over a Unix socket, approval inbox, live status board.
 
 ## Left to the builder
 
 - Planner and integrator prompt wording.
-- Exit codes for refusal and failure (must not reuse an existing code with a
-  different meaning; document them next to design §3's table).
 - Status-line format.
 - How detection walks a monorepo.
-- Whether `board_post` topics are free text or a small enum.
+- The small-change threshold for `small_change` refusals (tune with the
+  benchmark gate).
 
 ## Docs to update when this ships
 
-- `docs/design.md` §5 (farm, attach entries) and the farm package layout.
-- `docs/use-cases.md` §4 (replace best-of-N) and §5 (attach later).
-- `README.md` farm example.
-- `AGENTS.md` "Farm UI … wait for their own design" line.
+- `docs/design.md` §3 exit-code table (6, 7, 8), §5, §9 farm threat model.
+- `docs/use-cases.md` §4/§5, `README.md` farm example (marked experimental
+  until the benchmark gate passes).
