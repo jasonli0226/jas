@@ -20,6 +20,16 @@ func ReadOnly() []core.Tool {
 	return []core.Tool{Read{}, Ls{}, Grep{}}
 }
 
+// writeLimitResult refuses a write or edit outside ExecPolicy.Writes. The
+// result is marked Denied so the executor records status "denied".
+func writeLimitResult(path string) core.Result {
+	return core.Result{
+		Output:  fmt.Sprintf("write limit: %s is outside this part's writable paths", path),
+		IsError: true,
+		Denied:  true,
+	}
+}
+
 func errResult(format string, a ...any) (core.Result, error) {
 	return core.Result{Output: fmt.Sprintf(format, a...), IsError: true}, nil
 }
@@ -265,6 +275,10 @@ func (Write) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) 
 	if err != nil {
 		return fail("%v", err)
 	}
+	if !p.WriteAllowed(full) {
+		res := writeLimitResult(a.Path)
+		return writePlan{}, &res, nil
+	}
 	if res, refused := refuseRedacted(p, full, *a.Content); refused {
 		return writePlan{}, &res, nil
 	}
@@ -373,6 +387,10 @@ func (Edit) plan(ctx context.Context, p core.ExecPolicy, args json.RawMessage) (
 	full, err := p.Resolve(a.Path)
 	if err != nil {
 		return fail("%v", err)
+	}
+	if !p.WriteAllowed(full) {
+		res := writeLimitResult(a.Path)
+		return editPlan{}, &res, nil
 	}
 	if res, refused := refuseRedacted(p, full, a.OldString, *a.NewString); refused {
 		return editPlan{}, &res, nil
