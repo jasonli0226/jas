@@ -148,7 +148,8 @@ func TestOpenAI_InvalidToolInputDoesNotBreakEncoding(t *testing.T) {
 	assert.Eq(t, fn["arguments"], any(`{"path":`))
 }
 
-var openAIFixtures = []string{"split_args.sse", "whole_call_one_chunk.sse", "two_parallel_calls.sse", "text_only.sse", "openrouter_glm.sse"}
+var openAIFixtures = []string{"split_args.sse", "whole_call_one_chunk.sse", "two_parallel_calls.sse", "text_only.sse", "openrouter_glm.sse",
+	"ollama.sse", "openrouter_deepseek.sse"}
 
 func TestOpenAI_StreamsFixture(t *testing.T) {
 	for _, name := range openAIFixtures {
@@ -492,5 +493,40 @@ func TestParseChunk_Reasoning(t *testing.T) {
 		assert.NoErr(t, err)
 		assert.Eq(t, len(evs), 1)
 		assert.Eq(t, evs[0], StreamEvent{Reasoning: tc.want})
+	}
+}
+
+// TestOpenAI_RecordedProviderFixtures pins what the adapter reads from real
+// recorded streams: ollama sends the whole call in one chunk and usage in an
+// empty-choices chunk; OpenRouter (DeepSeek upstream) interleaves
+// ": OPENROUTER PROCESSING" comments and splits the arguments.
+func TestOpenAI_RecordedProviderFixtures(t *testing.T) {
+	tests := []struct {
+		fixture, id, input string
+		prompt             int
+	}{
+		{"ollama.sse", "call_l886bbfm", `{"file":"go.mod"}`, 162},
+		{"openrouter_deepseek.sse", "call_xOaaLTCbW7nFBFmHBxe4tukd", `{"path":"go.mod"}`, 302},
+	}
+	for _, tc := range tests {
+		t.Run(tc.fixture, func(t *testing.T) {
+			srv := httptest.NewServer(sseHandler(readFixture(t, tc.fixture)))
+			defer srv.Close()
+			evs, err := streamAll(t, newOpenAI(srv.URL))
+			assert.NoErr(t, err)
+			_, calls, err := accumulate(evs)
+			assert.NoErr(t, err)
+			assert.Eq(t, len(calls), 1)
+			assert.Eq(t, calls[0].Name, "read")
+			assert.Eq(t, calls[0].ToolUseID, tc.id)
+			assert.JSONEq(t, string(calls[0].Input), tc.input)
+			prompt := 0
+			for _, ev := range evs {
+				if ev.Usage != nil {
+					prompt = ev.Usage.PromptTokens
+				}
+			}
+			assert.Eq(t, prompt, tc.prompt)
+		})
 	}
 }
