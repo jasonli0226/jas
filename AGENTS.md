@@ -21,6 +21,10 @@ in-chat approvals and prompts, `suggest_farm`): spec
 `docs/superpowers/plans/2026-11-04-farm-interactive.md`. Every farm call from
 the chat runs in a `tea.Cmd` or goroutine, never in `Update` (farm hooks call
 `Program.Send`). Next for farm: the farm-vs-`jas run` benchmark gate.
+Status (2026-11-04, paused): built and reviewed on branch
+`feat/farm-interactive`, not merged; next is the owner's acceptance run
+(`docs/farm-acceptance-run.md`), then a PR. Rulings, deferred minors and one
+open question are in the plan's Build record.
 
 **Next work (first-class together):** chat polish that stays inline; template /
 scenario / `jas bootstrap` / `jas spec` quality (design §8 +

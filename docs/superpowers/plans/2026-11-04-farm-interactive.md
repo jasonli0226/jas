@@ -323,3 +323,49 @@ Behaviour (spec, Lifetime; When the farm ends):
 - [ ] **Step 2: Run** `go test -race ./... && go vet ./... && gofmt -l .` — Expected: PASS, no files listed.
 - [ ] **Step 3: Acceptance run** (spec, Acceptance; owner at the terminal): in `jas` chat on a real two-part task, use a `suggest_farm` pre-fill, approve, flip to each agent and back, steer one, `/farm`, answer an approval while flipped elsewhere, answer keep, ask the main agent about the result. Record findings as "Run 4" in `docs/research/farm-dogfood-2026-11.md`.
 - [ ] **Step 4: Commit** `docs: interactive farm in README, manual and dogfood notes`
+
+---
+
+## Build record (2026-11-04)
+
+**Status:** all 10 tasks built on branch `feat/farm-interactive` (worktree
+`~/projects/jas-farm-interactive`), test-first; final whole-branch review by
+a fresh reviewer found 4 Critical and 8 Important issues, all fixed with
+regression tests (`tui/farm_review_test.go`, `farm/handle_test.go`);
+`go test -race ./...` green. **Not merged.** Next: the owner's acceptance run
+([`docs/farm-acceptance-run.md`](../../farm-acceptance-run.md)), then a PR.
+
+**Open question for the owner:** the final prompt matches prefixes either
+way round (as the CLI does), so `dunno` or `don't` count as **d**iscard,
+which deletes branches. Tighten (e.g. whole word for discard) before merge?
+
+**Rulings made during the build** (decision — why — cost if wrong):
+
+- Task 2: Ruling: TestHandle_UndeliveredSteeringHandedBack steers during part_check, not "as the worker gives its final answer" — core.Session delivers a steer that arrives mid-reply (it continues the turn), so only a steer after Send returns is undelivered — cost if wrong: one test's trigger point.
+- Task 2: Ruling: the dirty-main merge refusal also applies to jas farm run (CLI), including --allow-dirty farms — the spec's rule is about the owner's checkout, not the front end; git merge alone only refuses conflicting dirty files — cost if wrong: a CLI owner who kept edits must commit/stash before merge.
+- Task 3: Ruling: tui.Farmer gains Discard(p) and FarmPlan gains Task — the chat must close a planner it never approves (quit/q) and re-offer the task on refusal — cost if wrong: two extra port members.
+- Task 3: Ruling: a farm from the chat needs a clean working tree, as jas farm plan without --allow-dirty — spec is silent on dirty-at-start; the CLI's safe default (uncommitted edits would silently not be part of the farm) — cost if wrong: owner commits/stashes before /farm.
+- Task 3: Ruling: farmPreflight returns warnings instead of printing them (CLI prints them; chat shows them in the plan summary) — printing to stderr would corrupt the inline chat — cost if wrong: none for CLI output (same lines).
+- Task 4: Ruling: farmDoneMsg comes from a goroutine waiting on run.Wait, not a tea.Cmd — a command blocking for the whole farm ties up the runtime (and hangs the synchronous test harness) — cost if wrong: none.
+- Task 4: Ruling: rows collapse when agents+1+input+4 chrome+3 transcript rows exceed the height — keeps some transcript visible; the plan's "+4" alone collapsed only when the live region overflowed — cost if wrong: threshold tweak.
+- Task 7: Ruling: every approval (main or farm) sets the input and any open picker aside and restores them after the answer; TestChat_ApprovalClosesPicker becomes TestChat_ApprovalSetsPickerAside — R1 says the input comes back; the farm plan review picker must survive an approval — cost if wrong: a restored /allowed picker may list grants from before an "always" answer (reopen refreshes).
+- Task 7: Ruling: farm approvals offer y/N/always/farm ("farm" = always for this farm) — spec's choices yes · no · always for this part · always for this farm — cost if wrong: answer word.
+- Task 7: Ruling: onRunDone only clears a main-session approval; a farm part's open approval survives the main turn ending — otherwise the worker would wait on a prompt that vanished — cost if wrong: none.
+- Task 7: Ruling: farm_bell is a config key (jas config set farm_bell false), default true; bell rings for farm approvals and farm questions only, not main-session approvals — R3 scope is "the farm needs you" — cost if wrong: one condition.
+- Task 8: Ruling: farmSummary takes the part order as a third argument — the manifest's parts are a map, so a stable order must come from the plan — cost if wrong: signature only.
+- Task 8: Ruling: /new and /resume return the window to the main chat first — they clear and redraw the main chat; leaving the view on an agent would hold the banner — cost if wrong: none.
+- Task 9: Ruling: suggest_farm reaches the chat as a UI event (tui.EvSuggestFarm) through the session's own UI, not a new backend callback — the bridge already carries session events to Update — cost if wrong: none.
+- Task 9: Ruling: a suggestion never overwrites a draft (or a stashed input); it is printed as 'suggested: /farm …' instead — the spec says the owner edits or deletes it — cost if wrong: one condition.
+- Task 10: Ruling: the acceptance run (owner at the terminal) happens after the final branch review and before merge, not inside Task 10 — it needs the owner live; the review may change code it exercises — cost if wrong: order only.
+- Final: Ruling: review #12 (held output longer than a screen) regraded Important and fixed by printing every held block on Ctrl+0 — spec Q4 says "Ctrl+0 prints them" — cost if wrong: a long redraw.
+
+**Deferred minors** (from the final review; not fixed):
+
+- paused parts show as running in rows/dashboard
+- per-part tokens update only when a part ends
+- /farm stop ends without a final choice (matches CLI interrupted path)
+- Available() does config file I/O in Update
+- unquoted /farm tasks starting with a subcommand word run the subcommand
+- suggest_farm %q escapes newlines/quotes in the pre-filled task
+- "farm needs you · ctrl+0" on the totals line in the main chat while a turn runs
+- planning can't be cancelled; quit during review leaves the planner open
