@@ -329,8 +329,12 @@ the same model, are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Demo
 
-To record the demo GIF, install [vhs](https://github.com/charmbracelet/vhs)
-and run `vhs demo.tape`.
+![jas chat: ask for a change, the agent edits main.go, git diff shows it](docs/demo.gif)
+
+To re-record it, install [vhs](https://github.com/charmbracelet/vhs) (it also
+needs `ttyd` and `ffmpeg`), build `bin/jas`, export `OPENROUTER_API_KEY`, and
+run `vhs demo.tape` from the repo root. It makes real model calls on a
+throwaway copy of `bench/fixture`.
 
 ## Farm (experimental)
 

@@ -144,7 +144,7 @@ in the chat, Ctrl/Alt+1–9 to flip to an agent, a `/farm` dashboard,
 in-chat approvals and questions, `suggest_farm`
 ([design](../superpowers/specs/2026-11-04-farm-interactive-design.md),
 [plan and build record](../superpowers/plans/2026-11-04-farm-interactive.md)).
-Built on `feat/farm-interactive`, reviewed, not merged. **Run 4** is its
+Built on `feat/farm-interactive`, reviewed, merged to main. **Run 4** is its
 acceptance run: [`docs/farm-acceptance-run.md`](../farm-acceptance-run.md).
 
 ## Where this leaves validation

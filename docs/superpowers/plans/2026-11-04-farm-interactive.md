@@ -332,7 +332,8 @@ Behaviour (spec, Lifetime; When the farm ends):
 `~/projects/jas-farm-interactive`), test-first; final whole-branch review by
 a fresh reviewer found 4 Critical and 8 Important issues, all fixed with
 regression tests (`tui/farm_review_test.go`, `farm/handle_test.go`);
-`go test -race ./...` green. **Not merged.** Next: the owner's acceptance run
+`go test -race ./...` green. Merged to main (owner's call, before the
+acceptance run; farm stays experimental). Next: the owner's acceptance run
 ([`docs/farm-acceptance-run.md`](../../farm-acceptance-run.md)), then a PR.
 
 **Open question for the owner:** the final prompt matches prefixes either
