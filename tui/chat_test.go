@@ -207,7 +207,7 @@ func TestChat_BlankLineAboveInput(t *testing.T) {
 	c.submit("hi")
 	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(textMsg); return ok })
 	// The loader line belongs to the input area, under the blank line.
-	assert.Contains(t, c.view(), "● partial\n\n⠋ working…\n"+strings.Repeat("─", defaultWidth)+"\n›")
+	assert.Contains(t, c.view(), "● partial\n\n⠋ working… 0s\n"+strings.Repeat("─", defaultWidth)+"\n›")
 }
 
 func TestChat_SendStreamsAndPrints(t *testing.T) {
