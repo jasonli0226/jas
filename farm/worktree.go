@@ -289,7 +289,9 @@ func (w *Worktrees) Commit(ctx context.Context, path, part, msg string) (string,
 // Remove deletes the part's worktree; its branch is kept.
 func (w *Worktrees) Remove(ctx context.Context, part string) error {
 	_, err := w.Git.Run(ctx, w.Main, "worktree", "remove", "--force", w.Path(part))
-	_ = os.RemoveAll(TmpDir(w.Path(part)))
+	tmp := TmpDir(w.Path(part))
+	_ = os.RemoveAll(tmp)
+	_ = os.Remove(filepath.Dir(tmp)) // the farm's dir, once its last part is gone
 	return err
 }
 
