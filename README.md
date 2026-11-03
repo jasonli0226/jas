@@ -353,10 +353,18 @@ Worktrees live in the repo under `.jas/worktrees/<farm-id>/<part>`
 absolute path to put them elsewhere. Without `--json`, the run prints a line per part event and
 worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental** until the benchmark gate
 (farm vs plain `jas run` on wall-clock) lands. Not yet: `farm resume`,
-`researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
-`/farm` (attach and the live board stay [#12](https://github.com/jasonli0226/jas/issues/12)).
+`researcher`/`reviewer` roles, `--spec` planning, `farm init`, attach from
+another terminal ([#12](https://github.com/jasonli0226/jas/issues/12)).
 Full design:
 [docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
+
+**In the chat:** `/farm "<task>"` plans a farm from the conversation; the plan
+summary opens a picker (approve, edit in `$EDITOR`, replan with feedback, or
+quit). Once approved, one live row per agent sits under the input (status,
+last activity, tokens) with a totals line, and finished events print into the
+chat. `/farm` prints the dashboard; `/farm run <plan.yaml>` starts an approved
+plan. One farm per window; it needs a trusted project with a `check` and a
+clean working tree.
 
 ## Design
 

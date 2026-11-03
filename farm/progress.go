@@ -59,6 +59,10 @@ func fitWidth(line string, width int) string {
 	return string(r[:width-2]) + "…"
 }
 
+// ProgressLine is the progress line jas farm run prints for a farm.jsonl
+// event, or "" for events it does not show.
+func ProgressLine(typ string, m map[string]any) string { return farmLine(typ, m) }
+
 // farmLine renders a farm.jsonl event, or "" for events not shown.
 func farmLine(typ string, m map[string]any) string {
 	part := fmt.Sprint(m["part"])

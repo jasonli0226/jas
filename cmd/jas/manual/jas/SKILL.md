@@ -125,5 +125,10 @@ handed to the integrator. At the failure prompt, answer `retry`, `drop` or
 checkout are denied there); `worktree.dir` moves them. Without `--json`, progress prints
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
 and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
+
+In the chat: `/farm "<task>"` plans a farm (picker: approve, edit, replan,
+quit); while it runs, live rows under the input show each agent; `/farm`
+prints the dashboard; `/farm run <plan.yaml>` starts an approved plan. One
+farm per window; needs a trusted project, a `check` and a clean tree.
 `--json` works throughout; `manifest.json` records the run. Experimental
 until the farm-vs-`jas run` benchmark lands.

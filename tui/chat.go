@@ -63,7 +63,13 @@ type Model struct {
 	approval *approvalMsg // the open approval prompt
 	picker   *picker      // the open picker, shown in place of the input
 	onPick   func(value string) tea.Cmd
-	reply    string // the last final reply, for /copy
+	// onPickCancel runs when the open picker is cancelled (Esc); nil: nothing.
+	onPickCancel func() tea.Cmd
+
+	farm       *farmState // this window's farm, running or the last one
+	farmReview *FarmPlan  // a plan under review (or being drafted)
+	farmReplan *FarmPlan  // a plan waiting for replan feedback in the input
+	reply      string     // the last final reply, for /copy
 
 	slashFor    string // input text the / menu cursor belongs to
 	slashCursor int
@@ -192,6 +198,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onTick()
 	case approvalMsg:
 		return m, m.onApproval(msg)
+	case farmPlannedMsg:
+		return m, m.onFarmPlanned(msg)
+	case farmEditedMsg:
+		return m, m.onFarmEdited(msg)
+	case farmStartedMsg:
+		return m, m.onFarmStarted(msg)
+	case farmEventMsg:
+		return m, m.onFarmEvent(msg)
+	case farmDoneMsg:
+		return m, m.onFarmDone(msg)
 	case noticeMsg:
 		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:
@@ -236,6 +252,7 @@ func (m *Model) View() tea.View {
 		}
 	}
 	parts = append(parts, m.rule(), m.statusLine())
+	parts = append(parts, m.farmRows()...)
 	// The zero KeyboardEnhancements still requests basic key disambiguation
 	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
 	// apart from Enter on terminals that support it.

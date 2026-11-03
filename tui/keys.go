@@ -77,6 +77,11 @@ func (m *Model) onEnter() tea.Cmd {
 		m.answerApproval()
 		return nil
 	}
+	if m.farmReplan != nil {
+		text := strings.TrimSpace(m.input.Value())
+		m.input.Reset()
+		return m.farmFeedback(text)
+	}
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" || m.live == nil || m.opening != nil {
 		return nil

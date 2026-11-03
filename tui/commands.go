@@ -33,6 +33,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"copy":     (*Model).cmdCopy,
 	"resume":   (*Model).cmdResume,
 	"compact":  (*Model).startCompact,
+	"farm":     (*Model).cmdFarm,
 }
 
 // idleOnly commands are refused during a run. That is what keeps
@@ -53,6 +54,9 @@ const helpText = `commands
   /approve [level]       approval level: never | shell | mutating
   /allowed               list and remove always grants
   /copy                  copy the last reply to the clipboard
+  /farm "<task>"         plan a farm of parallel agents for task; approve, edit, replan or quit
+  /farm run <plan.yaml>  start an approved plan
+  /farm                  the farm dashboard: every agent, status, activity, tokens
   /skill:<name> [text]   run a skill
   /quit                  save the session and quit
 an always grant on a shell command covers any arguments to the first two words
@@ -267,9 +271,13 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	if res == pickOpen {
 		return nil
 	}
-	onPick := m.onPick
-	m.picker, m.onPick = nil, nil
+	onPick, onCancel := m.onPick, m.onPickCancel
+	m.picker, m.onPick, m.onPickCancel = nil, nil, nil
 	switch res {
+	case pickCancelled:
+		if onCancel != nil {
+			return onCancel()
+		}
 	case pickChosen:
 		return onPick(value)
 	case pickSetDefault:

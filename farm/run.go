@@ -289,6 +289,7 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 	s.event(EvFarmStarted, map[string]any{
 		"plan_sha256": pre.hash, "base": pre.baseSHA, "roles_digest": RolesDigest(o.Cfg),
 		"config_digest": ConfigDigest(o.Cfg), "trust": o.Trusted, "plan": filepath.Join(dir, planCopyFile),
+		"farm_tokens": o.Cfg.Budget.FarmTokens,
 	})
 	return r, nil
 }
