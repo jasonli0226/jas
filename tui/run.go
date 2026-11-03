@@ -78,6 +78,8 @@ func (m *Model) startCompact(focus string) tea.Cmd {
 // and compaction rows.
 func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	switch msg.typ {
+	case EvSuggestFarm:
+		return m.suggestFarm(msg.data)
 	case core.EvUsage:
 		m.usage.prompt = intField(msg.data, "prompt_tokens")
 		m.usage.in += m.usage.prompt

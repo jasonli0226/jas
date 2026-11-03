@@ -126,8 +126,9 @@ checkout are denied there); `worktree.dir` moves them. Without `--json`, progres
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
 and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
 
-In the chat: `/farm "<task>"` plans a farm (picker: approve, edit, replan,
-quit); while it runs, live rows under the input show each agent; `/farm`
+In the chat: the agent's `suggest_farm` tool (trusted project with a `check`
+only) pre-fills `/farm "<task>"` in the input; it never starts a farm.
+`/farm "<task>"` plans a farm (picker: approve, edit, replan, quit); while it runs, live rows under the input show each agent; `/farm`
 prints the dashboard; `/farm run <plan.yaml>` starts an approved plan. One
 farm per window; needs a trusted project, a `check` and a clean tree.
 Ctrl+1..9 (Alt+1..9) shows agent N live; Ctrl+0 (Alt+0) returns to the main

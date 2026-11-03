@@ -270,3 +270,18 @@ func (m *Model) farmHooks() FarmHooks {
 		Ask: farmAsker(send),
 	}
 }
+
+// suggestFarm pre-fills the input with the agent's /farm suggestion; a draft
+// is never overwritten (the suggestion is printed instead).
+func (m *Model) suggestFarm(data map[string]any) tea.Cmd {
+	task, _ := data["task"].(string)
+	if task = strings.TrimSpace(task); task == "" {
+		return nil
+	}
+	line := fmt.Sprintf("/farm %q", task)
+	if m.input.Value() == "" && m.stash == nil {
+		m.input.SetValue(line)
+		return m.notice("the agent suggests a farm: the input holds it; edit or send it, or clear it")
+	}
+	return m.notice("suggested: " + line)
+}

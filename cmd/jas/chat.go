@@ -227,8 +227,12 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 	e := b.e
 	ui = core.NewRedactingUI(ui, e.red.Redact)
 	log = core.NewUILog(log, ui)
+	toolset := append(tools.ReadOnly(), tools.Mutating()...)
+	if ok, _ := b.Farmer().Available(); ok { // only where a farm could run
+		toolset = append(toolset, suggestFarm{ui: ui})
+	}
 	exec := &core.Executor{
-		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
+		Reg:    core.NewRegistry(toolset...),
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
 	}
 	meta := e.sessionMeta(model)

@@ -144,3 +144,14 @@ func TestFarmEnd_SurvivesNewSession(t *testing.T) {
 	c.pump()
 	assert.Contains(t, requestText(c.b.prov.Requests[0]), "farm f1 ended")
 }
+
+func TestSuggestFarm_PrefillsInput(t *testing.T) {
+	c, _ := farmChat(t)
+	c.update(eventMsg{gen: c.m.gen, typ: EvSuggestFarm, data: map[string]any{"task": "migrate logging"}})
+	assert.Eq(t, c.m.input.Value(), `/farm "migrate logging"`)
+	assert.Eq(t, c.m.farm == nil, true)
+	c.typeText(" x")
+	c.update(eventMsg{gen: c.m.gen, typ: EvSuggestFarm, data: map[string]any{"task": "other"}})
+	assert.Contains(t, c.m.input.Value(), "migrate logging") // a draft is never overwritten
+	assert.Contains(t, strings.Join(c.m.Printed(), "\n"), `suggested: /farm "other"`)
+}

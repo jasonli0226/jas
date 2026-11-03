@@ -7,6 +7,10 @@ import (
 	"github.com/jasonli0226/jas/farm"
 )
 
+// EvSuggestFarm is the UI event the suggest_farm tool posts; data["task"] is
+// the drafted task.
+const EvSuggestFarm = "suggest_farm"
+
 // Farmer is the chat's farm port: plan a task, review it, and start the
 // approved plan. cmd/jas implements it over the same planner and supervisor
 // as jas farm. Every method may block and log, so the chat calls them from

@@ -123,3 +123,41 @@ func TestChatFarm_ApproveThenStart(t *testing.T) {
 		t.Fatalf("worker text %q", got)
 	}
 }
+
+func TestSuggestFarm_RegisteredOnlyWhenAvailable(t *testing.T) {
+	has := func(b *chatBackend) bool {
+		log, err := core.OpenEventLog(filepath.Join(t.TempDir(), "e.jsonl"), nil, nil)
+		assert.NoErr(t, err)
+		defer log.Close()
+		c := b.configProv(nil, "custom", "", "m", log, core.NewQuietUI(), core.AllowAll{})
+		_, ok := c.Exec.Reg.Get(suggestFarmName)
+		return ok
+	}
+	assert.Eq(t, has(farmChat(t, "go test ./...", true)), true)
+	assert.Eq(t, has(farmChat(t, "go test ./...", false)), false)
+	assert.Eq(t, has(farmChat(t, "", true)), false)
+}
+
+func TestSuggestFarm_PostsTaskToTheChat(t *testing.T) {
+	ui := &eventUI{}
+	tool := suggestFarm{ui: ui}
+	res, err := tool.Call(context.Background(), core.ExecPolicy{}, []byte(`{"task":"migrate logging"}`))
+	assert.NoErr(t, err)
+	assert.Contains(t, res.Output, `suggested to the owner: /farm "migrate logging"`)
+	assert.Eq(t, ui.typ, tui.EvSuggestFarm)
+	assert.Eq(t, ui.data["task"], any("migrate logging"))
+	if _, err := tool.Call(context.Background(), core.ExecPolicy{}, []byte(`{"task":"  "}`)); err == nil {
+		t.Fatal("an empty task was accepted")
+	}
+}
+
+type eventUI struct {
+	typ  string
+	data map[string]any
+}
+
+func (u *eventUI) Text(string)      {}
+func (u *eventUI) Reasoning(string) {}
+func (u *eventUI) Event(typ string, data any) {
+	u.typ, u.data = typ, data.(map[string]any)
+}
