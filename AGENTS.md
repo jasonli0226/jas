@@ -4,15 +4,24 @@ jas is a tiny, fast coding-agent harness in Go (CI-friendly, MIT, inline chat + 
 
 ## Current focus
 
-Farm MVP merged (see README's experimental farm section): `farm plan`/`run`/`<task>`/
+**Product framing (owner, 2026-11-03):** interactive **chat is a core feature**
+(pair programming), alongside **init from instructions / future scenarios or
+`jas spec`**, and **study→draft scenario** (`jas bootstrap`, design §8.3).
+CI/`--json` and farm remain differentiators vs pi — a receipt and a narrow
+split — not the only lead story. Docs: README pitch, `docs/use-cases.md`.
+
+Farm MVP is merged (README experimental section): `farm plan`/`run`/`<task>`/
 `status`/`clean`/`vars`, `coder`/`tester` roles, typed board, supervisor-run
-`check`, integrator, exit codes 6/7/8, `--json`, `manifest.json`, budgets. Spec:
-`docs/superpowers/specs/2026-11-02-farm-design.md` (MVP cut section); plan:
-`docs/superpowers/plans/2026-11-02-farm-mvp.md`; live acceptance results in the
-PR. Next, in spec order: the farm-vs-`jas run` benchmark gate (README drops the
-experimental note when it lands), then `farm resume` + take-over,
-`researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
-`/farm`.
+`check`, integrator, exit codes 6/7/8, `--json`, `manifest.json`, budgets.
+Spec: `docs/superpowers/specs/2026-11-02-farm-design.md`; plan:
+`docs/superpowers/plans/2026-11-02-farm-mvp.md`.
+
+**Next work (first-class together):** chat polish that stays inline; template /
+scenario / `jas bootstrap` / `jas spec` quality (design §8 +
+`docs/superpowers/specs/2026-11-02-spec-driven-flow.md`); farm post-MVP in
+spec order — farm-vs-`jas run` benchmark gate, then `farm resume` + take-over,
+`researcher`/`reviewer`/`fuzz` roles, blast-radius merge policy, `--spec`
+planning, `farm init`, interactive `/farm`.
 
 ## Constraints
 
