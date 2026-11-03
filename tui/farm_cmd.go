@@ -253,5 +253,8 @@ func (m *Model) farmHooks() FarmHooks {
 	return FarmHooks{
 		Event:  func(typ string, data map[string]any) { send(farmEventMsg{typ: typ, m: data}) },
 		Worker: func(part string) core.UI { return farmBridge{part: part, send: send} },
+		Undelivered: func(part string, texts []string) {
+			send(farmUndeliveredMsg{part: part, texts: texts})
+		},
 	}
 }

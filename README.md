@@ -369,7 +369,11 @@ the screen clears and shows its transcript live, as the main chat does;
 **Ctrl+0** (or Alt+0) comes back. While you watch an agent, main-chat output
 is held (the bottom strip counts it) and printed when you return.
 `/farm attach <part|N>` and `/farm back` do the same where the keys do not
-reach jas.
+reach jas. In an agent's view, Enter steers that agent (`queued for <part>`
+until it reads it; text it never reads comes back to the input); Esc and
+Ctrl+C only clear the input and never stop an agent. `/farm pause|resume|drop
+<part|N>` and `/farm stop` (twice to cancel now) control the farm; quitting
+with a farm running asks first.
 
 ## Design
 

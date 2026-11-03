@@ -110,6 +110,10 @@ func (m *Model) flip(to string) tea.Cmd {
 		}
 	}
 	m.viewing = to
+	m.input.Prompt = mainPrompt
+	if to != "" {
+		m.input.Prompt = to + " › "
+	}
 	return tea.Sequence(tea.ClearScreen, m.emit(blocks...))
 }
 
@@ -162,6 +166,9 @@ func (m *Model) onFarmWorkerEvent(msg farmWorkerEventMsg) tea.Cmd {
 		args, _ := msg.m["args"].(map[string]any)
 		a.activity = strings.TrimSpace("→ " + tool + " " + subject(tool, args))
 	case core.EvUserMessage:
+		if steer, _ := msg.m["steer"].(bool); steer {
+			a.queued = nil // the loop delivered every queued text at once
+		}
 		blocks = append(a.tr.Flush(now), a.tr.User(contentText(msg.m))...)
 	case core.EvTurnEnded, core.EvSessionEnded:
 		blocks = a.tr.Flush(now)

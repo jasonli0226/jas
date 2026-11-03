@@ -108,3 +108,101 @@ func TestFlip_AttachCommandAndUnknownPart(t *testing.T) {
 	assert.Eq(t, c.m.viewing, "")
 	assert.Contains(t, strings.Join(c.printedNoBanner(), "\n"), "no agent zz")
 }
+
+func (r *fakeRun) callList() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Join(r.calls, "|")
+}
+
+func TestSteer_RoutesToViewedAgent(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	f.event("part_started", map[string]any{"part": "a", "role": "coder"})
+	c.drain()
+	c.update(modKey('1', tea.ModCtrl))
+	assert.Contains(t, c.m.input.Prompt, "a ›")
+	c.submit("use slog")
+	assert.Eq(t, f.run.callList(), "steer a use slog")
+	assert.Contains(t, c.view(), "queued for a")
+	c.update(modKey('0', tea.ModCtrl))
+	assert.Eq(t, c.m.input.Prompt, "› ")
+}
+
+func TestSteer_DoneAgentRefused(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	f.event("part_ended", map[string]any{"part": "a", "status": "done"})
+	c.drain()
+	c.update(modKey('1', tea.ModCtrl))
+	c.submit("more")
+	assert.Eq(t, f.run.callList(), "")
+	assert.Contains(t, strings.Join(c.m.Printed(), "\n")+c.m.hint, "a is done")
+}
+
+func TestEscAndCtrlC_NeverStopAgents(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	f.event("part_started", map[string]any{"part": "a", "role": "coder"})
+	c.drain()
+	c.update(modKey('1', tea.ModCtrl))
+	c.typeText("half")
+	c.key("esc")
+	assert.Eq(t, c.m.input.Value(), "")
+	c.typeText("again")
+	c.key("ctrl+c")
+	assert.Eq(t, c.m.input.Value(), "")
+	assert.Eq(t, f.run.callList(), "")
+	assert.Eq(t, c.m.quitting, false)
+}
+
+func TestQuit_ConfirmsWithRunningFarm(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	c.submit("/quit")
+	if c.m.picker == nil || !strings.Contains(c.m.picker.title, "a farm is running — stop it and quit?") {
+		t.Fatalf("no quit confirm; picker %+v", c.m.picker)
+	}
+	c.typeText("n")
+	c.key("enter")
+	assert.Eq(t, c.m.quitting, false)
+	assert.Eq(t, f.run.callList(), "")
+	c.submit("/quit")
+	c.typeText("y")
+	c.key("enter")
+	assert.Eq(t, f.run.callList(), "stop")
+	f.run.finish(farmResult("interrupted", 130))
+	c.drain()
+	assert.Eq(t, c.m.quitting, true)
+}
+
+func TestFarmStop_SecondIsHard(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	c.submit("/farm stop")
+	c.submit("/farm stop")
+	assert.Eq(t, f.run.callList(), "stop|stop hard")
+}
+
+func TestFarmPauseResumeDropByNameOrNumber(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	c.submit("/farm pause 1")
+	c.submit("/farm resume a")
+	c.submit("/farm drop b")
+	assert.Eq(t, f.run.callList(), "pause a|resume a|drop b")
+}
+
+func TestSteer_HandBackWhileTyping(t *testing.T) {
+	c, f := farmChat(t)
+	startFarm(t, c)
+	c.update(modKey('1', tea.ModCtrl))
+	c.typeText("half")
+	f.hooks.Undelivered("a", []string{"late"})
+	c.drain()
+	assert.Contains(t, strings.Join(c.m.Printed(), "\n")+strings.Join(c.m.Screen(), "\n"), "[a] not delivered (part finished)")
+	v := c.m.input.Value()
+	if !strings.Contains(v, "half") || !strings.Contains(v, "late") {
+		t.Fatalf("input %q", v)
+	}
+}

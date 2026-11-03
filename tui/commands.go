@@ -58,6 +58,8 @@ const helpText = `commands
   /farm run <plan.yaml>  start an approved plan
   /farm                  the farm dashboard: every agent, status, activity, tokens
   /farm attach <part|N>  show that agent (as Ctrl+N); /farm back returns to the main chat
+  /farm pause|resume|drop <part|N>   hold an agent before its next request, release it, or drop it and its dependents
+  /farm stop             stop the farm gracefully; again to cancel now
   /skill:<name> [text]   run a skill
   /quit                  save the session and quit
 an always grant on a shell command covers any arguments to the first two words

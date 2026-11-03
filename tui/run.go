@@ -267,6 +267,10 @@ func runNotice(res core.TurnResult) string {
 // resumes the quit), then closes the session; the program ends after the
 // last print.
 func (m *Model) quit() tea.Cmd {
+	if m.farm.running() && !m.farmQuitting {
+		return m.confirmQuitFarm()
+	}
+	m.viewing = "" // the last blocks print wherever the owner was
 	m.quitting = true
 	if m.run != nil {
 		m.run.cancel()

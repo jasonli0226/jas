@@ -137,3 +137,5 @@ func startFarm(t *testing.T, c *testChat) *fakeFarmer {
 }
 
 var _ tea.Msg = farmEventMsg{}
+
+func farmResult(reason string, code int) farm.Result { return farm.Result{Reason: reason, Code: code} }

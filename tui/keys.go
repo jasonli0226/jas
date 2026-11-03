@@ -47,6 +47,10 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.onEnter()
 	case "esc":
+		if m.viewing != "" { // never stops a farm agent: clears the draft only
+			m.input.Reset()
+			return nil
+		}
 		if m.toolExpand {
 			m.toolExpand = false
 			m.toolExpandOff = 0
@@ -92,6 +96,9 @@ func (m *Model) onEnter() tea.Cmd {
 	m.hist.add(text)
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
+	}
+	if m.viewing != "" {
+		return m.steerAgent(text)
 	}
 	m.input.Reset()
 	if m.running() {

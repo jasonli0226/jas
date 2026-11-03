@@ -66,13 +66,16 @@ type Model struct {
 	// onPickCancel runs when the open picker is cancelled (Esc); nil: nothing.
 	onPickCancel func() tea.Cmd
 
-	farm       *farmState // this window's farm, running or the last one
-	viewing    string     // the agent the window shows; "" = the main chat
-	held       int        // main-chat blocks recorded while viewing an agent
-	screen     []string   // every block emitted to the screen (test hook)
-	farmReview *FarmPlan  // a plan under review (or being drafted)
-	farmReplan *FarmPlan  // a plan waiting for replan feedback in the input
-	reply      string     // the last final reply, for /copy
+	farm    *farmState // this window's farm, running or the last one
+	viewing string     // the agent the window shows; "" = the main chat
+	held    int        // main-chat blocks recorded while viewing an agent
+	// farmQuitting: the owner chose to stop the farm and quit; the quit
+	// resumes when the farm has ended.
+	farmQuitting bool
+	screen       []string  // every block emitted to the screen (test hook)
+	farmReview   *FarmPlan // a plan under review (or being drafted)
+	farmReplan   *FarmPlan // a plan waiting for replan feedback in the input
+	reply        string    // the last final reply, for /copy
 
 	slashFor    string // input text the / menu cursor belongs to
 	slashCursor int
@@ -219,6 +222,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onFarmDone(msg)
 	case farmTextMsg:
 		return m, m.onFarmText(msg)
+	case farmUndeliveredMsg:
+		return m, m.onFarmUndelivered(msg)
+	case farmCalledMsg:
+		return m, m.onFarmCalled(msg)
+	case farmQuitMsg:
+		return m, m.quit()
 	case farmWorkerEventMsg:
 		return m, m.onFarmWorkerEvent(msg)
 	case noticeMsg:
@@ -249,8 +258,12 @@ func (m *Model) View() tea.View {
 	}
 	// A blank line keeps the input apart from the agent text above it.
 	parts = append(parts, "")
-	for _, q := range m.queued {
-		line := "↳ " + strings.Join(strings.Fields(q), " ")
+	queued, prefix := m.queued, "↳ "
+	if a := m.farmAgent(m.viewing); a != nil {
+		queued, prefix = a.queued, "↳ queued for "+a.id+": "
+	}
+	for _, q := range queued {
+		line := prefix + strings.Join(strings.Fields(q), " ")
 		parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
 	}
 	if l := m.loader(); l != "" {

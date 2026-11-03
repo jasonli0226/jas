@@ -36,16 +36,17 @@ var agentMarks = map[string]string{
 // farmState is the window's farm: one at a time, kept after it ends until
 // the next one starts.
 type farmState struct {
-	run     FarmRun
-	task    string
-	agents  []*farmAgent // plan order; the integrator is appended when it starts
-	started time.Time
-	budget  int    // farm_tokens; 0 unknown
-	used    int    // farm total tokens
-	check   string // verdict: pending | passed | failed
-	ended   bool
-	res     farm.Result
-	width   int // terminal width for new agents' transcripts
+	run      FarmRun
+	task     string
+	agents   []*farmAgent // plan order; the integrator is appended when it starts
+	started  time.Time
+	budget   int    // farm_tokens; 0 unknown
+	used     int    // farm total tokens
+	check    string // verdict: pending | passed | failed
+	ended    bool
+	res      farm.Result
+	width    int  // terminal width for new agents' transcripts
+	stopping bool // /farm stop (or a quit) asked for a graceful stop
 }
 
 // farmAgent is one part's (or the integrator's) session as the chat sees it.
@@ -59,6 +60,7 @@ type farmAgent struct {
 	tokens           int
 	num              int // flip key 1..9; 0 = none
 
+	queued  []string   // owner steers sent and not yet delivered
 	tr      Transcript // renders this agent's text and events
 	printed []string   // every block rendered for this agent, for flips
 }
