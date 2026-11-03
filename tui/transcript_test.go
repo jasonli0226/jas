@@ -165,7 +165,7 @@ func TestTranscript_TighterSpacing(t *testing.T) {
 		"args": map[string]any{"path": "."}}, t0)
 	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "ls",
 		"status": "ok", "output": "a\n"}, t0))
-	eqStrings(t, got, []string{"▸ ls . (1 entries)"})
+	eqStrings(t, got, []string{"▸ ls . (1 entries)", "a"})
 
 	got = plain(tr.Text("After\n\n", t0))
 	eqStrings(t, got, []string{"● After"})
@@ -257,7 +257,7 @@ func TestTranscript_JSONRoundTripShape(t *testing.T) {
 	var tr Transcript
 	tr.Event("tool_started", data, t0)
 	got := plain(tr.Event("tool_result", data, t0))
-	eqStrings(t, got, []string{"▸ grep p (2 matches)"})
+	eqStrings(t, got, []string{"▸ grep p (2 matches)", "a", "b"})
 }
 
 func TestTranscript_CompactionRow(t *testing.T) {
@@ -306,7 +306,7 @@ func TestTranscript_HistoryReprintsTurns(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
 	eqStrings(t, got, []string{"· compacted earlier messages", "", "› hello", "", "● hi there",
-		"▸ ls src (2 entries)", "● done"})
+		"▸ ls src (2 entries)", "a", "b", "● done"})
 }
 
 func TestTranscript_HistoryEmpty(t *testing.T) {
@@ -419,4 +419,64 @@ func TestTranscript_ErrorResultNoDiff(t *testing.T) {
 		"diff": diffPayload(t, middleDiff()),
 	}, t0))
 	assert.Eq(t, len(got), 1)
+}
+
+func TestTranscript_ShellPreviewTruncates(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 12; i++ {
+		lines = append(lines, fmt.Sprintf("L%d", i))
+	}
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "shell",
+		"args": map[string]any{"command": "seq"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "shell",
+		"status": "ok", "output": strings.Join(lines, "\n")}, t0))
+	want := []string{"▸ shell seq ok"}
+	for i := 1; i <= 10; i++ {
+		want = append(want, fmt.Sprintf("L%d", i))
+	}
+	want = append(want, "… +2 lines")
+	eqStrings(t, got, want)
+	assert.Eq(t, tr.LastTool().Tool, "shell")
+	assert.Eq(t, tr.LastTool().Output, strings.Join(lines, "\n"))
+}
+
+func TestTranscript_ReadSkipsPreview(t *testing.T) {
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "read",
+		"args": map[string]any{"path": "a.go"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
+		"status": "ok", "output": "one\ntwo\nthree"}, t0))
+	eqStrings(t, got, []string{"▸ read a.go (3 lines)"})
+}
+
+func TestTranscript_EmptyOutputSkipsPreview(t *testing.T) {
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "shell",
+		"args": map[string]any{"command": "true"}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "shell",
+		"status": "ok", "output": ""}, t0))
+	eqStrings(t, got, []string{"▸ shell true ok"})
+}
+
+func TestTranscript_ElidedOutputSkipsPreview(t *testing.T) {
+	var tr Transcript
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "ls",
+		"args": map[string]any{"path": "."}}, t0)
+	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "ls",
+		"status": "ok", "output": "[elided: ls 0 lines]"}, t0))
+	eqStrings(t, got, []string{"▸ ls . (1 entries)"})
+}
+
+func TestTranscript_HistorySetsLastTool(t *testing.T) {
+	msgs := []providers.Message{
+		{Role: providers.RoleAssistant, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolUse, ToolUseID: "c1", Name: "shell", Input: json.RawMessage(`{"command":"echo hi"}`)}}},
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolResult, ToolUseID: "c1", Text: "hi\nthere"}}},
+	}
+	var tr Transcript
+	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
+	eqStrings(t, got, []string{"▸ shell echo hi ok", "hi", "there"})
+	assert.Eq(t, tr.LastTool().Output, "hi\nthere")
 }

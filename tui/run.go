@@ -101,7 +101,11 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 			return nil // /compact prints its own line when it returns
 		}
 	}
-	return m.print(m.tr.Event(msg.typ, msg.data, m.o.Now())...)
+	blocks := m.tr.Event(msg.typ, msg.data, m.o.Now())
+	if msg.typ == core.EvToolResult {
+		m.noteLastTool()
+	}
+	return m.print(blocks...)
 }
 
 // contentText joins the text blocks of a user_message payload as the

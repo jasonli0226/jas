@@ -150,6 +150,7 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 		msgs := msg.live.Session.Messages()
 		m.hist.seed(msgs)
 		blocks = append(blocks, m.tr.History(msgs, m.o.Redact, m.o.Now())...)
+		m.noteLastTool()
 		blocks = append(blocks, m.tr.Notice(dimStyle.Render(fmt.Sprintf("resumed %s · %d messages",
 			m.clean(msg.live.ID), len(msgs))))...)
 	}

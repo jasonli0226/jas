@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -75,6 +76,11 @@ type Model struct {
 	quitting  bool
 	closing   bool // Live.Close is running
 	closed    bool
+
+	lastTool      ToolOutput // most recent tool_result, for Ctrl+O
+	toolExpand    bool       // live-region full-output panel open
+	toolExpandOff int        // scroll offset into lastTool.Output
+	height        int        // terminal rows; used to cap the expand panel
 
 	printed  []string // every block handed to tea.Println, in order
 	outbox   []string // blocks waiting for the in-flight print to finish
@@ -149,6 +155,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		m.tr.Width = msg.Width
 		m.input.SetWidth(msg.Width)
 	case tea.KeyPressMsg:
@@ -203,6 +210,9 @@ func (m *Model) View() tea.View {
 	parts := slices.Concat(m.inflight, m.outbox)
 	if live := m.tr.Live(); live != "" {
 		parts = append(parts, live)
+	}
+	if panel := m.toolExpandView(); panel != "" {
+		parts = append(parts, panel)
 	}
 	// A blank line keeps the input apart from the agent text above it.
 	parts = append(parts, "")
@@ -263,6 +273,68 @@ func (m *Model) title() string {
 		return ""
 	}
 	return m.live.Session.Title()
+}
+
+// expandMaxLines caps how many output lines the Ctrl+O panel shows at once.
+const expandMaxLines = 20
+
+// toolExpandView is the live-region panel for the latest tool's full output.
+func (m *Model) toolExpandView() string {
+	if !m.toolExpand {
+		return ""
+	}
+	out := strings.TrimRight(m.lastTool.Output, "\n")
+	if m.lastTool.Tool == "" || out == "" {
+		return dimStyle.Render("no tool output to expand  (Ctrl+O collapse)")
+	}
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		lines[i] = core.Sanitize(line)
+	}
+	maxLines := expandMaxLines
+	if m.height > 0 {
+		// Leave room for input, rules, status, loader, and a blank.
+		if room := m.height - 8; room > 4 && room < maxLines {
+			maxLines = room
+		}
+	}
+	off := m.toolExpandOff
+	if off < 0 {
+		off = 0
+	}
+	if off > len(lines)-1 {
+		off = max(len(lines)-1, 0)
+	}
+	end := off + maxLines
+	if end > len(lines) {
+		end = len(lines)
+	}
+	shown := lines[off:end]
+	var b strings.Builder
+	head := fmt.Sprintf("▸ %s %s — full output", core.Sanitize(m.lastTool.Tool), m.lastTool.Subject)
+	if len(lines) > maxLines {
+		head += fmt.Sprintf("  (%d–%d/%d)", off+1, end, len(lines))
+	}
+	head += "  (Ctrl+O collapse)"
+	b.WriteString(dimStyle.Render(ansi.Truncate(head, m.width, "…")))
+	for _, line := range shown {
+		b.WriteByte('\n')
+		if m.width > 0 {
+			line = ansi.Truncate(line, m.width, "…")
+		}
+		b.WriteString(dimStyle.Render(line))
+	}
+	return b.String()
+}
+
+// noteLastTool copies the transcript's latest tool into the expand source.
+func (m *Model) noteLastTool() {
+	if info := m.tr.LastTool(); info.Tool != "" {
+		m.lastTool = info
+		if m.toolExpand {
+			m.toolExpandOff = 0
+		}
+	}
 }
 
 // Printed returns every block handed to tea.Println, in order (test hook).

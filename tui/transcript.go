@@ -17,6 +17,10 @@ import (
 // transcriptDiffLines caps the diff rows a tool result prints.
 const transcriptDiffLines = 30
 
+// transcriptPreviewLines is how many output lines a shell/grep/ls row shows
+// under the summary before "… +N lines".
+const transcriptPreviewLines = 10
+
 // Transcript turns streamed text and agent events into finished, styled
 // blocks to print into scrollback. It is pure: no I/O, no Bubble Tea types.
 type Transcript struct {
@@ -34,6 +38,7 @@ type Transcript struct {
 	running   []startedCall             // tools started and not yet settled, in order
 	last      role                      // group of the last printed block
 	marked    bool                      // the agent marker went out this turn
+	lastTool  ToolOutput                // most recent tool_result / history tool
 }
 
 // role groups printed blocks. A blank line separates most group changes so
@@ -55,6 +60,12 @@ const (
 
 // startedCall is a tool shown as running in the live region until its result.
 type startedCall struct{ id, tool string }
+
+// ToolOutput is the most recent tool result the transcript rendered, for the
+// Ctrl+O expand panel. Output is the TUI-facing text (already redacted).
+type ToolOutput struct {
+	Tool, Subject, Status, Output string
+}
 
 // User renders the user's prompt as a full-width background band; later
 // lines are indented under the marker, which stays for copy/paste and
@@ -122,8 +133,10 @@ func (t *Transcript) Event(typ string, data map[string]any, now time.Time) []str
 		args := t.calls[id]
 		delete(t.calls, id)
 		t.running = slices.DeleteFunc(t.running, func(c startedCall) bool { return c.id == id })
+		t.noteTool(tool, args, status, output)
 		out = append(out, t.enter(roleTool)...)
 		out = append(out, t.row(tool, args, status, output))
+		out = append(out, outputPreview(tool, output, t.Width)...)
 		if d := diffFromEvent(data); d != nil && status == "ok" {
 			out = append(out, renderDiff(d, t.Width, transcriptDiffLines)...)
 		}
@@ -172,7 +185,19 @@ func (t *Transcript) historyTool(use, res providers.ContentBlock, redact func(st
 	if res.IsError {
 		status = "error"
 	}
-	return append(t.enter(roleTool), t.row(use.Name, args, status, redact(res.Text)))
+	output := redact(res.Text)
+	t.noteTool(use.Name, args, status, output)
+	out := append(t.enter(roleTool), t.row(use.Name, args, status, output))
+	return append(out, outputPreview(use.Name, output, t.Width)...)
+}
+
+// LastTool is the most recent tool result this transcript rendered.
+func (t *Transcript) LastTool() ToolOutput { return t.lastTool }
+
+func (t *Transcript) noteTool(tool string, args map[string]any, status, output string) {
+	t.lastTool = ToolOutput{
+		Tool: tool, Subject: subject(tool, args), Status: status, Output: output,
+	}
 }
 
 // Notice prints jas-owned notice blocks as their own group.
@@ -400,6 +425,49 @@ func outcome(tool, status, output string) string {
 		return "failed"
 	}
 	return core.Sanitize(status)
+}
+
+// previewTools get a short output preview under their summary row.
+func previewTools(tool string) bool {
+	switch tool {
+	case "shell", "grep", "ls":
+		return true
+	}
+	return false
+}
+
+// outputPreview renders up to transcriptPreviewLines of tool output for
+// scrollback. read/write/edit skip it (read is noisy; write/edit use diffs).
+func outputPreview(tool, output string, width int) []string {
+	if !previewTools(tool) {
+		return nil
+	}
+	output = strings.TrimRight(output, "\n")
+	if output == "" || strings.HasPrefix(output, "[elided:") {
+		return nil
+	}
+	lines := strings.Split(output, "\n")
+	more := 0
+	if len(lines) > transcriptPreviewLines {
+		more = len(lines) - transcriptPreviewLines
+		lines = lines[:transcriptPreviewLines]
+	}
+	out := make([]string, 0, len(lines)+1)
+	for _, line := range lines {
+		line = core.Sanitize(line)
+		if width > 0 {
+			line = ansi.Truncate(line, width, "…")
+		}
+		out = append(out, dimStyle.Render(line))
+	}
+	if more > 0 {
+		footer := fmt.Sprintf("… +%d lines", more)
+		if width > 0 {
+			footer = ansi.Truncate(footer, width, "…")
+		}
+		out = append(out, dimStyle.Render(footer))
+	}
+	return out
 }
 
 func outputLines(output string) int {
