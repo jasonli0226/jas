@@ -286,9 +286,10 @@ func TestTranscript_ParallelToolsStayRunningUntilTheirResult(t *testing.T) {
 		tr.Event("tool_started", map[string]any{"call_id": id, "tool": "ls",
 			"args": map[string]any{"path": id}}, t0)
 	}
-	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls a running\n▸ ls b running"})
+	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls a running\n\n▸ ls b running"})
 	tr.Event("tool_result", map[string]any{"call_id": "a", "tool": "ls", "status": "ok"}, t0)
-	eqStrings(t, plain([]string{tr.Live()}), []string{"▸ ls b running"})
+	// Leading blank is intentional (match enter after a prior tool); plain() would strip it.
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n▸ ls b running")
 }
 
 func TestTranscript_HistoryReprintsTurns(t *testing.T) {
@@ -419,6 +420,48 @@ func TestTranscript_ErrorResultNoDiff(t *testing.T) {
 		"diff": diffPayload(t, middleDiff()),
 	}, t0))
 	assert.Eq(t, len(got), 1)
+}
+
+func TestTranscript_ConsecutiveToolGap(t *testing.T) {
+	var tr Transcript
+	got := plain(tr.Text("Before\n\n", t0))
+	eqStrings(t, got, []string{"● Before"})
+
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "shell",
+		"args": map[string]any{"command": "a"}}, t0)
+	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "shell",
+		"status": "ok", "output": "outA1\noutA2"}, t0))
+	// agent → first tool: no blank
+	eqStrings(t, got, []string{"▸ shell a ok", "outA1", "outA2"})
+
+	// Live matches enter: blank before the next running tool after a tool block.
+	tr.Event("tool_started", map[string]any{"call_id": "c2", "tool": "shell",
+		"args": map[string]any{"command": "b"}}, t0)
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n▸ shell b running")
+
+	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c2", "tool": "shell",
+		"status": "ok", "output": "outB1\noutB2"}, t0))
+	// consecutive tools: blank between blocks; no preview indent
+	eqStrings(t, got, []string{"", "▸ shell b ok", "outB1", "outB2"})
+
+	got = plain(tr.Text("After\n\n", t0))
+	// tool → agent: still no blank
+	eqStrings(t, got, []string{"● After"})
+}
+
+func TestTranscript_HistoryConsecutiveToolGap(t *testing.T) {
+	msgs := []providers.Message{
+		{Role: providers.RoleAssistant, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolUse, ToolUseID: "c1", Name: "shell", Input: json.RawMessage(`{"command":"a"}`)},
+			{Type: providers.BlockToolUse, ToolUseID: "c2", Name: "shell", Input: json.RawMessage(`{"command":"b"}`)}}},
+		{Role: providers.RoleUser, Content: []providers.ContentBlock{
+			{Type: providers.BlockToolResult, ToolUseID: "c1", Text: "outA"},
+			{Type: providers.BlockToolResult, ToolUseID: "c2", Text: "outB"}}},
+	}
+	var tr Transcript
+	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
+	// history/resume uses the same enter(roleTool) gap; no preview indent
+	eqStrings(t, got, []string{"▸ shell a ok", "outA", "", "▸ shell b ok", "outB"})
 }
 
 func TestTranscript_ShellPreviewTruncates(t *testing.T) {

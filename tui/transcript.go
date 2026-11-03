@@ -42,7 +42,8 @@ type Transcript struct {
 }
 
 // role groups printed blocks. A blank line separates most group changes so
-// user turns stay apart; agent text and tool rows sit tight with no blank.
+// user turns stay apart; agent text and tool rows sit tight with no blank,
+// but consecutive tool blocks are separated so previews do not run together.
 type role int
 
 const (
@@ -230,11 +231,17 @@ func (t *Transcript) Live() string {
 	if len(parts) > 0 && (t.last == roleUser || t.last == roleNotice) {
 		parts = append([]string{""}, parts...)
 	}
-	// Match enter(roleTool): no blank after agent text; blank after user/notice.
-	if len(t.running) > 0 && len(parts) == 0 && (t.last == roleUser || t.last == roleNotice) {
+	// Match enter(roleTool): no blank after agent text; blank after user/notice
+	// or after a prior tool block (consecutive tools stay spaced in Live too).
+	// pi puts Spacer(1) before every tool component; jas keeps agent↔tool tight
+	// and only blanks between tool blocks (including concurrent running rows).
+	if len(t.running) > 0 && len(parts) == 0 && (t.last == roleUser || t.last == roleNotice || t.last == roleTool) {
 		parts = append(parts, "")
 	}
-	for _, c := range t.running {
+	for i, c := range t.running {
+		if i > 0 {
+			parts = append(parts, "")
+		}
 		parts = append(parts, t.row(c.tool, t.calls[c.id], "running", ""))
 	}
 	return strings.Join(parts, "\n")
@@ -242,10 +249,16 @@ func (t *Transcript) Live() string {
 
 // enter switches the printed group to r, returning the blank separator line
 // when the group changes after something was already printed. Agent text and
-// tool rows stay tight either way; a blank always precedes a new user turn
-// (and other non-agent/tool switches such as notices).
+// tool rows stay tight either way (pi always Spacer(1) before each tool; jas
+// does not blank agent↔tool). Consecutive tool blocks get a blank so previews
+// do not glue to the next ▸. A blank always precedes a new user turn (and
+// other non-agent/tool switches such as notices). Preview lines are not
+// hang-indented (pi also leaves them flush; owner asked for no indent).
 func (t *Transcript) enter(r role) []string {
 	if t.last == r {
+		if r == roleTool {
+			return []string{""}
+		}
 		return nil
 	}
 	prev := t.last
