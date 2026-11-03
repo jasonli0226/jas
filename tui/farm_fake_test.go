@@ -28,6 +28,7 @@ type fakeFarmer struct {
 	started   string // plan path given to Start
 	discarded bool
 	feedback  []string
+	early     []farmEventMsg // played through the hooks inside Start
 }
 
 func newFakeFarmer() *fakeFarmer {
@@ -52,6 +53,9 @@ func (f *fakeFarmer) Start(_ context.Context, path, _ string, _ core.Level, h Fa
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.started, f.hooks = path, h
+	for _, ev := range f.early { // events a real farm logs before Start returns
+		h.Event(ev.typ, ev.m)
+	}
 	return f.run, nil
 }
 

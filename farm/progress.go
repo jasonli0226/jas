@@ -85,10 +85,14 @@ func farmLine(typ string, m map[string]any) string {
 		}
 		return fmt.Sprintf("[%s] board: %v %s", part, m["topic"], orEmpty(m["name"]))
 	case EvOwnerDecision:
+		line := fmt.Sprintf("decision: %v", m["choice"])
 		if p, ok := m["part"]; ok {
-			return fmt.Sprintf("[%v] decision: %v", p, m["choice"])
+			line = fmt.Sprintf("[%v] %s", p, line)
 		}
-		return fmt.Sprintf("decision: %v", m["choice"])
+		if note, ok := m["note"].(string); ok && note != "" {
+			line += " — " + note
+		}
+		return line
 	case EvIntegrateStarted:
 		return "integrate: merging " + joinAny(m["merge"])
 	case EvIntegrateCheck:

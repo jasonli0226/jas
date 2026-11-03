@@ -23,6 +23,11 @@ type (
 	}
 	// farmCalledMsg reports a farm control call's error (nil: nothing to say).
 	farmCalledMsg struct{ err error }
+	// farmSteerMsg reports a steer's outcome.
+	farmSteerMsg struct {
+		part, text string
+		err        error
+	}
 	// farmQuitMsg resumes a quit once the stopped farm has ended.
 	farmQuitMsg struct{}
 )
@@ -39,7 +44,29 @@ func (m *Model) steerAgent(text string) tea.Cmd {
 	m.input.Reset()
 	a.queued = append(a.queued, text)
 	run, id := m.farm.run, a.id
-	return func() tea.Msg { return farmCalledMsg{err: run.Steer(id, text)} }
+	return func() tea.Msg { return farmSteerMsg{part: id, text: text, err: run.Steer(id, text)} }
+}
+
+// onFarmSteer handles a steer the farm refused: the text comes back to the
+// input and the owner sees why, in whatever view they are in.
+func (m *Model) onFarmSteer(msg farmSteerMsg) tea.Cmd {
+	if msg.err == nil {
+		return nil
+	}
+	if a := m.farmAgent(msg.part); a != nil {
+		for i, q := range a.queued {
+			if q == msg.text {
+				a.queued = append(a.queued[:i:i], a.queued[i+1:]...)
+				break
+			}
+		}
+	}
+	d := m.draft()
+	if d != "" {
+		d += "\n"
+	}
+	m.setDraft(d + msg.text)
+	return m.emitNotice(fmt.Sprintf("[%s] not delivered: %s", m.clean(msg.part), m.clean(msg.err.Error())))
 }
 
 // onFarmUndelivered prints the hand-back line and returns the texts to the
@@ -49,10 +76,10 @@ func (m *Model) onFarmUndelivered(msg farmUndeliveredMsg) tea.Cmd {
 		a.queued = nil
 	}
 	parts := []string{}
-	if d := m.input.Value(); d != "" {
+	if d := m.draft(); d != "" {
 		parts = append(parts, d)
 	}
-	m.input.SetValue(strings.Join(append(parts, msg.texts...), "\n"))
+	m.setDraft(strings.Join(append(parts, msg.texts...), "\n"))
 	line := fmt.Sprintf("[%s] not delivered (part finished): %s", m.clean(msg.part), m.clean(strings.Join(msg.texts, " · ")))
 	return m.emitNotice(line)
 }

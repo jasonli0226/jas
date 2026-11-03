@@ -255,17 +255,49 @@ func (m *Model) skillCommand(skill, arg, text string) tea.Cmd {
 // clean masks secrets and escapes control characters in one line of text.
 func (m *Model) clean(s string) string { return core.Sanitize(m.o.Redact(s)) }
 
-// notice prints dim lines, each cleaned.
+// notice prints dim lines, each cleaned. It answers the owner, so in a farm
+// agent's view it shows there too (and is kept in the main transcript).
 func (m *Model) notice(lines ...string) tea.Cmd {
+	return m.answer(m.tr.Notice(dimStyle.Render(m.cleanLines(lines)))...)
+}
+
+// answer prints an answer to the owner's own command or keystroke: shown in
+// whatever view the window is on, and kept in the main transcript.
+func (m *Model) answer(blocks ...string) tea.Cmd {
+	if m.viewing != "" {
+		m.printed = append(m.printed, blocks...)
+		return m.emit(blocks...)
+	}
+	return m.print(blocks...)
+}
+
+// heldNotice prints dim lines into the main chat; in an agent's view they
+// are held like any other main-chat output (farm event lines).
+func (m *Model) heldNotice(lines ...string) tea.Cmd {
+	return m.print(m.tr.Notice(dimStyle.Render(m.cleanLines(lines)))...)
+}
+
+func (m *Model) cleanLines(lines []string) string {
 	out := make([]string, len(lines))
 	for i, l := range lines {
 		out[i] = m.clean(l)
 	}
-	return m.print(m.tr.Notice(dimStyle.Render(strings.Join(out, "\n")))...)
+	return strings.Join(out, "\n")
 }
 
 func (m *Model) openPicker(title string, items []pickItem, onPick func(string) tea.Cmd) {
-	m.picker, m.onPick = &picker{title: title, items: items}, onPick
+	m.openPickerC(title, items, onPick, nil)
+}
+
+// openPickerC opens a picker with a cancel handler. While a prompt holds the
+// input the picker waits behind it (in the stash) and opens afterwards.
+func (m *Model) openPickerC(title string, items []pickItem, onPick func(string) tea.Cmd, onCancel func() tea.Cmd) {
+	p := &picker{title: title, items: items}
+	if m.stash != nil && (m.approval != nil || m.ask != nil) {
+		m.stash.picker, m.stash.onPick, m.stash.onCancel = p, onPick, onCancel
+		return
+	}
+	m.picker, m.onPick, m.onPickCancel = p, onPick, onCancel
 }
 
 // onPickerKey feeds a key to the open picker and runs onPick on a choice;

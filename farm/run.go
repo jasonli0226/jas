@@ -239,6 +239,7 @@ type farmRun struct {
 
 	branch      string      // the integrate branch, once integration ran
 	hardStopped atomic.Bool // Handle.Stop(true): farm_ended carries hard
+	notMerged   bool        // the owner asked to merge an unmet farm and did not confirm
 }
 
 // startFarm makes the farm dir, copies the plan, opens farm.jsonl (teed to
@@ -405,16 +406,26 @@ func (r *farmRun) end(code int, reason string, err error) (int, string, error) {
 func (r *farmRun) finalChoice(branch, reason string) {
 	s := r.s
 	choice, by := r.askChoice(branch, reason)
+	var note string
 	if choice == ChoiceMerge {
 		if err := r.ownerMerge(branch, reason); errors.Is(err, errDirtyMain) {
-			fmt.Fprintf(r.o.Stderr, "jas: %v\n", err)
+			note = err.Error()
 			choice = ChoiceKeep
 		} else if err != nil {
-			fmt.Fprintf(r.o.Stderr, "jas: merge failed, keeping the branches: %v\n", err)
+			note = "merge failed, keeping the branches: " + err.Error()
 			choice = ChoiceKeep
 		}
 	}
-	s.event(EvOwnerDecision, map[string]any{"choice": choice, "by": by, "branch": branch})
+	if note != "" {
+		fmt.Fprintf(r.o.Stderr, "jas: %s\n", note)
+	} else if r.notMerged {
+		note = "not merged" // askChoice already told the terminal
+	}
+	ev := map[string]any{"choice": choice, "by": by, "branch": branch}
+	if note != "" {
+		ev["note"] = note // the chat shows decisions only from events
+	}
+	s.event(EvOwnerDecision, ev)
 	s.Manifest.Update(func(m *Manifest) { m.FinalChoice = choice })
 	s.save()
 	r.removeWorktrees()
@@ -444,6 +455,7 @@ func (r *farmRun) askChoice(branch, reason string) (choice, by string) {
 				return ChoiceMerge, byOwner
 			}
 			fmt.Fprintln(r.o.Stderr, "not merged")
+			r.notMerged = true
 		case "k", "":
 			return ChoiceKeep, byOwner
 		case "d":

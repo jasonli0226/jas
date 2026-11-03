@@ -78,6 +78,9 @@ type Model struct {
 	askPending   []farmAskMsg // farm questions waiting for the main chat
 	bells        int          // bells rung (test hook)
 	farmNote     string       // farm summary for the next message to the main session
+	farmGen      int          // generation of the newest farm started (farmMsg)
+	farmEarly    []tea.Msg    // that farm's messages that beat farmStartedMsg
+	printedFrom  int          // where the current session's transcript starts in printed
 	screen       []string     // every block emitted to the screen (test hook)
 	farmReview   *FarmPlan    // a plan under review (or being drafted)
 	farmReplan   *FarmPlan    // a plan waiting for replan feedback in the input
@@ -232,10 +235,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onFarmUndelivered(msg)
 	case farmCalledMsg:
 		return m, m.onFarmCalled(msg)
+	case farmSteerMsg:
+		return m, m.onFarmSteer(msg)
 	case farmQuitMsg:
 		return m, m.quit()
 	case farmAskMsg:
 		return m, m.onFarmAsk(msg)
+	case farmMsg:
+		return m, m.onFarmMsg(msg)
 	case farmWorkerEventMsg:
 		return m, m.onFarmWorkerEvent(msg)
 	case noticeMsg:

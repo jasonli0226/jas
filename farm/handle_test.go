@@ -3,7 +3,9 @@ package farm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,7 +274,128 @@ func TestFinalChoice_MergeRefusedOnDirtyMain(t *testing.T) {
 	if !strings.Contains(errOut.String(), "main checkout has uncommitted changes; keeping the branches") {
 		t.Fatalf("stderr %q", errOut.String())
 	}
-	if ev := r.last(EvOwnerDecision); ev["choice"] != ChoiceKeep {
+	ev := r.last(EvOwnerDecision)
+	if ev["choice"] != ChoiceKeep || !strings.Contains(fmt.Sprint(ev["note"]), "uncommitted changes") {
 		t.Fatalf("final decision %v", ev)
+	}
+	if line := ProgressLine(EvOwnerDecision, ev); !strings.Contains(line, "uncommitted changes") {
+		t.Fatalf("progress line %q", line)
+	}
+}
+
+func TestHandle_PauseThenSoftStopEnds(t *testing.T) {
+	started, release := make(chan struct{}, 1), make(chan struct{})
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID == "a" {
+			return gated(started, release)
+		}
+		return twoWriters(ws)
+	})
+	h := start(t, r)
+	<-started
+	if err := h.Pause("a"); err != nil {
+		t.Fatal(err)
+	}
+	close(release) // a's next request now parks in the pause gate
+	time.Sleep(100 * time.Millisecond)
+	h.Stop(false)
+	select {
+	case <-h.Done():
+	case <-time.After(5 * time.Second):
+		h.Stop(true)
+		t.Fatal("a soft stop never ended a farm with a paused part")
+	}
+	if res := h.Wait(); res.Code != core.ExitInterrupted {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+func TestFailureQuestion_DoesNotStallIndependentParts(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID == "a" {
+			return []fake.Turn{{Err: errors.New("boom")}}
+		}
+		return twoWriters(ws)
+	})
+	r.opts.Cfg.Split.MaxWorkers = 1 // b can only start once a's slot is free
+	answer, asked := make(chan string), make(chan struct{}, 1)
+	r.opts.Ask = func(prompt string, choices []string) (string, bool) {
+		if strings.Contains(prompt, "retry, drop or abort") {
+			asked <- struct{}{}
+			return <-answer, true
+		}
+		return "k", true
+	}
+	h := start(t, r)
+	<-asked
+	deadline := time.After(5 * time.Second)
+	for {
+		if m := h.Snapshot(); m.Parts["b"].Status == StatusDone {
+			break
+		}
+		select {
+		case <-deadline:
+			answer <- "drop"
+			t.Fatal("part b never ran while a's failure question was open")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	answer <- "drop"
+	if res := h.Wait(); res.Reason != ReasonPartDropped {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+func TestFailureQuestion_HardStopDoesNotWait(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID == "a" {
+			return []fake.Turn{{Err: errors.New("boom")}}
+		}
+		return twoWriters(ws)
+	})
+	asked := make(chan struct{}, 1)
+	r.opts.Ask = func(prompt string, choices []string) (string, bool) {
+		if strings.Contains(prompt, "retry, drop or abort") {
+			asked <- struct{}{}
+			select {} // the owner never answers
+		}
+		return "k", true
+	}
+	h := start(t, r)
+	<-asked
+	h.Stop(false)
+	h.Stop(true)
+	select {
+	case <-h.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("a hard stop waited on an unanswered failure question")
+	}
+}
+
+func TestHandle_SteerIntegrator(t *testing.T) {
+	started, release := make(chan struct{}, 1), make(chan struct{})
+	r := newRunRig(t, brokenCheck, twoParts(), func(ws WorkerSession) []fake.Turn {
+		switch ws.Part.ID {
+		case "a":
+			return writes(map[string]string{"a/x.txt": "BROKEN\n"}, "a done")
+		case "b":
+			return twoWriters(ws)
+		}
+		fix := writeCall("a/x.txt", "ok\n")
+		fix.OnEmit = func() {
+			started <- struct{}{}
+			<-release
+		}
+		commit, _ := json.Marshal(map[string]string{"command": "git add -A && git commit --no-verify -q -m fix"})
+		return []fake.Turn{fix, call("shell", string(commit)), final("fixed")}
+	})
+	h := start(t, r)
+	<-started
+	if err := h.Steer(integratePart, "keep a's tests"); err != nil {
+		t.Fatalf("steer the integrator: %v", err)
+	}
+	close(release)
+	if res := h.Wait(); res.Code != 0 {
+		t.Fatalf("result %+v", res)
 	}
 }

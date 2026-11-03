@@ -45,6 +45,7 @@ type farmState struct {
 	check    string // verdict: pending | passed | failed
 	ended    bool
 	res      farm.Result
+	gen      int  // the farm's generation (farmMsg)
 	width    int  // terminal width for new agents' transcripts
 	stopping bool // /farm stop (or a quit) asked for a graceful stop
 }
@@ -78,6 +79,7 @@ type (
 		err  error
 	}
 	farmStartedMsg struct {
+		gen  int
 		run  FarmRun
 		plan farm.Plan
 		task string
@@ -272,7 +274,7 @@ func (m *Model) farmDashboard() tea.Cmd {
 			agentMarks[a.status], m.clean(a.activity), formatTokens(a.tokens), check))
 	}
 	lines = append(lines, " "+farmKeysHint+" · /farm pause|resume|drop <part> · /farm stop")
-	return m.print(m.tr.Notice(strings.Join(lines, "\n"))...)
+	return m.answer(m.tr.Notice(strings.Join(lines, "\n"))...)
 }
 
 // onFarmEvent updates the rows and prints finished events once.
@@ -283,14 +285,24 @@ func (m *Model) onFarmEvent(msg farmEventMsg) tea.Cmd {
 	}
 	f.apply(msg.typ, msg.m)
 	f.refresh(f.run.Snapshot())
+	var cmds []tea.Cmd
+	switch msg.typ {
+	case farm.EvPartEnded:
+		part, _ := msg.m["part"].(string)
+		cmds = append(cmds, m.dropFarmPrompts(part)) // its gate is gone
+	case farm.EvIntegrateEnded:
+		cmds = append(cmds, m.dropFarmPrompts(integrateAgent))
+	}
+	show := msg.typ == farm.EvOwnerDecision && msg.m["note"] != nil
 	switch msg.typ {
 	case farm.EvPartCheck, farm.EvPartEnded, farm.EvBoardPosted, farm.EvIntegrateCheck,
 		farm.EvIntegrateEnded, farm.EvCheckRan, farm.EvBudgetStop:
-		if line := farm.ProgressLine(msg.typ, msg.m); line != "" {
-			return m.notice(line)
-		}
+		show = true
 	}
-	return nil
+	if line := farm.ProgressLine(msg.typ, msg.m); show && line != "" {
+		cmds = append(cmds, m.heldNotice(line))
+	}
+	return tea.Batch(cmds...)
 }
 
 // onFarmDone marks the farm ended, prints its summary and keeps it for the
@@ -310,7 +322,7 @@ func (m *Model) onFarmDone(msg farmDoneMsg) tea.Cmd {
 		}
 	}
 	m.farmNote = m.o.Redact(farmSummary(man, msg.res, order))
-	return m.notice(strings.Split(m.farmNote, "\n")...)
+	return tea.Batch(m.dropFarmPrompts(""), m.heldNotice(strings.Split(m.farmNote, "\n")...))
 }
 
 // farmSummary is the end-of-farm summary: outcome, branch, final choice and

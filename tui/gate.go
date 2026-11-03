@@ -40,7 +40,6 @@ type Gate struct {
 	mu     sync.Mutex // guards level and grants
 	level  core.Level
 	grants *core.Grants
-	farm   *core.Grants // "always for this farm" grants, shared by every part
 }
 
 var _ core.Gate = (*Gate)(nil)
@@ -156,15 +155,9 @@ func replySteers(text string) bool {
 
 // ForPart returns the approval gate for one farm part at level. Its prompts
 // go through the chat's prompt queue (one at a time, oldest first), labelled
-// with the part; "always" grants cover that part, "farm" grants every part
-// of this chat's farms.
-func (g *Gate) ForPart(part string, level core.Level) core.Gate {
-	g.mu.Lock()
-	if g.farm == nil {
-		g.farm = core.NewGrants(g.windows)
-	}
-	farm := g.farm
-	g.mu.Unlock()
+// with the part; "always" grants cover that part, "farm" grants go into farm,
+// which every part of the same farm shares.
+func (g *Gate) ForPart(part string, level core.Level, farm *core.Grants) core.Gate {
 	return &partGate{g: g, part: part, level: level, grants: core.NewGrants(g.windows), farm: farm}
 }
 

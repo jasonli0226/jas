@@ -27,22 +27,45 @@ type inputStash struct {
 	onCancel func() tea.Cmd
 }
 
-// stashInput sets the input box and any open picker aside.
+// stashInput sets the input box and any open picker aside for a prompt.
+// Prompts nest (a question, then an approval): only the first one stashes,
+// so the owner's draft is never replaced by an empty box.
 func (m *Model) stashInput() {
-	m.stash = &inputStash{draft: m.input.Value(), picker: m.picker, onPick: m.onPick, onCancel: m.onPickCancel}
+	if m.stash == nil {
+		m.stash = &inputStash{draft: m.input.Value(), picker: m.picker, onPick: m.onPick, onCancel: m.onPickCancel}
+	}
 	m.input.Reset()
 	m.picker, m.onPick, m.onPickCancel = nil, nil, nil
 }
 
-// restoreInput brings back what stashInput set aside.
+// restoreInput brings back what stashInput set aside, once no prompt holds
+// the input any more.
 func (m *Model) restoreInput() {
 	s := m.stash
-	if s == nil {
+	if s == nil || m.approval != nil || m.ask != nil {
 		return
 	}
 	m.stash = nil
 	m.input.SetValue(s.draft)
 	m.picker, m.onPick, m.onPickCancel = s.picker, s.onPick, s.onCancel
+}
+
+// draft is the owner's own text: the input box, or what a prompt set aside.
+func (m *Model) draft() string {
+	if m.stash != nil {
+		return m.stash.draft
+	}
+	return m.input.Value()
+}
+
+// setDraft replaces the owner's own text wherever it currently lives, so a
+// prompt holding the input never swallows it.
+func (m *Model) setDraft(s string) {
+	if m.stash != nil {
+		m.stash.draft = s
+		return
+	}
+	m.input.SetValue(s)
 }
 
 // ring sounds the terminal bell once when the farm needs the owner.
@@ -185,4 +208,37 @@ func (m *Model) askPrompt() string {
 		p = strings.TrimRight(p, " ") + " [" + strings.Join(m.ask.choices, "/") + "]"
 	}
 	return boldStyle.Render(ansi.Wrap(core.Sanitize(m.o.Redact(p)), m.width, ""))
+}
+
+// closeFarmApproval answers the open farm approval with text ("" denies) and
+// gives the input back. Used for Esc and when the asking part has ended (its
+// gate already returned; the buffered reply is never read).
+func (m *Model) closeFarmApproval(text string) tea.Cmd {
+	part := m.approval.part
+	m.approval.reply <- text
+	m.approval = nil
+	return m.approvalDone(part)
+}
+
+// dropFarmPrompts closes prompts that belong to a part that ended (part !=
+// "") or to a farm that ended (part == ""): approvals, and with a farm end
+// every farm question too.
+func (m *Model) dropFarmPrompts(part string) tea.Cmd {
+	var cmd tea.Cmd
+	if a := m.approval; a != nil && a.part != "" && (part == "" || a.part == part) {
+		cmd = m.closeFarmApproval("")
+	}
+	if part == "" {
+		if m.ask != nil { // the input holds an answer in progress: drop it
+			close(m.ask.reply)
+			m.ask = nil
+			m.input.Reset()
+			m.restoreInput()
+		}
+		for _, q := range m.askPending {
+			close(q.reply)
+		}
+		m.askPending = nil
+	}
+	return cmd
 }

@@ -87,11 +87,9 @@ func (h *Handle) Snapshot() Manifest {
 // Steer queues owner text for a running part; it reaches the model at the
 // next turn boundary, or comes back through Watcher.SteerUndelivered.
 func (h *Handle) Steer(part, text string) error {
-	w := h.r.s.ctl.worker(part)
-	if w == nil || w.sess == nil {
+	if !h.r.s.ctl.steer(part, text) {
 		return ErrPartNotRunning
 	}
-	w.sess.Steer(text)
 	return nil
 }
 

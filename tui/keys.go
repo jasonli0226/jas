@@ -47,6 +47,9 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.onEnter()
 	case "esc":
+		if m.approval != nil && m.approval.part != "" { // a farm part's prompt: deny it
+			return m.closeFarmApproval("")
+		}
 		if m.viewing != "" { // never stops a farm agent: clears the draft only
 			m.input.Reset()
 			return nil
@@ -56,7 +59,10 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.toolExpandOff = 0
 			return nil
 		}
-		m.approval = nil // the cancelled ctx unblocks the gate
+		if m.approval != nil {
+			m.approval = nil // the cancelled ctx unblocks the gate
+			m.restoreInput()
+		}
 		if m.run != nil {
 			m.run.cancel()
 		}

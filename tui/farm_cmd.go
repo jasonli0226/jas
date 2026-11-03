@@ -88,12 +88,15 @@ func (m *Model) farmPlan(task string) tea.Cmd {
 func (m *Model) onFarmPlanned(msg farmPlannedMsg) tea.Cmd {
 	m.farmReview = nil
 	if msg.err != nil {
-		return m.print(errStyle.Render("farm: " + m.clean(msg.err.Error())))
+		return m.answer(errStyle.Render("farm: " + m.clean(msg.err.Error())))
 	}
 	p := msg.plan
 	if p.Refusal != "" {
-		m.input.SetValue(p.Task)
-		return m.notice("farm: planner refused: "+p.Refusal, "try: "+p.Suggest, "the task is back in the input to run here")
+		if m.draft() == "" {
+			m.setDraft(p.Task)
+			return m.notice("farm: planner refused: "+p.Refusal, "try: "+p.Suggest, "the task is back in the input to run here")
+		}
+		return m.notice("farm: planner refused: "+p.Refusal, "try: "+p.Suggest)
 	}
 	lines := append([]string{}, p.Summary...)
 	for _, pr := range p.Problems {
@@ -105,13 +108,12 @@ func (m *Model) onFarmPlanned(msg farmPlannedMsg) tea.Cmd {
 }
 
 func (m *Model) openFarmReview() {
-	m.openPicker("farm plan", []pickItem{
+	m.openPickerC("farm plan", []pickItem{
 		{label: reviewApprove, value: reviewApprove, desc: "start the farm"},
 		{label: reviewEdit, value: reviewEdit, desc: "open the plan in $EDITOR"},
 		{label: reviewReplan, value: reviewReplan, desc: "send feedback to the planner"},
 		{label: reviewQuit, value: reviewQuit, desc: "start nothing"},
-	}, m.onFarmReview)
-	m.onPickCancel = func() tea.Cmd { return m.onFarmReview(reviewQuit) }
+	}, m.onFarmReview, func() tea.Cmd { return m.onFarmReview(reviewQuit) })
 }
 
 // onFarmReview acts on the owner's review choice.
@@ -143,7 +145,9 @@ func (m *Model) onFarmReview(choice string) tea.Cmd {
 
 // farmApprove approves p and starts it on the chat's model and level.
 func (m *Model) farmApprove(f Farmer, p FarmPlan) tea.Cmd {
-	model, level, hooks := m.model, m.gate.Level(), m.farmHooks()
+	m.farmGen++
+	gen := m.farmGen
+	model, level, hooks := m.model, m.gate.Level(), m.farmHooks(gen)
 	return func() tea.Msg {
 		path, err := f.Approve(p)
 		if err != nil {
@@ -151,7 +155,7 @@ func (m *Model) farmApprove(f Farmer, p FarmPlan) tea.Cmd {
 		}
 		plan, _ := farm.ParsePlan(p.Raw)
 		run, err := f.Start(context.Background(), path, model, level, hooks)
-		return farmStartedMsg{run: run, plan: plan, task: p.Task, err: err}
+		return farmStartedMsg{gen: gen, run: run, plan: plan, task: p.Task, err: err}
 	}
 }
 
@@ -164,7 +168,9 @@ func (m *Model) farmRunPlan(path string) tea.Cmd {
 	if f == nil {
 		return refuse
 	}
-	model, level, hooks := m.model, m.gate.Level(), m.farmHooks()
+	m.farmGen++
+	gen := m.farmGen
+	model, level, hooks := m.model, m.gate.Level(), m.farmHooks(gen)
 	return func() tea.Msg {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -175,7 +181,7 @@ func (m *Model) farmRunPlan(path string) tea.Cmd {
 			return farmStartedMsg{err: err}
 		}
 		run, err := f.Start(context.Background(), path, model, level, hooks)
-		return farmStartedMsg{run: run, plan: plan, task: plan.Task, err: err}
+		return farmStartedMsg{gen: gen, run: run, plan: plan, task: plan.Task, err: err}
 	}
 }
 
@@ -237,19 +243,51 @@ func (m *Model) farmFeedback(text string) tea.Cmd {
 // onFarmStarted shows the rows and waits for the farm's end.
 func (m *Model) onFarmStarted(msg farmStartedMsg) tea.Cmd {
 	if msg.err != nil {
-		return m.print(errStyle.Render("farm: " + m.clean(msg.err.Error())))
+		return m.answer(errStyle.Render("farm: " + m.clean(msg.err.Error())))
+	}
+	if msg.gen != m.farmGen {
+		return nil // a newer farm was started meanwhile
 	}
 	m.farm = newFarmState(msg.run, msg.plan, msg.task, m.o.Now(), m.width)
-	m.farm.width = m.width
-	run, send := msg.run, m.send
-	go func() { send(farmDoneMsg{res: run.Wait()}) }() // a farm outlives any one command
-	return m.notice(fmt.Sprintf("farm %s started · %s · /farm for the dashboard", run.FarmID(), farmKeysHint))
+	m.farm.width, m.farm.gen = m.width, msg.gen
+	run, send, gen := msg.run, m.send, msg.gen
+	go func() { send(farmMsg{gen: gen, msg: farmDoneMsg{res: run.Wait()}}) }() // a farm outlives any one command
+	cmds := []tea.Cmd{m.notice(fmt.Sprintf("farm %s started · %s · /farm for the dashboard", run.FarmID(), farmKeysHint))}
+	early := m.farmEarly
+	m.farmEarly = nil
+	for _, e := range early { // events the farm logged before Start returned
+		_, cmd := m.Update(e)
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
+}
+
+// farmMsg is a farm hook's message tagged with its farm's generation, so a
+// message from an older farm is dropped and one that beats farmStartedMsg is
+// kept until the farm's state exists.
+type farmMsg struct {
+	gen int
+	msg tea.Msg
+}
+
+func (m *Model) onFarmMsg(fm farmMsg) tea.Cmd {
+	if fm.gen != m.farmGen {
+		return nil
+	}
+	if m.farm == nil || m.farm.gen != fm.gen {
+		m.farmEarly = append(m.farmEarly, fm)
+		return nil
+	}
+	_, cmd := m.Update(fm.msg)
+	return cmd
 }
 
 // farmHooks connects a farm's reports to this chat. Hooks run on farm
 // goroutines and only post messages.
-func (m *Model) farmHooks() FarmHooks {
-	send := m.send
+func (m *Model) farmHooks(gen int) FarmHooks {
+	raw := m.send
+	send := func(msg tea.Msg) { raw(farmMsg{gen: gen, msg: msg}) }
+	grants := core.NewGrants(m.o.Windows) // "always for this farm" ends with it
 	return FarmHooks{
 		Event:  func(typ string, data map[string]any) { send(farmEventMsg{typ: typ, m: data}) },
 		Worker: func(part string) core.UI { return farmBridge{part: part, send: send} },
@@ -265,9 +303,9 @@ func (m *Model) farmHooks() FarmHooks {
 				}
 				level = l
 			}
-			return m.gate.ForPart(part, level), nil
+			return m.gate.ForPart(part, level, grants), nil
 		},
-		Ask: farmAsker(send),
+		Ask: farmAsker(raw),
 	}
 }
 

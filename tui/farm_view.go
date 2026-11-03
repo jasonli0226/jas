@@ -99,7 +99,14 @@ func (m *Model) onFlipKey(k string) (tea.Cmd, bool) {
 func (m *Model) flip(to string) tea.Cmd {
 	var blocks []string
 	if to == "" {
-		blocks = m.fit(m.printed)
+		hist := m.printed[min(m.printedFrom, len(m.printed)):]
+		held := min(m.held, len(hist))
+		// The screen above the held output, then every held block in full
+		// (Ctrl+0 prints them all, however long).
+		blocks = m.fit(hist[:len(hist)-held])
+		for _, b := range hist[len(hist)-held:] {
+			blocks = append(blocks, ansi.Hardwrap(b, m.width, true))
+		}
 		m.held = 0
 	} else {
 		a := m.farm.agent(to)
@@ -238,6 +245,7 @@ func init() {
 // backToMain returns the window to the main chat without a redraw, for
 // commands that clear and redraw it themselves (/new, /resume).
 func (m *Model) backToMain() {
+	m.printedFrom = len(m.printed) // flips redraw only the new session
 	m.viewing, m.held = "", 0
 	m.input.Prompt = mainPrompt
 }

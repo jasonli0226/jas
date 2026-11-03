@@ -90,6 +90,7 @@ type sched struct {
 	running  int
 	stopping bool
 	dropping map[string]bool // running parts the owner dropped
+	asking   int             // failure questions waiting for the owner
 	out      Outcome
 }
 
@@ -119,7 +120,9 @@ func (s *Supervisor) RunParts(ctx context.Context) (Outcome, error) {
 		if !st.stopping {
 			s.startReady(runCtx, st, results)
 		}
-		if st.running == 0 {
+		// A pending failure question keeps the farm alive, unless it is
+		// stopping: then nobody waits for the answer.
+		if st.running == 0 && (st.asking == 0 || st.stopping) {
 			break
 		}
 		select {
@@ -277,7 +280,32 @@ func (s *Supervisor) failed(st *sched, e attemptEnd, abort context.CancelFunc) {
 	if st.stopping {
 		return
 	}
-	choice, source := s.decide(e)
+	if s.Ask == nil { // policy decides at once
+		choice, source := s.decide(e)
+		s.applyChoice(st, e, choice, source, abort)
+		return
+	}
+	// The owner may take a while: ask off the scheduler, so parts that do not
+	// depend on the answer keep running, and apply the answer back here.
+	st.asking++
+	go func() {
+		choice, source := s.decide(e)
+		select {
+		case s.ctl.cmds <- func(st *sched) {
+			st.asking--
+			if !st.stopping {
+				s.applyChoice(st, e, choice, source, abort)
+			}
+		}:
+		case <-s.ctl.ended:
+		}
+	}()
+}
+
+// applyChoice records and applies the owner's (or policy's) choice for a
+// failed part.
+func (s *Supervisor) applyChoice(st *sched, e attemptEnd, choice, source string, abort context.CancelFunc) {
+	deps := dependents(s.Plan, e.id)
 	s.event(EvOwnerDecision, map[string]any{"part": e.id, "choice": choice, "source": source})
 	switch choice {
 	case choiceRetry:
@@ -314,6 +342,7 @@ func (s *Supervisor) setStatus(st *sched, ids []string, from, to string) {
 func (s *Supervisor) stop(st *sched) {
 	st.stopping = true
 	s.stopFlag.Store(true)
+	s.ctl.stop()
 }
 
 func (s *Supervisor) budgetStop(st *sched, reason, detail string) {
