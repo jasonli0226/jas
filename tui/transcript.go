@@ -36,8 +36,8 @@ type Transcript struct {
 	marked    bool                      // the agent marker went out this turn
 }
 
-// role groups printed blocks; a blank line separates consecutive groups so
-// user, agent and tool blocks stay apart in scrollback.
+// role groups printed blocks. A blank line separates most group changes so
+// user turns stay apart; agent text and tool rows sit tight with no blank.
 type role int
 
 const (
@@ -200,10 +200,13 @@ func (t *Transcript) Live() string {
 	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
 		parts = append(parts, hang(renderBlock(p), t.nextAgentPrefix(), t.Width))
 	}
-	if len(parts) > 0 && t.last != roleNone && (t.last != roleAgent || t.marked) {
+	// Match enter(roleAgent): blank only when leaving user/notice, not after
+	// tools or within the agent group (consecutive blocks stay dense).
+	if len(parts) > 0 && (t.last == roleUser || t.last == roleNotice) {
 		parts = append([]string{""}, parts...)
 	}
-	if len(t.running) > 0 && (len(parts) > 0 || t.last != roleNone && t.last != roleTool) {
+	// Match enter(roleTool): no blank after agent text; blank after user/notice.
+	if len(t.running) > 0 && len(parts) == 0 && (t.last == roleUser || t.last == roleNotice) {
 		parts = append(parts, "")
 	}
 	for _, c := range t.running {
@@ -213,7 +216,9 @@ func (t *Transcript) Live() string {
 }
 
 // enter switches the printed group to r, returning the blank separator line
-// when the group changes after something was already printed.
+// when the group changes after something was already printed. Agent text and
+// tool rows stay tight either way; a blank always precedes a new user turn
+// (and other non-agent/tool switches such as notices).
 func (t *Transcript) enter(r role) []string {
 	if t.last == r {
 		return nil
@@ -223,16 +228,16 @@ func (t *Transcript) enter(r role) []string {
 	if prev == roleNone {
 		return nil
 	}
+	if (prev == roleAgent && r == roleTool) || (prev == roleTool && r == roleAgent) {
+		return nil
+	}
 	return []string{""}
 }
 
 // agentBlock renders a finished assistant block: the turn's first block gets
-// the agent marker, the rest hang under it after a blank line.
+// the agent marker; later blocks hang under it with no blank between them.
 func (t *Transcript) agentBlock(raw string) []string {
 	out := t.enter(roleAgent)
-	if t.marked {
-		out = append(out, "")
-	}
 	prefix := t.nextAgentPrefix()
 	t.marked = true
 	return append(out, hang(renderBlock(raw), prefix, t.Width))

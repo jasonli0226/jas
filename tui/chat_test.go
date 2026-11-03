@@ -219,7 +219,7 @@ func TestChat_SendStreamsAndPrints(t *testing.T) {
 	assert.Eq(t, c.m.input.Value(), "")
 	assert.Contains(t, c.view(), "working…")
 	c.pump()
-	eqStrings(t, plain(c.printedNoBanner()), []string{"› hi", "", "● Hello", "", "  World"})
+	eqStrings(t, plain(c.printedNoBanner()), []string{"› hi", "", "● Hello", "  World"})
 	assert.NotContains(t, c.view(), "working…")
 }
 
@@ -432,10 +432,10 @@ func TestChat_ResumeReprintsTranscript(t *testing.T) {
 
 	c := newTestChatOpts(t, b, Options{Continue: true})
 	got := plain(c.m.Printed())
-	assert.Eq(t, len(got), 7)
+	assert.Eq(t, len(got), 6)
 	eqStrings(t, got[:2], []string{"› hello", ""})
 	assert.Eq(t, strings.HasPrefix(got[2], "▸ ls ."), true)
-	eqStrings(t, got[3:], []string{"", "● hi there", "", "resumed " + c.m.live.ID + " · 4 messages"})
+	eqStrings(t, got[3:], []string{"● hi there", "", "resumed " + c.m.live.ID + " · 4 messages"})
 }
 
 func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {
@@ -617,7 +617,7 @@ func TestChat_StreamingNoBlankFlash(t *testing.T) {
 	c.m.Update(textMsg{gen: c.m.gen, s: "Hello\n\n"})
 	assert.Contains(t, c.view(), "● Hello")
 	c.m.Update(textMsg{gen: c.m.gen, s: "World\n\n"}) // waits behind the first print
-	assert.Contains(t, c.view(), "● Hello\n\n  World")
+	assert.Contains(t, c.view(), "● Hello\n  World")
 	c.m.Update(printedMsg{}) // the first print landed; the second goes out
 	assert.NotContains(t, c.view(), "Hello")
 	assert.Contains(t, c.view(), "  World")
@@ -664,7 +664,7 @@ func TestChat_ApprovalPrintsDiffAboveQuestion(t *testing.T) {
 	user, agent, header := at("› edit it"), at("● I'll fix d."), at("edit f.txt")
 	del, add := at("     4 - d"), at("     4 + D")
 	assert.Eq(t, user < agent && agent < header && header < del && del < add, true)
-	assert.Eq(t, printed[header-1], "") // the tool group's gap
+	assert.Eq(t, printed[header-1], "● I'll fix d.") // agent→tool: no blank
 	v := c.view()
 	assert.Contains(t, v, "[y/N/always]")
 	assert.NotContains(t, v, "I'll fix d.")
