@@ -65,6 +65,7 @@ type RunOptions struct {
 	NewSession func(w WorkerSession) (*core.Session, error)
 	Approvals  *Approvals      // shared TTY approvals; nil: approval level never
 	Hard       context.Context // second Ctrl-C; nil: never
+	Width      func() int      // terminal columns for progress lines; nil or 0: no clipping
 	Policy     core.ExecPolicy // base policy for workers
 	Redact     func(string) string
 }
@@ -253,6 +254,7 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 	var prog *Progress
 	if !o.JSON {
 		prog = NewProgress(o.Stdout, o.Redact)
+		prog.Width = o.Width
 	}
 	log := prog.farmLog(idLog{EventLog: flog, id: id})
 	board, err := OpenBoard(filepath.Join(dir, boardFile), o.Redact, o.Cfg.Board)
