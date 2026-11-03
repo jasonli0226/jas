@@ -9,7 +9,7 @@ import (
 
 // spinnerFrames are the braille frames the loader cycles through while a
 // run is active.
-var spinnerFrames = []rune("⠋⠙⠹⠼⠼⠴⠦⠧⠇⠏")
+var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
 // spinnerInterval is how long one loader frame stays on screen.
 const spinnerInterval = 130 * time.Millisecond
