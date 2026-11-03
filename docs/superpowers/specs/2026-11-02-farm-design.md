@@ -947,6 +947,12 @@ optional `blast_gate`, final choice, totals. `jas farm status` and CI read it.
 
 ## Interactive mode
 
+> **Superseded in detail by
+> [`2026-11-04-farm-interactive-design.md`](2026-11-04-farm-interactive-design.md)**
+> (one-keystroke flipping, `/farm` dashboard, approval and prompt routing).
+> Where the two differ, that document wins; the text below is the original
+> sketch.
+
 Same supervisor, same logs, same exit-code semantics as `jas farm run`; only
 the front end differs. Ships after the CI path. Inline only (AGENTS.md): no
 alt-screen, no fullscreen dashboard.
@@ -999,8 +1005,8 @@ alt-screen, no fullscreen dashboard.
     `[part] not delivered (part finished): <text>` and puts the text back in
     the input box. The drop is recorded as
     `owner_decision{choice:"steer_undelivered"}`.
-- **Failures** prompt inline with the same retry / take over / drop / abort
-  choices as the TTY flow.
+- **Failures** prompt inline with the same retry / drop / abort choices as
+  the TTY flow (take over arrives with resume, after MVP).
 - **Finish:** after the supervisor's `check`, an inline summary — per-part
   status and diffstat, criteria met/unmet (spec runs), tokens and cost per
   part and total, `check`/`contract_check` result — then `m` merge · `k` keep
