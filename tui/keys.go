@@ -31,6 +31,9 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleToolExpand()
 		return nil
 	}
+	if cmd, ok := m.onFlipKey(k); ok {
+		return cmd
+	}
 	if m.picker != nil && m.approval == nil { // an approval prompt comes first
 		return m.onPickerKey(msg)
 	}
@@ -44,12 +47,22 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.onEnter()
 	case "esc":
+		if m.approval != nil && m.approval.part != "" { // a farm part's prompt: deny it
+			return m.closeFarmApproval("")
+		}
+		if m.viewing != "" { // never stops a farm agent: clears the draft only
+			m.input.Reset()
+			return nil
+		}
 		if m.toolExpand {
 			m.toolExpand = false
 			m.toolExpandOff = 0
 			return nil
 		}
-		m.approval = nil // the cancelled ctx unblocks the gate
+		if m.approval != nil {
+			m.approval = nil // the cancelled ctx unblocks the gate
+			m.restoreInput()
+		}
 		if m.run != nil {
 			m.run.cancel()
 		}
@@ -74,8 +87,15 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 // submitted while a session is opening.
 func (m *Model) onEnter() tea.Cmd {
 	if m.approval != nil {
-		m.answerApproval()
-		return nil
+		return m.answerApproval()
+	}
+	if m.ask != nil {
+		return m.answerFarmAsk()
+	}
+	if m.farmReplan != nil {
+		text := strings.TrimSpace(m.input.Value())
+		m.input.Reset()
+		return m.farmFeedback(text)
 	}
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" || m.live == nil || m.opening != nil {
@@ -85,11 +105,19 @@ func (m *Model) onEnter() tea.Cmd {
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
 	}
+	if m.viewing != "" {
+		return m.steerAgent(text)
+	}
 	m.input.Reset()
 	if m.running() {
 		m.live.Session.Steer(text)
 		m.queued = append(m.queued, text)
 		return nil
+	}
+	if note := m.farmNote; note != "" {
+		m.farmNote = ""
+		shown := append(m.tr.User(text), m.tr.Notice(dimStyle.Render("(farm summary attached)"))...)
+		return m.startRun(note+"\n\n"+text, shown)
 	}
 	return m.startRun(text, m.tr.User(text))
 }

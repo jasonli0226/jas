@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -65,7 +66,7 @@ func chatCmd(ctx context.Context, args []string) error {
 	e.warnUnknownWindow(e.cfg.Model)
 	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e}, tui.Options{
 		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows", Version: version,
-		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact,
+		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact, FarmBell: e.cfg.FarmBell,
 	}, os.Stdin, os.Stdout))
 }
 
@@ -130,7 +131,11 @@ func parseChat(args []string) (chatArgs, error) {
 
 // chatBackend is the chat's tui.Backend over the real settings, provider,
 // redaction, trust decision and skills.
-type chatBackend struct{ e *env }
+type chatBackend struct {
+	e          *env
+	farmerOnce sync.Once
+	farmer     *chatFarmer
+}
 
 var _ tui.Backend = (*chatBackend)(nil)
 
@@ -222,8 +227,12 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 	e := b.e
 	ui = core.NewRedactingUI(ui, e.red.Redact)
 	log = core.NewUILog(log, ui)
+	toolset := append(tools.ReadOnly(), tools.Mutating()...)
+	if ok, _ := b.Farmer().Available(); ok { // only where a farm could run
+		toolset = append(toolset, suggestFarm{ui: ui})
+	}
 	exec := &core.Executor{
-		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
+		Reg:    core.NewRegistry(toolset...),
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
 	}
 	meta := e.sessionMeta(model)

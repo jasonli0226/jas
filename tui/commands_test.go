@@ -412,7 +412,9 @@ func TestChat_StaleSessionIsClosed(t *testing.T) {
 	assert.Eq(t, b.closes.Load(), 1)
 }
 
-func TestChat_ApprovalClosesPicker(t *testing.T) {
+// An approval sets an open picker aside and brings it back after the answer
+// (review R1: an approval takes the input, then gives it back).
+func TestChat_ApprovalSetsPickerAside(t *testing.T) {
 	release := make(chan struct{})
 	b := newTestBackend(t, shellTurn("echo hi"), fake.Turn{Text: "ok"},
 		fake.Turn{Calls: []fake.Call{{Name: "shell", Args: string(shellArgs("make"))}}, OnEmit: func() { <-release }},
@@ -438,7 +440,7 @@ func TestChat_ApprovalClosesPicker(t *testing.T) {
 	assert.Eq(t, status, "ok")
 	c.pump()
 	eqStrings(t, c.m.gate.Grants().List(), []string{"shell: echo hi"})
-	assert.Eq(t, c.m.picker == nil, true)
+	assert.Eq(t, c.m.picker != nil, true)
 }
 
 // compactBackend is a test backend with a small window (room for the system

@@ -59,6 +59,10 @@ func fitWidth(line string, width int) string {
 	return string(r[:width-2]) + "…"
 }
 
+// ProgressLine is the progress line jas farm run prints for a farm.jsonl
+// event, or "" for events it does not show.
+func ProgressLine(typ string, m map[string]any) string { return farmLine(typ, m) }
+
 // farmLine renders a farm.jsonl event, or "" for events not shown.
 func farmLine(typ string, m map[string]any) string {
 	part := fmt.Sprint(m["part"])
@@ -81,10 +85,14 @@ func farmLine(typ string, m map[string]any) string {
 		}
 		return fmt.Sprintf("[%s] board: %v %s", part, m["topic"], orEmpty(m["name"]))
 	case EvOwnerDecision:
+		line := fmt.Sprintf("decision: %v", m["choice"])
 		if p, ok := m["part"]; ok {
-			return fmt.Sprintf("[%v] decision: %v", p, m["choice"])
+			line = fmt.Sprintf("[%v] %s", p, line)
 		}
-		return fmt.Sprintf("decision: %v", m["choice"])
+		if note, ok := m["note"].(string); ok && note != "" {
+			line += " — " + note
+		}
+		return line
 	case EvIntegrateStarted:
 		return "integrate: merging " + joinAny(m["merge"])
 	case EvIntegrateCheck:
@@ -171,51 +179,69 @@ func joinAny(v any) string {
 	return orEmpty(v)
 }
 
-// progressLog is an event log that also prints progress lines.
-type progressLog struct {
-	core.EventLog
-	line func(typ string, m map[string]any) string
-	p    *Progress
+// Watcher receives farm.jsonl events and each worker's log events as they
+// are written. Progress is the CLI's watcher; the chat supplies its own. Calls
+// come from farm goroutines and must not block for long.
+type Watcher interface {
+	FarmEvent(typ string, m map[string]any)
+	WorkerEvent(part, typ string, m map[string]any)
+	// SteerUndelivered hands back owner text queued for a part that finished
+	// before reading it.
+	SteerUndelivered(part string, texts []string)
 }
 
-func (l progressLog) note(typ string, data any) {
-	if m, ok := data.(map[string]any); ok {
-		l.p.print(l.line(typ, m))
+// FarmEvent prints a farm event as a progress line.
+func (p *Progress) FarmEvent(typ string, m map[string]any) { p.print(farmLine(typ, m)) }
+
+// WorkerEvent prints a worker's tool call as a progress line.
+func (p *Progress) WorkerEvent(part, typ string, m map[string]any) {
+	if typ == core.EvToolStarted {
+		p.print(toolLine(part, m))
 	}
 }
 
-func (l progressLog) Append(typ string, data any) error {
-	l.note(typ, data)
+// SteerUndelivered is a no-op: the CLI has no steering.
+func (p *Progress) SteerUndelivered(string, []string) {}
+
+// watchLog is an event log that also reports each event to a watcher.
+type watchLog struct {
+	core.EventLog
+	note func(typ string, m map[string]any)
+}
+
+func (l watchLog) report(typ string, data any) {
+	if m, ok := data.(map[string]any); ok {
+		l.note(typ, m)
+	}
+}
+
+func (l watchLog) Append(typ string, data any) error {
+	l.report(typ, data)
 	return l.EventLog.Append(typ, data)
 }
 
-func (l progressLog) AppendSync(typ string, data any) error {
-	l.note(typ, data)
+func (l watchLog) AppendSync(typ string, data any) error {
+	l.report(typ, data)
 	return l.EventLog.AppendSync(typ, data)
 }
 
-func (l progressLog) AppendID(typ string, data any) (string, error) {
-	l.note(typ, data)
+func (l watchLog) AppendID(typ string, data any) (string, error) {
+	l.report(typ, data)
 	return l.EventLog.AppendID(typ, data)
 }
 
-// farmLog prints farm events as progress lines; a nil Progress is a no-op.
-func (p *Progress) farmLog(log core.EventLog) core.EventLog {
-	if p == nil {
+// watchFarmLog reports farm events to w; a nil w is a no-op.
+func watchFarmLog(w Watcher, log core.EventLog) core.EventLog {
+	if w == nil {
 		return log
 	}
-	return progressLog{EventLog: log, line: farmLine, p: p}
+	return watchLog{EventLog: log, note: w.FarmEvent}
 }
 
-// workerLog prints a worker's tool calls as progress lines.
-func (p *Progress) workerLog(part string, log core.EventLog) core.EventLog {
-	if p == nil {
+// watchWorkerLog reports a worker's events to w; a nil w is a no-op.
+func watchWorkerLog(w Watcher, part string, log core.EventLog) core.EventLog {
+	if w == nil {
 		return log
 	}
-	return progressLog{EventLog: log, p: p, line: func(typ string, m map[string]any) string {
-		if typ != core.EvToolStarted {
-			return ""
-		}
-		return toolLine(part, m)
-	}}
+	return watchLog{EventLog: log, note: func(typ string, m map[string]any) { w.WorkerEvent(part, typ, m) }}
 }

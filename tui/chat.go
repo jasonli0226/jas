@@ -33,6 +33,7 @@ type Options struct {
 	Version  string // build version, shown once in the start banner
 	Now      func() time.Time
 	Redact   func(string) string // masks secrets in text the chat prints; nil is identity
+	FarmBell bool                // ring the terminal bell when a farm needs the owner
 }
 
 // Model is the inline chat: a transcript printed into scrollback above a live
@@ -63,7 +64,27 @@ type Model struct {
 	approval *approvalMsg // the open approval prompt
 	picker   *picker      // the open picker, shown in place of the input
 	onPick   func(value string) tea.Cmd
-	reply    string // the last final reply, for /copy
+	// onPickCancel runs when the open picker is cancelled (Esc); nil: nothing.
+	onPickCancel func() tea.Cmd
+
+	farm    *farmState // this window's farm, running or the last one
+	viewing string     // the agent the window shows; "" = the main chat
+	held    int        // main-chat blocks recorded while viewing an agent
+	// farmQuitting: the owner chose to stop the farm and quit; the quit
+	// resumes when the farm has ended.
+	farmQuitting bool
+	stash        *inputStash  // the input set aside while a prompt has it
+	ask          *farmAskMsg  // the open farm question
+	askPending   []farmAskMsg // farm questions waiting for the main chat
+	bells        int          // bells rung (test hook)
+	farmNote     string       // farm summary for the next message to the main session
+	farmGen      int          // generation of the newest farm started (farmMsg)
+	farmEarly    []tea.Msg    // that farm's messages that beat farmStartedMsg
+	printedFrom  int          // where the current session's transcript starts in printed
+	screen       []string     // every block emitted to the screen (test hook)
+	farmReview   *FarmPlan    // a plan under review (or being drafted)
+	farmReplan   *FarmPlan    // a plan waiting for replan feedback in the input
+	reply        string       // the last final reply, for /copy
 
 	slashFor    string // input text the / menu cursor belongs to
 	slashCursor int
@@ -158,6 +179,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.tr.Width = msg.Width
 		m.input.SetWidth(msg.Width)
+		if m.farm != nil {
+			m.farm.width = msg.Width
+			for _, a := range m.farm.agents {
+				a.tr.Width = msg.Width
+			}
+		}
 	case tea.KeyPressMsg:
 		return m, m.onKey(msg)
 	case tea.PasteMsg:
@@ -192,6 +219,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onTick()
 	case approvalMsg:
 		return m, m.onApproval(msg)
+	case farmPlannedMsg:
+		return m, m.onFarmPlanned(msg)
+	case farmEditedMsg:
+		return m, m.onFarmEdited(msg)
+	case farmStartedMsg:
+		return m, m.onFarmStarted(msg)
+	case farmEventMsg:
+		return m, m.onFarmEvent(msg)
+	case farmDoneMsg:
+		return m, m.onFarmDone(msg)
+	case farmTextMsg:
+		return m, m.onFarmText(msg)
+	case farmUndeliveredMsg:
+		return m, m.onFarmUndelivered(msg)
+	case farmCalledMsg:
+		return m, m.onFarmCalled(msg)
+	case farmSteerMsg:
+		return m, m.onFarmSteer(msg)
+	case farmQuitMsg:
+		return m, m.quit()
+	case farmAskMsg:
+		return m, m.onFarmAsk(msg)
+	case farmMsg:
+		return m, m.onFarmMsg(msg)
+	case farmWorkerEventMsg:
+		return m, m.onFarmWorkerEvent(msg)
 	case noticeMsg:
 		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:
@@ -208,7 +261,11 @@ func (m *Model) View() tea.View {
 	// Blocks not yet in scrollback stay on screen above the live region, so a
 	// finished block never blinks out between leaving Live and its Println.
 	parts := slices.Concat(m.inflight, m.outbox)
-	if live := m.tr.Live(); live != "" {
+	live := m.tr.Live()
+	if a := m.farmAgent(m.viewing); a != nil {
+		live = a.tr.Live()
+	}
+	if live != "" {
 		parts = append(parts, live)
 	}
 	if panel := m.toolExpandView(); panel != "" {
@@ -216,8 +273,12 @@ func (m *Model) View() tea.View {
 	}
 	// A blank line keeps the input apart from the agent text above it.
 	parts = append(parts, "")
-	for _, q := range m.queued {
-		line := "↳ " + strings.Join(strings.Fields(q), " ")
+	queued, prefix := m.queued, "↳ "
+	if a := m.farmAgent(m.viewing); a != nil {
+		queued, prefix = a.queued, "↳ queued for "+a.id+": "
+	}
+	for _, q := range queued {
+		line := prefix + strings.Join(strings.Fields(q), " ")
 		parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
 	}
 	if l := m.loader(); l != "" {
@@ -236,6 +297,11 @@ func (m *Model) View() tea.View {
 		}
 	}
 	parts = append(parts, m.rule(), m.statusLine())
+	if m.viewing != "" && m.farm != nil {
+		parts = append(parts, m.farmStrip())
+	} else {
+		parts = append(parts, m.farmRows()...)
+	}
 	// The zero KeyboardEnhancements still requests basic key disambiguation
 	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
 	// apart from Enter on terminals that support it.
@@ -246,7 +312,7 @@ func (m *Model) View() tea.View {
 // approval prompt renders.
 func (m *Model) prompt() string {
 	if m.approval == nil {
-		return ""
+		return m.askPrompt()
 	}
 	return boldStyle.Render(ansi.Wrap(m.approval.prompt, m.width, ""))
 }
@@ -337,14 +403,29 @@ func (m *Model) noteLastTool() {
 	}
 }
 
-// Printed returns every block handed to tea.Println, in order (test hook).
+// Printed returns every block of the main chat's transcript, in order,
+// including blocks held back while an agent was viewed (test hook).
 func (m *Model) Printed() []string { return m.printed }
 
-// print queues blocks for scrollback. Commands run concurrently, so only one
-// Println is in flight at a time; it acknowledges itself with printedMsg and
-// the next batch goes out then, which keeps blocks in order.
+// Screen returns every block handed to tea.Println, in order (test hook).
+func (m *Model) Screen() []string { return m.screen }
+
+// print records blocks in the main chat's transcript and shows them, unless
+// the window is on a farm agent: then they are held until Ctrl+0.
 func (m *Model) print(blocks ...string) tea.Cmd {
 	m.printed = append(m.printed, blocks...)
+	if m.viewing != "" && !m.quitting {
+		m.held += len(blocks)
+		return nil
+	}
+	return m.emit(blocks...)
+}
+
+// emit queues blocks for scrollback. Commands run concurrently, so only one
+// Println is in flight at a time; it acknowledges itself with printedMsg and
+// the next batch goes out then, which keeps blocks in order.
+func (m *Model) emit(blocks ...string) tea.Cmd {
+	m.screen = append(m.screen, blocks...)
 	m.outbox = append(m.outbox, blocks...)
 	return m.flush()
 }

@@ -150,7 +150,7 @@ Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,
 `compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`,
 `max_output_tokens` (default 16000, sent as `max_tokens` on every request),
-and per-model `models.<name>.context_window`.
+`farm_bell` (default true: ring when a chat farm needs you), and per-model `models.<name>.context_window`.
 
 The chat compacts its context: once the prompt passes the window minus
 `compact_reserve_tokens` (default 16384; never below half the window), older
@@ -329,8 +329,12 @@ the same model, are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Demo
 
-To record the demo GIF, install [vhs](https://github.com/charmbracelet/vhs)
-and run `vhs demo.tape`.
+![jas chat: ask for a change, the agent edits main.go, git diff shows it](docs/demo.gif)
+
+To re-record it, install [vhs](https://github.com/charmbracelet/vhs) (it also
+needs `ttyd` and `ffmpeg`), build `bin/jas`, export `OPENROUTER_API_KEY`, and
+run `vhs demo.tape` from the repo root. It makes real model calls on a
+throwaway copy of `bench/fixture`.
 
 ## Farm (experimental)
 
@@ -353,10 +357,40 @@ Worktrees live in the repo under `.jas/worktrees/<farm-id>/<part>`
 absolute path to put them elsewhere. Without `--json`, the run prints a line per part event and
 worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental** until the benchmark gate
 (farm vs plain `jas run` on wall-clock) lands. Not yet: `farm resume`,
-`researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
-`/farm` (attach and the live board stay [#12](https://github.com/jasonli0226/jas/issues/12)).
+`researcher`/`reviewer` roles, `--spec` planning, `farm init`, attach from
+another terminal ([#12](https://github.com/jasonli0226/jas/issues/12)).
 Full design:
 [docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
+
+**In the chat:** the agent may suggest a farm for big, splittable work (its
+`suggest_farm` tool, offered only in a trusted project with a `check`): it
+pre-fills your input with `/farm "<task>"` for you to edit, send or clear, and
+never starts one itself. `/farm "<task>"` plans a farm from the conversation; the plan
+summary opens a picker (approve, edit in `$EDITOR`, replan with feedback, or
+quit). Once approved, one live row per agent sits under the input (status,
+last activity, tokens) with a totals line, and finished events print into the
+chat. `/farm` prints the dashboard; `/farm run <plan.yaml>` starts an approved
+plan. One farm per window; it needs a trusted project with a `check` and a
+clean working tree. A final **merge** (CLI or chat) is refused while the main
+checkout has uncommitted changes; the branches are kept. **Ctrl+1–9** (or Alt+1–9) flips the window to that agent:
+the screen clears and shows its transcript live, as the main chat does;
+**Ctrl+0** (or Alt+0) comes back. While you watch an agent, main-chat output
+is held (the bottom strip counts it) and printed when you return.
+`/farm attach <part|N>` and `/farm back` do the same where the keys do not
+reach jas. In an agent's view, Enter steers that agent (`queued for <part>`
+until it reads it; text it never reads comes back to the input); Esc and
+Ctrl+C only clear the input and never stop an agent. `/farm pause|resume|drop
+<part|N>` and `/farm stop` (twice to cancel now) control the farm; quitting
+with a farm running asks first. An agent's approval prompt opens wherever you
+are, labelled `[part]` (answers: y, N, always for that part, farm for every
+part); your draft is set aside and comes back after. A failure (retry, drop,
+abort) or the final merge/keep/discard waits for the main chat with no turn
+running; meanwhile the strip shows `farm needs you · ctrl+0`. The terminal
+bell rings once per such prompt (`jas config set farm_bell false` turns it
+off). When the farm ends, its summary (outcome, branch, final choice, each
+part) prints and is attached to your next message, so you can ask the agent
+about the result; it never starts a turn on its own. A running farm belongs to
+the window: it survives `/new` and `/resume`.
 
 ## Design
 

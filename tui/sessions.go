@@ -69,6 +69,9 @@ func (m *Model) banner() []string {
 // banner. The session (context, grants, model) is unchanged. Sequence so
 // the clear runs before the banner print.
 func (m *Model) clearView() tea.Cmd {
+	if m.viewing != "" {
+		return m.flip(m.viewing) // Ctrl+L in an agent view redraws that view
+	}
 	return tea.Sequence(tea.ClearScreen, m.print(m.banner()...))
 }
 
@@ -77,6 +80,7 @@ func (m *Model) clearView() tea.Cmd {
 // showed may have changed. Clear+banner are sequenced; the open runs
 // alongside that Batch item.
 func (m *Model) newSession() tea.Cmd {
+	m.backToMain()
 	b, gate, model := m.b, m.gate, m.model
 	// print queues into the outbox, so the banner precedes the new
 	// session's blocks even though the open runs concurrently.
@@ -88,6 +92,7 @@ func (m *Model) newSession() tea.Cmd {
 
 // resumeSession replaces the current session with the saved one at path.
 func (m *Model) resumeSession(path string) tea.Cmd {
+	m.backToMain()
 	b, gate := m.b, m.gate
 	return m.beginOpen(func(ui core.UI) sessionMsg {
 		live, notices, err := b.Resume(path, ui, gate)

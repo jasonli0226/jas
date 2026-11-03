@@ -15,6 +15,16 @@ Farm MVP is merged (README experimental section): `farm plan`/`run`/`<task>`/
 `check`, integrator, exit codes 6/7/8, `--json`, `manifest.json`, budgets.
 Spec: `docs/superpowers/specs/2026-11-02-farm-design.md`; plan:
 `docs/superpowers/plans/2026-11-02-farm-mvp.md`.
+Farm in the chat (`/farm`, Ctrl/Alt+1–9 flips to an agent, `/farm` dashboard,
+in-chat approvals and prompts, `suggest_farm`): spec
+`docs/superpowers/specs/2026-11-04-farm-interactive-design.md`, plan
+`docs/superpowers/plans/2026-11-04-farm-interactive.md`. Every farm call from
+the chat runs in a `tea.Cmd` or goroutine, never in `Update` (farm hooks call
+`Program.Send`). Next for farm: the farm-vs-`jas run` benchmark gate.
+Status (2026-11-04): merged to main after build and review; next is the
+owner's acceptance run
+(`docs/farm-acceptance-run.md`), then a PR. Rulings, deferred minors and one
+open question are in the plan's Build record.
 
 **Next work (first-class together):** chat polish that stays inline; template /
 scenario / `jas bootstrap` / `jas spec` quality (design §8 +

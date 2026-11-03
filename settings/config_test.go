@@ -254,3 +254,13 @@ func TestSplitModelRef(t *testing.T) {
 		}
 	}
 }
+
+func TestConfig_FarmBellKey(t *testing.T) {
+	k, ok := LookupKey("farm_bell")
+	if !ok || k.Default != "true" {
+		t.Fatalf("farm_bell key %+v %v", k, ok)
+	}
+	if k.Validate("maybe") == nil || k.Validate("false") != nil {
+		t.Fatal("farm_bell must accept true/false only")
+	}
+}

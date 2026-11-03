@@ -46,6 +46,7 @@ type testBackend struct {
 	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
 	opens       atomic.Int32        // sessions handed out as a Live
 	defaults    []string            // models stored as the config default, in order
+	farmer      Farmer              // the farm port; nil: farms unavailable
 }
 
 const testWindow = 100000
@@ -183,6 +184,8 @@ func (b *testBackend) Window(string) int {
 	}
 	return testWindow
 }
+
+func (b *testBackend) Farmer() Farmer { return b.farmer }
 
 func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
 	if name != "review" {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -680,4 +681,93 @@ func TestRunFarm_CleanMergeRunsCheckOnce(t *testing.T) {
 	if ev := r.last(EvCheckRan); ev["exit_code"] != float64(0) {
 		t.Fatalf("check_ran %v", ev)
 	}
+}
+
+// recWatcher records farm and worker events; safe for concurrent use.
+type recWatcher struct {
+	mu     sync.Mutex
+	farm   []string // "typ part"
+	worker []string // "part typ"
+}
+
+func (w *recWatcher) FarmEvent(typ string, m map[string]any) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.farm = append(w.farm, fmt.Sprint(typ, " ", m["part"]))
+}
+
+func (w *recWatcher) WorkerEvent(part, typ string, _ map[string]any) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.worker = append(w.worker, part+" "+typ)
+}
+
+func (w *recWatcher) SteerUndelivered(string, []string) {}
+
+func TestRunFarm_WatcherSeesFarmAndWorkerEvents(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	w := &recWatcher{}
+	r.opts.Watch = w
+	if code, reason := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d %s", code, reason)
+	}
+	if !slices.Contains(w.farm, EvPartStarted+" a") || !slices.Contains(w.worker, "a "+core.EvToolStarted) {
+		t.Fatalf("farm %v worker %v", w.farm, w.worker)
+	}
+	if strings.Contains(r.stdout.String(), "[a] started") {
+		t.Fatalf("progress printed with a watcher set:\n%s", r.stdout.String())
+	}
+}
+
+// recUI records text and event types for one part.
+type recUI struct {
+	mu     sync.Mutex
+	text   strings.Builder
+	events []string
+}
+
+func (u *recUI) Text(d string)    { u.mu.Lock(); u.text.WriteString(d); u.mu.Unlock() }
+func (u *recUI) Reasoning(string) {}
+func (u *recUI) Event(typ string, _ any) {
+	u.mu.Lock()
+	u.events = append(u.events, typ)
+	u.mu.Unlock()
+}
+
+func TestRunFarm_WorkerUIPerPart(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	var mu sync.Mutex
+	uis := map[string]*recUI{}
+	r.opts.WorkerUI = func(part string) core.UI {
+		mu.Lock()
+		defer mu.Unlock()
+		u := &recUI{}
+		uis[part] = u
+		return u
+	}
+	if code, reason := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d %s", code, reason)
+	}
+	for _, p := range []string{"a", "b"} {
+		u := uis[p]
+		if u == nil || !strings.Contains(u.text.String(), p+" done") || !slices.Contains(u.events, core.EvToolStarted) {
+			t.Fatalf("part %s ui %+v", p, u)
+		}
+	}
+}
+
+func TestRunFarm_GatesHookPerPart(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	var mu sync.Mutex
+	var got []string
+	r.opts.Gates = func(part, approve string) (core.Gate, error) {
+		mu.Lock()
+		got = append(got, part+":"+approve)
+		mu.Unlock()
+		return &core.Approver{Level: core.Never}, nil
+	}
+	if code, reason := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d %s", code, reason)
+	}
+	sortedEq(t, got, "a:", "b:")
 }

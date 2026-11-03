@@ -214,7 +214,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	if err != nil {
 		return err
 	}
-	log := s.Progress.workerLog(integratePart, flog)
+	log, ui := s.workerLog(integratePart, flog)
 	defer func() {
 		if err := log.Close(); err != nil {
 			s.noteErr(fmt.Errorf("integrator log: %w", err))
@@ -236,12 +236,14 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	sess, err := s.NewSession(WorkerSession{
 		Part: part, Role: role, Root: path, System: IntegratorPrompt(s.Plan, role, s.baseSHA, s.WT.Branch(integratePart), s.Cfg.Check),
 		SessionID: sid, Log: log, Pool: pool, Policy: pol, Tools: toolset, Gate: gate,
-		Meta: WorkerMeta(s.FarmID, integratePart, s.baseSHA, s.Manifest.PlanSHA256), MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap,
+		Meta: WorkerMeta(s.FarmID, integratePart, s.baseSHA, s.Manifest.PlanSHA256), MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap, UI: ui,
 	})
 	if err != nil {
 		return fmt.Errorf("start integrator session: %w", err)
 	}
 	s.setIntegrator(func(ps *PartState) { ps.SessionID, ps.Log = sid, logPath })
+	iw := &worker{part: part, sess: sess}
+	s.ctl.setWorker(integratePart, iw) // the owner can steer the integrator too
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
 	defer cancel()
 	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts, failing))
@@ -249,6 +251,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	if sendErr != nil && end.kind == endDone {
 		end = failed(integratePart, ReasonError, core.ExitFailure, sendErr.Error())
 	}
+	s.takeSteering(iw)
 	_ = sess.Close(res.Status, res.Code)
 	s.setIntegrator(func(ps *PartState) { ps.Tokens, ps.ExitCode = pool.Used(), res.Code })
 	if end.kind == endFarmStop {

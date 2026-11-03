@@ -26,6 +26,7 @@ type Run struct {
 	CompactKeep     int
 	CompactModel    string // "" = the session's model
 	MaxOutputTokens int    // sent as max_tokens on every model request
+	FarmBell        bool   // ring the terminal bell when a chat farm needs the owner
 }
 
 // providersFile rebuilds the stored provider map from the keys Resolve
@@ -74,6 +75,7 @@ func (e Effective) Build() (Run, error) {
 	r.CompactReserve, _ = strconv.Atoi(e["compact_reserve_tokens"].Raw)
 	r.CompactKeep, _ = strconv.Atoi(e["compact_keep_tokens"].Raw)
 	r.MaxOutputTokens, _ = strconv.Atoi(e["max_output_tokens"].Raw)
+	r.FarmBell = e["farm_bell"].Raw != "false"
 	for _, p := range strings.Split(e["redact_skip_paths"].Raw, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			r.RedactSkipPaths = append(r.RedactSkipPaths, p)

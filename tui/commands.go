@@ -33,6 +33,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"copy":     (*Model).cmdCopy,
 	"resume":   (*Model).cmdResume,
 	"compact":  (*Model).startCompact,
+	"farm":     (*Model).cmdFarm,
 }
 
 // idleOnly commands are refused during a run. That is what keeps
@@ -53,6 +54,12 @@ const helpText = `commands
   /approve [level]       approval level: never | shell | mutating
   /allowed               list and remove always grants
   /copy                  copy the last reply to the clipboard
+  /farm "<task>"         plan a farm of parallel agents for task; approve, edit, replan or quit
+  /farm run <plan.yaml>  start an approved plan
+  /farm                  the farm dashboard: every agent, status, activity, tokens
+  /farm attach <part|N>  show that agent (as Ctrl+N); /farm back returns to the main chat
+  /farm pause|resume|drop <part|N>   hold an agent before its next request, release it, or drop it and its dependents
+  /farm stop             stop the farm gracefully; again to cancel now
   /skill:<name> [text]   run a skill
   /quit                  save the session and quit
 an always grant on a shell command covers any arguments to the first two words
@@ -63,6 +70,7 @@ keys
   Up/Down recall earlier input (from the first or last line of the input)
   Ctrl-L clear the screen (keep session)
   Ctrl-O expand or collapse the latest tool output
+  Ctrl+1..9 / Alt+1..9 show farm agent N · Ctrl+0 / Alt+0 back to the main chat
   Ctrl-C clear the input; twice on an empty box quits
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel
@@ -247,17 +255,49 @@ func (m *Model) skillCommand(skill, arg, text string) tea.Cmd {
 // clean masks secrets and escapes control characters in one line of text.
 func (m *Model) clean(s string) string { return core.Sanitize(m.o.Redact(s)) }
 
-// notice prints dim lines, each cleaned.
+// notice prints dim lines, each cleaned. It answers the owner, so in a farm
+// agent's view it shows there too (and is kept in the main transcript).
 func (m *Model) notice(lines ...string) tea.Cmd {
+	return m.answer(m.tr.Notice(dimStyle.Render(m.cleanLines(lines)))...)
+}
+
+// answer prints an answer to the owner's own command or keystroke: shown in
+// whatever view the window is on, and kept in the main transcript.
+func (m *Model) answer(blocks ...string) tea.Cmd {
+	if m.viewing != "" {
+		m.printed = append(m.printed, blocks...)
+		return m.emit(blocks...)
+	}
+	return m.print(blocks...)
+}
+
+// heldNotice prints dim lines into the main chat; in an agent's view they
+// are held like any other main-chat output (farm event lines).
+func (m *Model) heldNotice(lines ...string) tea.Cmd {
+	return m.print(m.tr.Notice(dimStyle.Render(m.cleanLines(lines)))...)
+}
+
+func (m *Model) cleanLines(lines []string) string {
 	out := make([]string, len(lines))
 	for i, l := range lines {
 		out[i] = m.clean(l)
 	}
-	return m.print(m.tr.Notice(dimStyle.Render(strings.Join(out, "\n")))...)
+	return strings.Join(out, "\n")
 }
 
 func (m *Model) openPicker(title string, items []pickItem, onPick func(string) tea.Cmd) {
-	m.picker, m.onPick = &picker{title: title, items: items}, onPick
+	m.openPickerC(title, items, onPick, nil)
+}
+
+// openPickerC opens a picker with a cancel handler. While a prompt holds the
+// input the picker waits behind it (in the stash) and opens afterwards.
+func (m *Model) openPickerC(title string, items []pickItem, onPick func(string) tea.Cmd, onCancel func() tea.Cmd) {
+	p := &picker{title: title, items: items}
+	if m.stash != nil && (m.approval != nil || m.ask != nil) {
+		m.stash.picker, m.stash.onPick, m.stash.onCancel = p, onPick, onCancel
+		return
+	}
+	m.picker, m.onPick, m.onPickCancel = p, onPick, onCancel
 }
 
 // onPickerKey feeds a key to the open picker and runs onPick on a choice;
@@ -267,9 +307,13 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	if res == pickOpen {
 		return nil
 	}
-	onPick := m.onPick
-	m.picker, m.onPick = nil, nil
+	onPick, onCancel := m.onPick, m.onPickCancel
+	m.picker, m.onPick, m.onPickCancel = nil, nil, nil
 	switch res {
+	case pickCancelled:
+		if onCancel != nil {
+			return onCancel()
+		}
 	case pickChosen:
 		return onPick(value)
 	case pickSetDefault:

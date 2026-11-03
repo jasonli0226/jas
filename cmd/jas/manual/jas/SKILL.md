@@ -58,7 +58,7 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 
 `~/.jas/config.json` keys: `provider`, `model`, `base_url`, `approve`,
 `max_turns`, `max_tool_output`, `redact_skip_paths`, `compact_reserve_tokens`,
-`compact_keep_tokens`, `compact_model`, `compact_threshold`, and per-model
+`compact_keep_tokens`, `compact_model`, `compact_threshold`, `farm_bell`, and per-model
 `models.<name>.context_window`.
 
 ## Approval and safety
@@ -125,5 +125,20 @@ handed to the integrator. At the failure prompt, answer `retry`, `drop` or
 checkout are denied there); `worktree.dir` moves them. Without `--json`, progress prints
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
 and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
+
+In the chat: the agent's `suggest_farm` tool (trusted project with a `check`
+only) pre-fills `/farm "<task>"` in the input; it never starts a farm.
+`/farm "<task>"` plans a farm (picker: approve, edit, replan, quit); while it runs, live rows under the input show each agent; `/farm`
+prints the dashboard; `/farm run <plan.yaml>` starts an approved plan. One
+farm per window; needs a trusted project, a `check` and a clean tree.
+Ctrl+1..9 (Alt+1..9) shows agent N live; Ctrl+0 (Alt+0) returns to the main
+chat, whose output is held meanwhile. `/farm attach <part|N>` / `/farm back`
+do the same. In an agent view Enter steers it; Esc/Ctrl+C only clear the
+input. `/farm pause|resume|drop <part|N>`, `/farm stop` (twice: cancel now);
+quitting with a running farm asks first. Agent approvals open in any view as
+`[part] approve …? [y/N/always/farm]`; failures and the final choice wait for
+the main chat with no turn running (`farm needs you · ctrl+0`). Config key
+`farm_bell` (default true) rings the bell for these. The end summary is
+attached to your next message; the farm survives `/new` and `/resume`.
 `--json` works throughout; `manifest.json` records the run. Experimental
 until the farm-vs-`jas run` benchmark lands.

@@ -146,10 +146,14 @@ func planFarm(ctx context.Context, pa planArgs, direct bool) (*env, string, bool
 }
 
 func planWith(ctx context.Context, e *env, pa planArgs, direct bool) (string, bool, error) {
-	cfg, base, files, err := farmPreflight(ctx, e, pa)
+	pf, err := farmPreflight(ctx, e, pa)
+	for _, w := range pf.warnings {
+		fmt.Fprintln(os.Stderr, w)
+	}
 	if err != nil {
 		return "", false, err
 	}
+	cfg, base, files := pf.cfg, pf.base, pf.files
 	now := time.Now()
 	farmID := farm.NewFarmID(now)
 	dir := filepath.Join(e.home, farmsDir, farmID)
@@ -207,41 +211,59 @@ func exitCodeOf(err error) int {
 	return core.ExitFailure
 }
 
-// farmPreflight runs every check that must pass before a model call.
-func farmPreflight(ctx context.Context, e *env, pa planArgs) (farm.Config, string, []string, error) {
+// preflighted is what farmPreflight established before any model call.
+type preflighted struct {
+	cfg      farm.Config
+	base     string
+	files    []string
+	warnings []string // "jas: …" lines, redacted and sanitized, for the owner
+}
+
+// farmPreflight runs every check that must pass before a model call. Warnings
+// are returned, not printed, so the chat can show them in its transcript.
+func farmPreflight(ctx context.Context, e *env, pa planArgs) (preflighted, error) {
+	var pf preflighted
 	cfg, notices, err := farm.LoadConfig(e.root, e.home, e.pc.trusted)
+	pf.cfg = cfg
 	if err != nil {
-		return cfg, "", nil, usageErr("farm config: %v", err)
+		return pf, usageErr("farm config: %v", err)
 	}
+	warn := func(s string) { pf.warnings = append(pf.warnings, core.Sanitize(e.red.Redact("jas: "+s))) }
 	for _, n := range notices {
-		fmt.Fprintln(os.Stderr, core.Sanitize(e.red.Redact("jas: "+n)))
+		warn(n)
 	}
 	if strings.TrimSpace(cfg.Check) == "" {
-		return cfg, "", nil, usageErr("no check command: set check: in .jas/farm.yaml (needs a trusted project) or in %s", filepath.Join(e.home, "farm.yaml"))
+		return pf, usageErr("%s", noCheckMsg(e))
 	}
 	git := farm.NewGit()
 	dirty, err := farm.Dirty(ctx, git, e.root)
 	if err != nil {
-		return cfg, "", nil, err
+		return pf, err
 	}
 	if dirty {
 		if !pa.allowDirty {
-			return cfg, "", nil, usageErr("working tree has uncommitted changes; commit them or pass --allow-dirty")
+			return pf, usageErr("working tree has uncommitted changes; commit them or pass --allow-dirty")
 		}
-		fmt.Fprintln(os.Stderr, "jas: warning: uncommitted changes are not part of the farm")
+		warn("warning: uncommitted changes are not part of the farm")
 	}
 	if checkLooksTrivial(cfg.Check) {
-		fmt.Fprintf(os.Stderr, "jas: warning: check looks trivial (no test command): %s\n", e.red.Redact(cfg.Check))
+		warn("warning: check looks trivial (no test command): " + cfg.Check)
 	}
 	head, err := git.Run(ctx, e.root, "rev-parse", "HEAD")
 	if err != nil {
-		return cfg, "", nil, usageErr("cannot read HEAD (does the repository have a commit?): %v", err)
+		return pf, usageErr("cannot read HEAD (does the repository have a commit?): %v", err)
 	}
 	listed, err := git.Run(ctx, e.root, "ls-files")
 	if err != nil {
-		return cfg, "", nil, err
+		return pf, err
 	}
-	return cfg, strings.TrimSpace(head), strings.Split(strings.TrimSpace(listed), "\n"), nil
+	pf.base, pf.files = strings.TrimSpace(head), strings.Split(strings.TrimSpace(listed), "\n")
+	return pf, nil
+}
+
+// noCheckMsg says how to set the farm's check.
+func noCheckMsg(e *env) string {
+	return "no check command: set check: in .jas/farm.yaml (needs a trusted project) or in " + filepath.Join(e.home, "farm.yaml")
 }
 
 func checkLooksTrivial(check string) bool {

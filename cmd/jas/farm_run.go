@@ -112,7 +112,8 @@ func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty b
 
 // farmSession builds a worker's or the integrator's session: the trusted
 // project context (when the worktree's matches main's) before the farm's
-// prompt, the role's model or the session model, quiet UI, redaction.
+// prompt, the role's model or the session model, the worker's UI (quiet when
+// none), redaction.
 func farmSession(e *env) func(farm.WorkerSession) (*core.Session, error) {
 	return func(ws farm.WorkerSession) (*core.Session, error) {
 		system, trusted := workerContext(e.pc, e.root, ws.Root)
@@ -123,7 +124,9 @@ func farmSession(e *env) func(farm.WorkerSession) (*core.Session, error) {
 		}
 		c := ws.Config(e.provider, model) // wraps the provider in the farm's limiter
 		c.Exec.Filter, c.Exec.Redact = e.red.Filter, e.red.Redact
-		c.UI = core.NewQuietUI()
+		if c.UI == nil { // the chat gives each worker its own UI
+			c.UI = core.NewQuietUI()
+		}
 		c.MaxTurns = e.cfg.MaxTurns
 		c.Budget = e.budget(model)
 		meta := e.sessionMeta(model)

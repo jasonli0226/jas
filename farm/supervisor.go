@@ -59,13 +59,17 @@ type Supervisor struct {
 	Policy    core.ExecPolicy // base worker policy; see WorkerPolicy
 	Approvals *Approvals      // nil: no TTY, approval level never unless a role sets one
 	Redact    func(string) string
-	Progress  *Progress // nil: no progress lines (--json, tests)
+	Watch     Watcher // nil: no progress lines (--json, tests)
+	// WorkerUI and Gates: see RunOptions.
+	WorkerUI func(part string) core.UI
+	Gates    func(part, approve string) (core.Gate, error)
 
 	// mergeCheck is a passing integrate_check on a clean merge that nothing
 	// changed afterwards; Verdict reuses it instead of running check again.
 	mergeCheck *core.CheckResult
 	Clock      Clock // rate limiter clock; nil is real time
 
+	ctl      controls // the owner's live controls (Handle)
 	soft     context.Context
 	stopFlag atomic.Bool // set: workers' next requests are refused
 	limiter  *Limiter
@@ -85,6 +89,8 @@ type sched struct {
 	retry    map[string]string // part -> why its last attempt failed
 	running  int
 	stopping bool
+	dropping map[string]bool // running parts the owner dropped
+	asking   int             // failure questions waiting for the owner
 	out      Outcome
 }
 
@@ -96,6 +102,8 @@ func (s *Supervisor) RunParts(ctx context.Context) (Outcome, error) {
 	if err := s.init(ctx); err != nil {
 		return Outcome{}, err
 	}
+	s.ctl.init()
+	defer close(s.ctl.ended)
 	s.soft = ctx
 	farmCtx, cancelFarm := withTimeout(s.hard(), s.Cfg.Budget.FarmTimeout)
 	defer cancelFarm()
@@ -112,13 +120,17 @@ func (s *Supervisor) RunParts(ctx context.Context) (Outcome, error) {
 		if !st.stopping {
 			s.startReady(runCtx, st, results)
 		}
-		if st.running == 0 {
+		// A pending failure question keeps the farm alive, unless it is
+		// stopping: then nobody waits for the answer.
+		if st.running == 0 && (st.asking == 0 || st.stopping) {
 			break
 		}
 		select {
 		case e := <-results:
 			st.running--
 			s.handle(st, e, abort)
+		case fn := <-s.ctl.cmds:
+			fn(st)
 		case <-softDone:
 			softDone = nil
 			st.out.Interrupted = true
@@ -205,8 +217,11 @@ func (s *Supervisor) startReady(ctx context.Context, st *sched, results chan<- a
 		st.attempts[p.ID]++
 		st.running++
 		s.setPart(p.ID, func(ps *PartState) { ps.Status, ps.FailureReason, ps.ExitCode = StatusRunning, "", 0 })
+		pctx, cancel := context.WithCancel(ctx)
+		s.ctl.setCancel(p.ID, cancel)
 		go func(p Part, n int, note string) {
-			results <- s.runAttempt(ctx, p, n, note)
+			defer cancel()
+			results <- s.runAttempt(pctx, p, n, note)
 		}(p, st.attempts[p.ID], st.retry[p.ID])
 	}
 }
@@ -222,6 +237,14 @@ func (s *Supervisor) depsDone(st *sched, p Part) bool {
 
 // handle records one attempt's end and applies the failure policy.
 func (s *Supervisor) handle(st *sched, e attemptEnd, abort context.CancelFunc) {
+	s.ctl.setCancel(e.id, nil)
+	if st.dropping[e.id] {
+		delete(st.dropping, e.id)
+		st.status[e.id] = StatusPaused // no longer running; dropped below
+		s.event(EvPartEnded, map[string]any{"part": e.id, "exit_code": e.exitCode, "status": StatusDropped})
+		s.dropped(st, e.id)
+		return
+	}
 	ended := map[string]any{"part": e.id, "exit_code": e.exitCode}
 	switch e.kind {
 	case endDone:
@@ -257,7 +280,32 @@ func (s *Supervisor) failed(st *sched, e attemptEnd, abort context.CancelFunc) {
 	if st.stopping {
 		return
 	}
-	choice, source := s.decide(e)
+	if s.Ask == nil { // policy decides at once
+		choice, source := s.decide(e)
+		s.applyChoice(st, e, choice, source, abort)
+		return
+	}
+	// The owner may take a while: ask off the scheduler, so parts that do not
+	// depend on the answer keep running, and apply the answer back here.
+	st.asking++
+	go func() {
+		choice, source := s.decide(e)
+		select {
+		case s.ctl.cmds <- func(st *sched) {
+			st.asking--
+			if !st.stopping {
+				s.applyChoice(st, e, choice, source, abort)
+			}
+		}:
+		case <-s.ctl.ended:
+		}
+	}()
+}
+
+// applyChoice records and applies the owner's (or policy's) choice for a
+// failed part.
+func (s *Supervisor) applyChoice(st *sched, e attemptEnd, choice, source string, abort context.CancelFunc) {
+	deps := dependents(s.Plan, e.id)
 	s.event(EvOwnerDecision, map[string]any{"part": e.id, "choice": choice, "source": source})
 	switch choice {
 	case choiceRetry:
@@ -294,6 +342,7 @@ func (s *Supervisor) setStatus(st *sched, ids []string, from, to string) {
 func (s *Supervisor) stop(st *sched) {
 	st.stopping = true
 	s.stopFlag.Store(true)
+	s.ctl.stop()
 }
 
 func (s *Supervisor) budgetStop(st *sched, reason, detail string) {
