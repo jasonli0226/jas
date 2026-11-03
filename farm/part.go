@@ -176,13 +176,14 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 		SessionID: sid, Log: log, Pool: w.pool, Inject: s.inject(w.part),
 		Policy: w.pol, Meta: WorkerMeta(s.FarmID, id, s.baseSHA, s.Manifest.PlanSHA256),
 		Tools: toolset, Gate: gate, Touched: touchHook(w.rec, w.path),
-		MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap, UI: ui,
+		MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrapPart(id), UI: ui,
 	}
 	sess, err := s.NewSession(ws)
 	if err != nil {
 		return fmt.Errorf("start worker session: %w", err)
 	}
 	w.sess = sess
+	s.ctl.setWorker(id, w)
 	s.setPart(id, func(ps *PartState) { ps.SessionID, ps.Log = sid, logPath })
 	s.event(EvPartStarted, map[string]any{"part": id, "role": w.role.Name, "attempt": attempt,
 		"branch": s.WT.Branch(id), "worktree": w.path, "session_id": sid, "log": logPath})
@@ -192,6 +193,7 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 // closeWorker records tokens and undelivered posts, then releases the
 // worker's log and record.
 func (s *Supervisor) closeWorker(w *worker) {
+	s.takeSteering(w) // a part that failed or stopped hands back unread steers too
 	if w.sess != nil {
 		_ = w.sess.Close("failed", core.ExitFailure) // no-op when already closed
 	}
@@ -216,7 +218,7 @@ func (s *Supervisor) closeWorker(w *worker) {
 // checks the write limit and posts done.
 func (s *Supervisor) finishDone(w *worker, final string) attemptEnd {
 	id := w.part.ID
-	if steer := w.sess.TakeSteering(); len(steer) > 0 {
+	if steer := s.takeSteering(w); len(steer) > 0 {
 		s.event(EvOwnerDecision, map[string]any{"part": id, "choice": choiceSteerUndelivered, "count": len(steer)})
 	}
 	if err := w.sess.Close("ok", core.ExitOK); err != nil {

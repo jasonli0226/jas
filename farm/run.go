@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jasonli0226/jas/core"
@@ -47,6 +48,10 @@ const (
 	boardFile    = "board.jsonl"
 	farmsDirName = "farms"
 )
+
+// errDirtyMain refuses the owner's merge into a main checkout with
+// uncommitted changes.
+var errDirtyMain = errors.New("main checkout has uncommitted changes; keeping the branches")
 
 // RunOptions is everything `jas farm run` decided before the farm starts.
 type RunOptions struct {
@@ -83,9 +88,7 @@ type RunOptions struct {
 // returns the process exit code and the farm_ended reason; err is set for
 // refusals before the farm starts (exit 2) and internal failures (exit 1).
 func RunFarm(ctx context.Context, opts RunOptions) (exitCode int, reason string, err error) {
-	opts = withDefaults(opts)
-	git := NewGit()
-	pre, err := preflight(ctx, git, opts)
+	h, err := StartFarm(ctx, opts)
 	if err != nil {
 		var ee *core.ExitError
 		if errors.As(err, &ee) {
@@ -93,12 +96,8 @@ func RunFarm(ctx context.Context, opts RunOptions) (exitCode int, reason string,
 		}
 		return core.ExitFailure, ReasonError, err
 	}
-	r, err := startFarm(git, opts, pre)
-	if err != nil {
-		return core.ExitFailure, ReasonError, err
-	}
-	defer r.close()
-	return r.run(ctx)
+	res := h.Wait()
+	return res.Code, res.Reason, res.Err
 }
 
 func withDefaults(o RunOptions) RunOptions {
@@ -237,6 +236,9 @@ type farmRun struct {
 	log   core.EventLog
 	board *Board
 	start time.Time
+
+	branch      string      // the integrate branch, once integration ran
+	hardStopped atomic.Bool // Handle.Stop(true): farm_ended carries hard
 }
 
 // startFarm makes the farm dir, copies the plan, opens farm.jsonl (teed to
@@ -314,6 +316,7 @@ func (r *farmRun) run(ctx context.Context) (int, string, error) {
 		return r.end(core.ExitUnmet, unmetParts(out), nil)
 	}
 	branch, ierr := Integrate(ctx, s, out.Done)
+	r.branch = branch
 	if ctx.Err() != nil || s.hard().Err() != nil {
 		return r.end(core.ExitInterrupted, ReasonInterrupted, nil)
 	}
@@ -382,6 +385,9 @@ func (r *farmRun) end(code int, reason string, err error) (int, string, error) {
 	if err != nil {
 		totals["error"] = err.Error()
 	}
+	if r.hardStopped.Load() {
+		totals["hard"] = true
+	}
 	s.event(EvFarmEnded, FarmEnded(code, reason, totals))
 	if serr := s.err(); serr != nil && err == nil {
 		err = serr
@@ -399,7 +405,10 @@ func (r *farmRun) finalChoice(branch, reason string) {
 	s := r.s
 	choice, by := r.askChoice(branch, reason)
 	if choice == ChoiceMerge {
-		if err := r.ownerMerge(branch, reason); err != nil {
+		if err := r.ownerMerge(branch, reason); errors.Is(err, errDirtyMain) {
+			fmt.Fprintf(r.o.Stderr, "jas: %v\n", err)
+			choice = ChoiceKeep
+		} else if err != nil {
 			fmt.Fprintf(r.o.Stderr, "jas: merge failed, keeping the branches: %v\n", err)
 			choice = ChoiceKeep
 		}
@@ -452,6 +461,12 @@ func (r *farmRun) ownerMerge(branch, reason string) error {
 	cur = strings.TrimSpace(cur)
 	if err != nil || cur != s.target {
 		return fmt.Errorf("the main checkout is no longer on branch %s", s.target)
+	}
+	// The owner may have kept working in the main checkout during the farm.
+	if dirty, err := Dirty(context.Background(), s.Git, s.Main); err != nil {
+		return err
+	} else if dirty {
+		return errDirtyMain
 	}
 	msg := fmt.Sprintf("Merge jas farm %s\n\nJas-Farm: %s\n", s.FarmID, s.FarmID)
 	if reason != ReasonOK {
