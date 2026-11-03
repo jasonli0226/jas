@@ -108,6 +108,11 @@ func (m *Model) onEnter() tea.Cmd {
 		m.queued = append(m.queued, text)
 		return nil
 	}
+	if note := m.farmNote; note != "" {
+		m.farmNote = ""
+		shown := append(m.tr.User(text), m.tr.Notice(dimStyle.Render("(farm summary attached)"))...)
+		return m.startRun(note+"\n\n"+text, shown)
+	}
 	return m.startRun(text, m.tr.User(text))
 }
 

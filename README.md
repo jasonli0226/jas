@@ -379,7 +379,10 @@ part); your draft is set aside and comes back after. A failure (retry, drop,
 abort) or the final merge/keep/discard waits for the main chat with no turn
 running; meanwhile the strip shows `farm needs you · ctrl+0`. The terminal
 bell rings once per such prompt (`jas config set farm_bell false` turns it
-off).
+off). When the farm ends, its summary (outcome, branch, final choice, each
+part) prints and is attached to your next message, so you can ask the agent
+about the result; it never starts a turn on its own. A running farm belongs to
+the window: it survives `/new` and `/resume`.
 
 ## Design
 

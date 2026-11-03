@@ -77,6 +77,7 @@ type Model struct {
 	ask          *farmAskMsg  // the open farm question
 	askPending   []farmAskMsg // farm questions waiting for the main chat
 	bells        int          // bells rung (test hook)
+	farmNote     string       // farm summary for the next message to the main session
 	screen       []string     // every block emitted to the screen (test hook)
 	farmReview   *FarmPlan    // a plan under review (or being drafted)
 	farmReplan   *FarmPlan    // a plan waiting for replan feedback in the input

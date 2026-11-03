@@ -234,3 +234,10 @@ func init() {
 		return m.flip("")
 	}
 }
+
+// backToMain returns the window to the main chat without a redraw, for
+// commands that clear and redraw it themselves (/new, /resume).
+func (m *Model) backToMain() {
+	m.viewing, m.held = "", 0
+	m.input.Prompt = mainPrompt
+}

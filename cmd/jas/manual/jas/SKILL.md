@@ -58,7 +58,7 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 
 `~/.jas/config.json` keys: `provider`, `model`, `base_url`, `approve`,
 `max_turns`, `max_tool_output`, `redact_skip_paths`, `compact_reserve_tokens`,
-`compact_keep_tokens`, `compact_model`, `compact_threshold`, and per-model
+`compact_keep_tokens`, `compact_model`, `compact_threshold`, `farm_bell`, and per-model
 `models.<name>.context_window`.
 
 ## Approval and safety
@@ -137,6 +137,7 @@ input. `/farm pause|resume|drop <part|N>`, `/farm stop` (twice: cancel now);
 quitting with a running farm asks first. Agent approvals open in any view as
 `[part] approve …? [y/N/always/farm]`; failures and the final choice wait for
 the main chat with no turn running (`farm needs you · ctrl+0`). Config key
-`farm_bell` (default true) rings the bell for these.
+`farm_bell` (default true) rings the bell for these. The end summary is
+attached to your next message; the farm survives `/new` and `/resume`.
 `--json` works throughout; `manifest.json` records the run. Experimental
 until the farm-vs-`jas run` benchmark lands.

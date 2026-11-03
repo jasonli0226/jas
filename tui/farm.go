@@ -293,15 +293,59 @@ func (m *Model) onFarmEvent(msg farmEventMsg) tea.Cmd {
 	return nil
 }
 
-// onFarmDone marks the farm ended.
+// onFarmDone marks the farm ended, prints its summary and keeps it for the
+// owner's next message to the main session (never a turn of its own).
 func (m *Model) onFarmDone(msg farmDoneMsg) tea.Cmd {
 	f := m.farm
 	if f == nil {
 		return nil
 	}
 	f.ended, f.res = true, msg.res
-	f.refresh(f.run.Snapshot())
-	return m.notice(fmt.Sprintf("farm %s: %s (exit %d)", f.run.FarmID(), msg.res.Reason, msg.res.Code))
+	man := f.run.Snapshot()
+	f.refresh(man)
+	order := make([]string, 0, len(f.agents))
+	for _, a := range f.agents {
+		if a.id != integrateAgent {
+			order = append(order, a.id)
+		}
+	}
+	m.farmNote = m.o.Redact(farmSummary(man, msg.res, order))
+	return m.notice(strings.Split(m.farmNote, "\n")...)
+}
+
+// farmSummary is the end-of-farm summary: outcome, branch, final choice and
+// each part's status, in order.
+func farmSummary(man farm.Manifest, res farm.Result, order []string) string {
+	lines := []string{fmt.Sprintf("farm %s ended: %s (exit %d)", man.FarmID, res.Reason, res.Code)}
+	if res.Branch != "" {
+		lines = append(lines, "branch "+res.Branch)
+	}
+	if man.FinalChoice != "" {
+		lines = append(lines, "final choice "+man.FinalChoice)
+	}
+	if man.Check != nil {
+		verdict := "passed"
+		if man.Check.ExitCode != 0 || man.Check.TimedOut {
+			verdict = "failed"
+		}
+		lines = append(lines, "check "+verdict)
+	}
+	for _, id := range order {
+		ps := man.Parts[id]
+		if ps == nil {
+			continue
+		}
+		detail := ps.Diffstat
+		if ps.Status == farm.StatusFailed && ps.FailureReason != "" {
+			detail = ps.FailureReason
+		}
+		line := id + " " + ps.Status
+		if detail != "" {
+			line += " (" + detail + ")"
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func num(v any) float64 {
