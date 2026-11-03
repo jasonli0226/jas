@@ -59,7 +59,10 @@ type Supervisor struct {
 	Policy    core.ExecPolicy // base worker policy; see WorkerPolicy
 	Approvals *Approvals      // nil: no TTY, approval level never unless a role sets one
 	Redact    func(string) string
-	Progress  *Progress // nil: no progress lines (--json, tests)
+	Watch     Watcher // nil: no progress lines (--json, tests)
+	// WorkerUI and Gates: see RunOptions.
+	WorkerUI func(part string) core.UI
+	Gates    func(part, approve string) (core.Gate, error)
 
 	// mergeCheck is a passing integrate_check on a clean merge that nothing
 	// changed afterwards; Verdict reuses it instead of running check again.

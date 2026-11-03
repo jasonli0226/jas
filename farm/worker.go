@@ -41,6 +41,9 @@ type WorkerSession struct {
 	// Wrap applies the farm's shared rate limiter and stop gate. Every
 	// provider the session uses must go through it.
 	Wrap func(providers.Provider) providers.Provider
+	// UI gets the session's streamed text and events (RunOptions.WorkerUI);
+	// nil: the caller sets a quiet UI.
+	UI core.UI
 }
 
 // Config is the session config for w over provider p and model. Callers set
@@ -53,8 +56,8 @@ func (w WorkerSession) Config(p providers.Provider, model string) core.SessionCo
 	ex := &core.Executor{Reg: core.NewRegistry(w.Tools...), Policy: w.Policy, Gate: w.Gate, Log: w.Log, Touched: w.Touched}
 	return core.SessionConfig{
 		Provider: p, Model: model, System: w.System, Exec: ex, Log: w.Log,
-		Compact:   &core.CompactConfig{Reserve: core.DefaultCompactReserve, Keep: core.DefaultCompactKeep},
-		Meta:      w.Meta,
+		Compact: &core.CompactConfig{Reserve: core.DefaultCompactReserve, Keep: core.DefaultCompactKeep},
+		Meta:    w.Meta, UI: w.UI,
 		MaxOutput: w.MaxOutput, Tokens: w.Pool, Inject: w.Inject,
 	}
 }

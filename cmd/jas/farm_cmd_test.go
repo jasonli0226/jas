@@ -594,3 +594,25 @@ func TestFarmVars_Sources(t *testing.T) {
 	assert.Eq(t, code, 0)
 	assert.Contains(t, errOut, "untrusted")
 }
+
+func TestFarmSession_UsesWorkerUI(t *testing.T) {
+	e := testEnv(t, fake.Turn{Text: "hello from a"})
+	ui := &textUI{}
+	log, err := core.OpenEventLog(filepath.Join(t.TempDir(), "events.jsonl"), nil, nil)
+	assert.NoErr(t, err)
+	ws := farm.WorkerSession{Part: farm.Part{ID: "a"}, Root: e.root, Log: log, UI: ui,
+		Policy: e.policy, Gate: core.AllowAll{}}
+	s, err := farmSession(e)(ws)
+	assert.NoErr(t, err)
+	_, err = s.Send(context.Background(), "go")
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.Close("ok", 0))
+	assert.Eq(t, ui.b.String(), "hello from a")
+}
+
+// textUI collects streamed text.
+type textUI struct{ b strings.Builder }
+
+func (u *textUI) Text(d string)     { u.b.WriteString(d) }
+func (u *textUI) Reasoning(string)  {}
+func (u *textUI) Event(string, any) {}

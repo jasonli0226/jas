@@ -154,7 +154,7 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 	if err != nil {
 		return err
 	}
-	log := s.Progress.workerLog(id, flog)
+	log, ui := s.workerLog(id, flog)
 	w.log = log
 	sid := core.NewSessionID(time.Now())
 	gate, err := s.gate(id, w.role.Approve)
@@ -176,7 +176,7 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 		SessionID: sid, Log: log, Pool: w.pool, Inject: s.inject(w.part),
 		Policy: w.pol, Meta: WorkerMeta(s.FarmID, id, s.baseSHA, s.Manifest.PlanSHA256),
 		Tools: toolset, Gate: gate, Touched: touchHook(w.rec, w.path),
-		MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap,
+		MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap, UI: ui,
 	}
 	sess, err := s.NewSession(ws)
 	if err != nil {
@@ -291,9 +291,23 @@ func (s *Supervisor) inject(part Part) func() (string, map[string]any) {
 	}
 }
 
+// workerLog wraps a session's log so the watcher sees its events and, when
+// WorkerUI is set, that UI gets them too; ui is that UI or nil.
+func (s *Supervisor) workerLog(part string, log core.EventLog) (core.EventLog, core.UI) {
+	log = watchWorkerLog(s.Watch, part, log)
+	if s.WorkerUI == nil {
+		return log, nil
+	}
+	ui := s.WorkerUI(part)
+	return core.NewUILog(log, ui), ui
+}
+
 // gate is the part's approval gate. Without shared approvals there is no
 // TTY: gated calls end the part with approval_needed.
 func (s *Supervisor) gate(part, approve string) (core.Gate, error) {
+	if s.Gates != nil {
+		return s.Gates(part, approve)
+	}
 	if s.Approvals != nil {
 		return s.Approvals.Gate(part, approve)
 	}

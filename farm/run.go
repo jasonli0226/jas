@@ -66,8 +66,16 @@ type RunOptions struct {
 	Approvals  *Approvals      // shared TTY approvals; nil: approval level never
 	Hard       context.Context // second Ctrl-C; nil: never
 	Width      func() int      // terminal columns for progress lines; nil or 0: no clipping
-	Policy     core.ExecPolicy // base policy for workers
-	Redact     func(string) string
+	// Watch receives farm and worker events; set, it replaces the default
+	// progress lines. JSON still prints farm.jsonl only.
+	Watch Watcher
+	// WorkerUI gives each session (a part, or "integrate") a UI that gets its
+	// streamed text and log events; nil: quiet.
+	WorkerUI func(part string) core.UI
+	// Gates supplies each session's approval gate; nil: Approvals.
+	Gates  func(part, approve string) (core.Gate, error)
+	Policy core.ExecPolicy // base policy for workers
+	Redact func(string) string
 }
 
 // RunFarm runs an approved plan end to end: refusal checks, parts, the
@@ -251,12 +259,13 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	var prog *Progress
-	if !o.JSON {
-		prog = NewProgress(o.Stdout, o.Redact)
+	watch := o.Watch
+	if watch == nil && !o.JSON {
+		prog := NewProgress(o.Stdout, o.Redact)
 		prog.Width = o.Width
+		watch = prog
 	}
-	log := prog.farmLog(idLog{EventLog: flog, id: id})
+	log := watchFarmLog(watch, idLog{EventLog: flog, id: id})
 	board, err := OpenBoard(filepath.Join(dir, boardFile), o.Redact, o.Cfg.Board)
 	if err != nil {
 		flog.Close()
@@ -271,7 +280,8 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 		Plan: pre.plan, Cfg: o.Cfg, FarmID: id, Dir: dir, Main: o.Main, Git: git, WT: wt, Board: board, Log: log,
 		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA},
 		NewSession: o.NewSession, Ask: o.Ask, Pools: NewPools(o.Cfg), Hard: o.Hard,
-		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact, Progress: prog,
+		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact, Watch: watch,
+		WorkerUI: o.WorkerUI, Gates: o.Gates,
 	}
 	r := &farmRun{o: o, git: git, pre: pre, s: s, log: log, board: board, start: now}
 	s.event(EvFarmStarted, map[string]any{
