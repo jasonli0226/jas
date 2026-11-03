@@ -1,7 +1,7 @@
 # jas farm — design
 
-Date: 2026-11-02 (Asia/Tokyo). Status: **draft, owner-approved direction;
-not to be built before the prerequisites below land.**
+Date: 2026-11-02 (Asia/Tokyo). Status: **MVP shipped (#95, 2026-11-03);
+after-MVP work waits on the validation pass (see Validation).**
 Replaces the best-of-N farm in `docs/design.md` §5 and `docs/use-cases.md` §4.
 Calls marked **(author's call)** were not made by the owner and may be
 overturned.
@@ -131,8 +131,7 @@ needed: drafting the plan, doing a part, fixing merge seams.
 - The three acceptance scenarios below work end to end.
 - The benchmark gate (below) shows farm beating plain `jas run` on wall-clock
   for decomposable fixtures at equal or better `check` pass rate, with its
-  token multiplier measured and reported (target ≤ 2× a serial `jas run`
-  **(author's call)**).
+  token multiplier measured and reported (not gated; see Validation).
 - Nothing merges into the owner's branch without the owner saying so.
 - A farm run can be **audited** from its files, and an interrupted farm can be
   **resumed** with at-most-once side effects. (LLM output is not replayable;
@@ -154,7 +153,7 @@ needed: drafting the plan, doing a part, fixing merge seams.
 ## Non-goals (this version)
 
 - **Best-of-N.** Dropped from the roadmap.
-- **Discussion / debate mode.** Replaced by an optional `reviewer` part in the
+- **Discussion / debate mode.** Replaced by an optional post-integrate `reviewer` step in the
   next version (see Next version). Debate rarely beats self-consistency at
   equal compute (*research*, "Evidence"). A post-integrate `fuzz` step is
   also planned (automated check, not debate); it is not discussion mode.
@@ -194,17 +193,52 @@ The spec describes the full farm. The **first shippable version** is:
   them. Overlap warnings (rollout step 3) are not needed for MVP; worker
   ownership is enforced by the plan and write limits.
 
-**After MVP**, in this order: `researcher`/`reviewer` roles and
-`jas farm init`; resume (`jas farm resume`) and take-over; spec-driven
-planning (`--spec`); interactive mode (`/farm`); **blast-radius tags**
-(policy + log/manifest fields) and the post-integrate **`fuzz` role**
-(alongside, not instead of, `reviewer`). Prerequisites 1, 2, 4 and 6
+**Shipped** in #95 (2026-11-03), with prerequisites 3, 5, 7 and
+session-awareness step 1.
+
+**After MVP**, once the validation pass is done, in this order (re-ranked
+from the benchmark results): the post-integrate `reviewer` step,
+the `researcher` role and `jas farm init`; resume (`jas farm resume`) and
+take-over; interactive mode (`/farm`); **blast-radius tags** (policy +
+log/manifest fields) and the post-integrate **`fuzz` step** (alongside, not
+instead of, `reviewer`). Spec-driven planning (`--spec`) is held until the
+spec-driven-flow spec is approved and built. Prerequisites 1, 2, 4 and 6
 (event-log schema, provider fidelity, OS sandbox, and session-awareness
 steps 2–3) remain bet-order work that farm benefits from; MVP does not wait
 for them, but the
 README marks farm experimental until they and the benchmark gate land.
 **(owner-approved, 2026-11-02 review; blast-radius + fuzz owner-requested
-2026-11-03)**
+2026-11-03; order, reviewer placement and `--spec` hold confirmed in the
+2026-11-04 grilling)**
+
+## Validation (owner-approved, 2026-11-04)
+
+No new farm features until the MVP has been measured against plain
+`jas run`.
+
+1. **Dogfood.** One real farm on this repo: issues #48 (`core/replay.go`)
+   and #51 (skills frontmatter tests), GLM, plan approved by the owner on
+   a TTY. If the planner refuses (likely `small_change`), that is recorded
+   and a hand-written two-part plan is run instead, so the run path is still
+   exercised. Findings go to `docs/research/farm-dogfood-2026-11.md`;
+   breakages become issues. Nothing merges without review.
+2. **Benchmark harness.** `bench/farm.sh` beside `bench/run.sh`, fixtures
+   under `bench/farm-fixtures/<scenario>/`: small multi-package Go repos with
+   a working `check`, one per acceptance scenario plus one refusal twin.
+   Each fixture runs `jas run` and `jas farm run` with a checked-in,
+   pre-approved plan, 3 runs per arm, GLM. Reported: `check` pass rate,
+   wall-clock, total tokens, merge conflicts, write-limit violations. Planner
+   split/refuse is tested separately on the same fixtures, so plan variance
+   does not leak into the run comparison.
+3. **Gate.** Per split scenario, farm passes when its `check` pass rate is
+   at least solo's **and** its median wall-clock is at most 0.7× solo's.
+   Token multiplier is reported, not gated. A failing scenario becomes a
+   refuse rule or a lower default.
+4. **Spend.** About 30M tokens for the whole pass, enforced per run through
+   `farm_tokens` / `--max-tokens`; stop and report when close.
+5. **If farm loses everywhere:** freeze it as experimental, record the
+   results in the research doc, no new farm features until it beats solo on
+   at least one scenario.
 
 ## Prerequisites and benchmark gate
 
@@ -380,7 +414,7 @@ whole-role replacement **(author's call)**).
 | `coder` | read, grep, write, edit, shell | the part's `owns` | default role |
 | `tester` | read, grep, write, edit, shell | paths matching **both** `${test_globs}` and `owns` | "Write and fix tests only; if non-test code must change, post `blocked`." Unavailable if `test_globs` unset. |
 | `researcher` | read, grep (+ web tools once shipped, design §12.1) | none | output: `interface`/`note` posts and its final answer |
-| `reviewer` | read, grep | none | LLM, clean context, may use a different/cheaper model; output: findings in its final answer. After MVP. |
+| `reviewer` | read, grep | none | **Post-integrate only** (not a DAG part). LLM, clean context, may use a different/cheaper model; output: findings in its final answer, sent to the integrator for one fix round. After MVP. |
 | `fuzz` | read, grep, ls, shell | none | **Post-integrate only** (not a parallel DAG part). Runs `${fuzz_command}` (or the role prompt's script) against the integrated tree; reports via final answer + board `note`. Unavailable if `fuzz_command` unset. Distinct from supervisor `check` and from LLM `reviewer`. After MVP. |
 
 Rust and similar: when a tester cannot be limited by `test_globs`, the planner
@@ -752,11 +786,12 @@ merged tree is a **post-integrate step**, not a DAG part. Declared on the
 plan as:
 
 ```yaml
-post_integrate: [fuzz]    # optional list; unknown names are a validation error
+post_integrate: [fuzz, reviewer]    # optional list; unknown names are a validation error
 ```
 
-A plan part with `role: fuzz` inside `parts:` is a validation error — fuzz is
-scheduled here, not in the DAG.
+A plan part with `role: fuzz` or `role: reviewer` inside `parts:` is a
+validation error — both are scheduled here, not in the DAG.
+**(owner-approved, 2026-11-04)**
 
 **Supervisor order after the integrator finishes** **(author's call)**:
 
@@ -765,7 +800,11 @@ scheduled here, not in the DAG.
 3. If `check` passed and `post_integrate` lists `fuzz` and the `fuzz` role is
    available (`fuzz_command` set): run the **fuzz** step on the same integrate
    worktree.
-4. Apply blast-radius gate (if tags present), then owner / policy final choice.
+4. If `post_integrate` lists `reviewer`: run the **reviewer** step on the
+   integrated diff. Findings go to the integrator for **one** fix round;
+   the supervisor then re-runs `check` (and fuzz, if listed). A failure
+   there ends the farm with exit 6 as usual. No findings → no fix round.
+5. Apply blast-radius gate (if tags present), then owner / policy final choice.
 
 Unit/`check` therefore gates expensive e2e. If `check` failed, fuzz is
 skipped and the farm ends with exit 6 / `check_failed` as today.
@@ -784,9 +823,9 @@ final choice.
 (tests/lint/build) and is always run. Fuzz is optional, agent-or-script
 exploration of edge cases (Playwright, property tests, a project fuzz
 target). **Distinct from `reviewer`.** Reviewer is an LLM read of the diff;
-fuzz is code-driven. A plan may request both (`post_integrate: [fuzz]` plus a
-`reviewer` part — reviewer scheduling is under Next version; if both exist,
-order is integrate → check → fuzz → reviewer **(author's call)**).
+fuzz is code-driven. A plan may request both (`post_integrate: [fuzz,
+reviewer]`); the order is always integrate → check → fuzz → reviewer,
+whatever the list order. **(owner-approved, 2026-11-04)**
 
 Until this ships, `post_integrate` is not implemented: a plan that includes
 it should be rejected at validation (fail closed). Examples in this doc show
@@ -1046,10 +1085,11 @@ are recorded the same way with `by: "policy:…"`.
 
 ## Next version
 
-- **Reviewer part** (replaces discussion mode): an optional final read-only
-  part with a clean context and optionally a different model, reviewing the
-  integrated diff against the plan; its findings go to the integrator for one
-  fix round or to the owner. This is the shipped shape of "many agents
+- **Reviewer step** (replaces discussion mode): an optional post-integrate
+  read-only step with a clean context and optionally a different model,
+  reviewing the integrated diff against the plan; its findings go to the
+  integrator for one fix round, then `check` re-runs (see Post-integrate
+  steps). This is the shipped shape of "many agents
   propose, one answer" (parallel finders → verify → single writer;
   *research*, "Fit for jas"). LLM findings only — not a substitute for fuzz.
 - **Blast-radius tags** (see Blast radius): `low|medium|high` on parts /
