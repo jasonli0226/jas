@@ -34,11 +34,22 @@ func writeFile(t *testing.T, p, s string) {
 	}
 }
 
+// isolateTemp points the system temp dir (TMPDIR, and TMP/TEMP on Windows) at
+// a per-test dir, so workers' jas-farm temp dirs go away with the test.
+func isolateTemp(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, k := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(k, dir)
+	}
+}
+
 func newRepo(t *testing.T) (*Worktrees, string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
+	isolateTemp(t)
 	root := t.TempDir()
 	main := filepath.Join(root, "main")
 	if err := os.MkdirAll(main, 0o755); err != nil {
@@ -343,6 +354,17 @@ func TestWorktrees_CreateMakesTmpDir(t *testing.T) {
 	}
 	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
 		t.Fatalf("TMPDIR left after Remove: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(tmp)); !os.IsNotExist(err) {
+		t.Fatalf("empty farm temp dir left after the last Remove: %v", err)
+	}
+}
+
+func TestNewRepo_IsolatesSystemTemp(t *testing.T) {
+	before := os.TempDir()
+	newRepo(t)
+	if os.TempDir() == before {
+		t.Fatal("farm tests would leave jas-farm dirs in the real system temp dir")
 	}
 }
 
