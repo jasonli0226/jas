@@ -67,6 +67,9 @@ type Model struct {
 	onPickCancel func() tea.Cmd
 
 	farm       *farmState // this window's farm, running or the last one
+	viewing    string     // the agent the window shows; "" = the main chat
+	held       int        // main-chat blocks recorded while viewing an agent
+	screen     []string   // every block emitted to the screen (test hook)
 	farmReview *FarmPlan  // a plan under review (or being drafted)
 	farmReplan *FarmPlan  // a plan waiting for replan feedback in the input
 	reply      string     // the last final reply, for /copy
@@ -164,6 +167,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.tr.Width = msg.Width
 		m.input.SetWidth(msg.Width)
+		if m.farm != nil {
+			m.farm.width = msg.Width
+			for _, a := range m.farm.agents {
+				a.tr.Width = msg.Width
+			}
+		}
 	case tea.KeyPressMsg:
 		return m, m.onKey(msg)
 	case tea.PasteMsg:
@@ -208,6 +217,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onFarmEvent(msg)
 	case farmDoneMsg:
 		return m, m.onFarmDone(msg)
+	case farmTextMsg:
+		return m, m.onFarmText(msg)
+	case farmWorkerEventMsg:
+		return m, m.onFarmWorkerEvent(msg)
 	case noticeMsg:
 		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:
@@ -224,7 +237,11 @@ func (m *Model) View() tea.View {
 	// Blocks not yet in scrollback stay on screen above the live region, so a
 	// finished block never blinks out between leaving Live and its Println.
 	parts := slices.Concat(m.inflight, m.outbox)
-	if live := m.tr.Live(); live != "" {
+	live := m.tr.Live()
+	if a := m.farmAgent(m.viewing); a != nil {
+		live = a.tr.Live()
+	}
+	if live != "" {
 		parts = append(parts, live)
 	}
 	if panel := m.toolExpandView(); panel != "" {
@@ -252,7 +269,11 @@ func (m *Model) View() tea.View {
 		}
 	}
 	parts = append(parts, m.rule(), m.statusLine())
-	parts = append(parts, m.farmRows()...)
+	if m.viewing != "" && m.farm != nil {
+		parts = append(parts, m.farmStrip())
+	} else {
+		parts = append(parts, m.farmRows()...)
+	}
 	// The zero KeyboardEnhancements still requests basic key disambiguation
 	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
 	// apart from Enter on terminals that support it.
@@ -354,14 +375,29 @@ func (m *Model) noteLastTool() {
 	}
 }
 
-// Printed returns every block handed to tea.Println, in order (test hook).
+// Printed returns every block of the main chat's transcript, in order,
+// including blocks held back while an agent was viewed (test hook).
 func (m *Model) Printed() []string { return m.printed }
 
-// print queues blocks for scrollback. Commands run concurrently, so only one
-// Println is in flight at a time; it acknowledges itself with printedMsg and
-// the next batch goes out then, which keeps blocks in order.
+// Screen returns every block handed to tea.Println, in order (test hook).
+func (m *Model) Screen() []string { return m.screen }
+
+// print records blocks in the main chat's transcript and shows them, unless
+// the window is on a farm agent: then they are held until Ctrl+0.
 func (m *Model) print(blocks ...string) tea.Cmd {
 	m.printed = append(m.printed, blocks...)
+	if m.viewing != "" && !m.quitting {
+		m.held += len(blocks)
+		return nil
+	}
+	return m.emit(blocks...)
+}
+
+// emit queues blocks for scrollback. Commands run concurrently, so only one
+// Println is in flight at a time; it acknowledges itself with printedMsg and
+// the next batch goes out then, which keeps blocks in order.
+func (m *Model) emit(blocks ...string) tea.Cmd {
+	m.screen = append(m.screen, blocks...)
 	m.outbox = append(m.outbox, blocks...)
 	return m.flush()
 }

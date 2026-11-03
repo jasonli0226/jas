@@ -130,5 +130,8 @@ In the chat: `/farm "<task>"` plans a farm (picker: approve, edit, replan,
 quit); while it runs, live rows under the input show each agent; `/farm`
 prints the dashboard; `/farm run <plan.yaml>` starts an approved plan. One
 farm per window; needs a trusted project, a `check` and a clean tree.
+Ctrl+1..9 (Alt+1..9) shows agent N live; Ctrl+0 (Alt+0) returns to the main
+chat, whose output is held meanwhile. `/farm attach <part|N>` / `/farm back`
+do the same.
 `--json` works throughout; `manifest.json` records the run. Experimental
 until the farm-vs-`jas run` benchmark lands.

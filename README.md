@@ -364,7 +364,12 @@ quit). Once approved, one live row per agent sits under the input (status,
 last activity, tokens) with a totals line, and finished events print into the
 chat. `/farm` prints the dashboard; `/farm run <plan.yaml>` starts an approved
 plan. One farm per window; it needs a trusted project with a `check` and a
-clean working tree.
+clean working tree. **Ctrl+1–9** (or Alt+1–9) flips the window to that agent:
+the screen clears and shows its transcript live, as the main chat does;
+**Ctrl+0** (or Alt+0) comes back. While you watch an agent, main-chat output
+is held (the bottom strip counts it) and printed when you return.
+`/farm attach <part|N>` and `/farm back` do the same where the keys do not
+reach jas.
 
 ## Design
 

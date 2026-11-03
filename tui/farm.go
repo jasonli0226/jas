@@ -45,6 +45,7 @@ type farmState struct {
 	check   string // verdict: pending | passed | failed
 	ended   bool
 	res     farm.Result
+	width   int // terminal width for new agents' transcripts
 }
 
 // farmAgent is one part's (or the integrator's) session as the chat sees it.
@@ -53,9 +54,13 @@ type farmAgent struct {
 	activity         string // last tool call or event
 	check            string // part_check: "" | pass | fail
 	diffstat         string
+	worktree         string
 	after            []string
 	tokens           int
 	num              int // flip key 1..9; 0 = none
+
+	tr      Transcript // renders this agent's text and events
+	printed []string   // every block rendered for this agent, for flips
 }
 
 // Messages from the farm port.
@@ -82,10 +87,10 @@ type (
 	farmDoneMsg struct{ res farm.Result }
 )
 
-func newFarmState(run FarmRun, plan farm.Plan, task string, now time.Time) *farmState {
+func newFarmState(run FarmRun, plan farm.Plan, task string, now time.Time, width int) *farmState {
 	f := &farmState{run: run, task: task, started: now, check: "pending"}
 	for i, p := range plan.Parts {
-		a := &farmAgent{id: p.ID, role: p.Role, status: agentQueued, after: p.After}
+		a := &farmAgent{id: p.ID, role: p.Role, status: agentQueued, after: p.After, tr: Transcript{Width: width}}
 		if i < maxFlipKeys {
 			a.num = i + 1
 		}
@@ -130,6 +135,9 @@ func (f *farmState) apply(typ string, m map[string]any) {
 	case farm.EvPartStarted:
 		if a != nil {
 			a.status, a.activity = agentRunning, ""
+			if w, ok := m["worktree"].(string); ok {
+				a.worktree = w
+			}
 		}
 	case farm.EvPartCheck:
 		if a != nil {
@@ -150,7 +158,8 @@ func (f *farmState) apply(typ string, m map[string]any) {
 		}
 	case farm.EvIntegrateStarted:
 		if f.agent(integrateAgent) == nil {
-			f.agents = append(f.agents, &farmAgent{id: integrateAgent, role: "integrator", status: agentRunning, num: f.nextNum()})
+			f.agents = append(f.agents, &farmAgent{id: integrateAgent, role: "integrator", status: agentRunning,
+				num: f.nextNum(), tr: Transcript{Width: f.width}})
 		}
 	case farm.EvIntegrateEnded:
 		if a := f.agent(integrateAgent); a != nil {

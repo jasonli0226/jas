@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/farm"
 )
 
@@ -238,7 +239,8 @@ func (m *Model) onFarmStarted(msg farmStartedMsg) tea.Cmd {
 	if msg.err != nil {
 		return m.print(errStyle.Render("farm: " + m.clean(msg.err.Error())))
 	}
-	m.farm = newFarmState(msg.run, msg.plan, msg.task, m.o.Now())
+	m.farm = newFarmState(msg.run, msg.plan, msg.task, m.o.Now(), m.width)
+	m.farm.width = m.width
 	run, send := msg.run, m.send
 	go func() { send(farmDoneMsg{res: run.Wait()}) }() // a farm outlives any one command
 	return m.notice(fmt.Sprintf("farm %s started · %s · /farm for the dashboard", run.FarmID(), farmKeysHint))
@@ -249,6 +251,7 @@ func (m *Model) onFarmStarted(msg farmStartedMsg) tea.Cmd {
 func (m *Model) farmHooks() FarmHooks {
 	send := m.send
 	return FarmHooks{
-		Event: func(typ string, data map[string]any) { send(farmEventMsg{typ: typ, m: data}) },
+		Event:  func(typ string, data map[string]any) { send(farmEventMsg{typ: typ, m: data}) },
+		Worker: func(part string) core.UI { return farmBridge{part: part, send: send} },
 	}
 }

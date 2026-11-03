@@ -57,6 +57,7 @@ const helpText = `commands
   /farm "<task>"         plan a farm of parallel agents for task; approve, edit, replan or quit
   /farm run <plan.yaml>  start an approved plan
   /farm                  the farm dashboard: every agent, status, activity, tokens
+  /farm attach <part|N>  show that agent (as Ctrl+N); /farm back returns to the main chat
   /skill:<name> [text]   run a skill
   /quit                  save the session and quit
 an always grant on a shell command covers any arguments to the first two words
@@ -67,6 +68,7 @@ keys
   Up/Down recall earlier input (from the first or last line of the input)
   Ctrl-L clear the screen (keep session)
   Ctrl-O expand or collapse the latest tool output
+  Ctrl+1..9 / Alt+1..9 show farm agent N · Ctrl+0 / Alt+0 back to the main chat
   Ctrl-C clear the input; twice on an empty box quits
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel

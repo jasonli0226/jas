@@ -31,6 +31,9 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleToolExpand()
 		return nil
 	}
+	if cmd, ok := m.onFlipKey(k); ok {
+		return cmd
+	}
 	if m.picker != nil && m.approval == nil { // an approval prompt comes first
 		return m.onPickerKey(msg)
 	}

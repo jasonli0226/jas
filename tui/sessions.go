@@ -69,6 +69,9 @@ func (m *Model) banner() []string {
 // banner. The session (context, grants, model) is unchanged. Sequence so
 // the clear runs before the banner print.
 func (m *Model) clearView() tea.Cmd {
+	if m.viewing != "" {
+		return m.flip(m.viewing) // Ctrl+L in an agent view redraws that view
+	}
 	return tea.Sequence(tea.ClearScreen, m.print(m.banner()...))
 }
 
