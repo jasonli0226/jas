@@ -49,6 +49,11 @@ func parseFrontmatter(src []byte) (map[string]string, error) {
 			return nil, fmt.Errorf("frontmatter line %d: expected key: value", i+2)
 		}
 		cont, next := continuation(body, i+1)
+		if strings.TrimSpace(m[2]) == "" && len(cont) > 0 {
+			// Nested map or list under a bare "key:" — skipped.
+			i = next
+			continue
+		}
 		v, err := scalar(strings.TrimSpace(m[2]), cont)
 		if err != nil {
 			return nil, fmt.Errorf("frontmatter %s: %w", m[1], err)
