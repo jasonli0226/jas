@@ -26,6 +26,15 @@ plumbing. The pain points we've personally hit across Hermes, pi, Claude Code, C
 jas bets on: **small core, pluggable everything, visible by default.**
 The model is the brain; jas is the nervous system.
 
+**Owner usage (2026-11-03):** day-to-day jas is **inline chat for pair
+programming**, **starting projects from instructions** (and later scenarios /
+`jas spec` scaffold), and **studying an existing repo to draft a scenario**
+(`jas bootstrap`, §8.3). The JSONL event log, exit codes, and `jas run --json`
+are the CI-grade receipt that chat and one-shot share; farm is for big,
+check-gated splits — not a claim that multi-agent always beats one agent.
+Versus pi: different jobs (interactive product depth vs chat + templates on an
+auditable harness); see §14 and [use-cases.md](use-cases.md).
+
 ## 2. Language choice: Go (decided)
 
 Considered Rust seriously. Decision matrix:

@@ -1,23 +1,37 @@
 # jas
 
-> A tiny, fast coding-agent harness in Go. Parallel tasks, live status, pluggable tools.
+> A tiny, fast coding-agent harness in Go. Inline chat, templates and scenarios,
+> a JSONL audit trail, and CI-friendly `jas run`.
 
-**Status:** v1 — `jas run`, `jas config`, `jas auth`. See [docs/design.md](docs/design.md).
+**Status:** v1 — `jas` (chat), `jas run`, `jas config`, `jas auth`, `jas sessions`;
+`jas farm` is experimental. See [docs/design.md](docs/design.md).
 
 ## The pitch
 
-jas is a single static Go binary that is:
+jas is a single static Go binary for day-to-day coding with a receipt:
 
-- **lean** — fewer turns and tokens per task: cache-friendly prompts, parallel
-  reads, capped and elided tool output; streaming loop in ~200 lines
-- **parallel** — *(proposed)* session awareness for agents running side by
-  side; later `jas farm`, one too-big task split into parts across worktrees
-  with a verified merge, after its prerequisites
-- **visible** — every step is a JSONL event (audit + resume)
-- **pluggable** — Tool interface; OpenAI-compatible endpoints (OpenRouter,
-  vLLM, ollama); MCP client *(planned v2)*
+- **chat** — inline pair programming in the terminal (`jas`); same tools,
+  approvals and event log as `jas run`. Scrollback stays in your terminal
+  (Bubble Tea `Println`); no fullscreen TUI.
+- **templates & scenarios** — start a project in chat with `AGENTS.md` /
+  skills as the working instructions; later, declarative
+  `.jas/scenario.yaml` runtime policy and `jas bootstrap` to draft one from
+  an existing repo (design §8, v2). Spec-driven scaffold (`jas spec`) is
+  proposed.
+- **visible** — every step is a versioned JSONL event (audit + resume)
+- **CI-ready** — `jas run --json`, stable exit codes, secrets deny/redact
+- **lean** — cache-friendly prompts, parallel reads, capped and elided tool
+  output; streaming loop in ~200 lines
+- **farm** *(experimental)* — one too-big task split into worktree parts
+  behind a supervisor-run `check`; refuses most splits. Not the lead story.
 
-The model is the brain; jas is the nervous system.
+OpenAI-compatible endpoints (OpenRouter, vLLM, ollama); MCP client *(planned
+v2)*. The model is the brain; jas is the nervous system.
+
+jas and pi do different jobs: pi goes deep on interactive coding product
+surface; jas keeps chat and project setup on a CI-grade harness (event log,
+exit codes) and a narrow farm for big, checked splits. Use whichever fits
+the job — see design §14 and [docs/use-cases.md](docs/use-cases.md).
 
 ## Install
 
@@ -338,13 +352,13 @@ Full design:
 ## Design
 
 Full design in [docs/design.md](docs/design.md); how jas compares with pi is
-§14. Real-world scenarios in
-[docs/use-cases.md](docs/use-cases.md) — one-shot tasks, CI runs, split-task farm,
-attach, per-project scenario policies (and what jas deliberately isn't).
-Core bets:
+§14. Real-world use in
+[docs/use-cases.md](docs/use-cases.md) — interactive pair programming, one-shot
+`jas run`, project init and study→scenario (v2 / proposed), CI runs, farm,
+and what jas deliberately isn't. Core bets:
 
 1. Small core, pluggable everything — 6 interfaces total (§3)
-2. goroutines + errgroup for parallel tools & tasks
+2. Inline chat and `jas run` share one harness (tools, approvals, event log)
 3. JSONL event log = checkpoint/resume + audit, no extra machinery
 
 Design-review decisions: [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13).

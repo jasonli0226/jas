@@ -5,7 +5,39 @@ later cuts. The design doc (§4–§6) defines scope; this doc shows the intent
 behind it. Each section names who it's for, the job to be done, and what
 "done" looks like.
 
-## 1. One-shot coding tasks (`jas run` — v1)
+Owner day-to-day use (updated 2026-11-03 Asia/Tokyo): **interactive pair
+programming**, **starting a project from instructions / a future scenario or
+spec**, and **studying an existing repo to draft a scenario**. CI/`--json` and
+farm stay first-class strengths; they are not the only lead story.
+
+## 1. Interactive pair programming (`jas` chat — v1)
+
+**Who:** a developer working in a repo. **Job:** pair with the agent in the
+terminal — ask, steer, approve edits, keep going — without leaving the same
+harness CI will use later.
+
+```sh
+jas                         # inline chat in this project
+jas --continue              # resume this project's last session
+jas --approve=mutating      # confirm shell + file edits as you go
+```
+
+- Replies stream into the terminal's own scrollback (no fullscreen TUI).
+- Same tools, approval ladder, deny/redact, and JSONL event log as `jas run`.
+- `/model`, `/resume`, `/name`, skills, and project `AGENTS.md`/`CLAUDE.md`
+  (after trust) are available in-session; `/help` lists commands and keys.
+- Typing while a reply runs steers it; Esc stops the run.
+
+**Done when:** you can drive a multi-turn coding session, see diffs before
+mutating tools apply (at `mutating`), and reopen the same session with
+`--continue` or `/resume`.
+
+**Why jas and not a general chat client:** the chat is task-shaped pair
+programming over the coding harness — tools, approvals, and the event log are
+the product, not open-ended conversation. For how that differs from pi's
+interactive surface, see design §14.
+
+## 2. One-shot coding tasks (`jas run` — v1)
 
 **Who:** a solo dev in a weekend loop. **Job:** get a reviewed change without
 leaving the terminal.
@@ -42,7 +74,57 @@ instead of blowing the window on a 20-turn task. The core approval gate and the
 CI exit-code contract are also built in. Cold start is a hygiene bonus, not the
 reason: the LLM round-trip dominates. Full comparison: design §14.
 
-## 2. Batch work across a repo (v1, one at a time)
+## 2a. Init a project from instructions (shipped chat; scenario / `jas spec` proposed)
+
+**Who:** someone starting a greenfield app or a new package. **Job:** get a
+working skeleton and conventions in place without a separate scaffolding CLI.
+
+**Shipped today:** open `jas` in an empty or nearly empty directory (or
+`jas run "…"`), put project rules in `AGENTS.md`, and use skills / chat to
+scaffold files. There is **no** `jas new` / blueprint command — design §8
+dropped scaffold-from-preset blueprints on purpose.
+
+```sh
+jas    # pair: "scaffold a Go module with cmd/, internal/, Makefile, AGENTS.md"
+```
+
+**Proposed (not shipped):**
+
+- `jas spec spec.md` grill-me interview → approved spec, then
+  `jas run --spec spec.md --phase scaffold` (or `/spec` / `/spec scaffold` in
+  chat) — see [spec-driven flow](superpowers/specs/2026-11-02-spec-driven-flow.md).
+- v2 **scenarios** (design §8): a checked-in `.jas/scenario.yaml` as the
+  reusable *agent* template (system prompt, toolset, sandbox, hooks) for that
+  kind of project — not a file-tree cookie-cutter.
+
+**Done when (shipped):** the repo has the skeleton you asked for, an event log
+of how it got there, and `AGENTS.md` (or equivalent) so the next chat session
+keeps the same rules.
+
+## 2b. Study an existing project → draft a scenario (`jas bootstrap` — v2, proposed)
+
+**Who:** someone adopting jas on a real repo. **Job:** turn "how this project
+already works" into a draft agent policy they can edit and commit.
+
+**Not shipped.** Design §8.3: `jas bootstrap` is a **deterministic** scan (no
+LLM) that writes a draft `.jas/scenario.yaml` from signals like `go.mod`,
+`package.json`, `Makefile`, `AGENTS.md`, `.env` presence, `.mcp.json`, etc.
+You hand-edit the draft; scenarios stay data.
+
+```sh
+# proposed (v2) — illustrative; not in the current binary
+jas bootstrap                 # draft .jas/scenario.yaml from the repo
+```
+
+Until that ships, the practical path is the same as §1: chat over the repo,
+capture conventions in `AGENTS.md`, and keep the session log as the audit of
+what you learned.
+
+**Done when (v2):** a repeatable draft scenario appears, deny patterns cover
+secrets paths the scan found, and a first-time contributor gets the scenario
+trust prompt (design §11).
+
+## 3. Batch work across a repo (v1, one at a time)
 
 **Who:** a maintainer clearing mechanical debt. **Job:** many small, similar
 changes with an audit trail per run.
@@ -58,7 +140,7 @@ corrupt — crash mid-task, re-run, the log still tells you what happened.
 **Done when:** each run reports its turn/token counts (design §7) and leaves
 an event log that reconstructs what it did.
 
-### 2.1 Crash-resume (v1 design, resume ships v2)
+### 3.1 Crash-resume (v1 design, resume ships v2)
 
 **Who:** anyone running a 20-turn task on a laptop. **Job:** know what
 happened when the run dies mid-task.
@@ -81,7 +163,7 @@ jq -s 'map(select(.type == "tool_result") | .call_id) as $done
 **Done when (v2):** `jas resume <id>` continues from the log; no mutating
 tool call from before the crash ever runs twice.
 
-### 2.2 Context-full and turn-cap stops (v1)
+### 3.2 Context-full and turn-cap stops (v1)
 
 **Who:** the same dev, on a long task. **Job:** fail loudly, not silently.
 
@@ -92,9 +174,9 @@ keeps the prompt cache warm. It stops cleanly on `context_length_exceeded`.
 `max_turns` (default 50; `jas config set max_turns …`) is the runaway stop.
 
 **Done when:** a context-full stop exits 3 and a turn-cap stop exits 4, each
-with a clear message — and the CI contract in §3 holds.
+with a clear message — and the CI contract in §4 holds.
 
-## 3. CI / scripted use (`jas run --json` — v1)
+## 4. CI / scripted use (`jas run --json` — v1)
 
 **Who:** a CI author wrapping agent runs in a pipeline. **Job:** machine-
 readable runs with a clean failure contract.
@@ -129,7 +211,7 @@ fine for your own repo, think twice for third-party PRs.
 **Done when:** the secrets fixture test from design §11 passes under `--json`
 in CI — zero secret values in the transcript and event log.
 
-## 4. Farm: one big task split into parts (after its prerequisites)
+## 5. Farm: one big task split into parts (experimental MVP)
 
 **Who:** a contributor with a change too big or too slow for one agent.
 **Job:** get it done in parallel, safely and auditably. Farm is not "better
@@ -171,7 +253,7 @@ owner's decision is recorded — nothing merges without one — and farm beats
 plain `jas run` on wall-clock in the farm-vs-solo benchmark. Full design:
 [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
 
-## 4a. Spec-driven work, alone or with farm (proposed)
+## 6. Spec-driven work, alone or with farm (proposed)
 
 **Who:** anyone starting a new app or a sizeable feature. **Job:** turn a
 vague idea into a checked spec, then build it section by section — with one
@@ -211,7 +293,7 @@ are higher with farm than with one agent.
 with every acceptance criterion listed as met (with evidence) or explicitly
 unmet, and `check` run by jas passes.
 
-## 5. Interactive attach (after farm)
+## 7. Interactive attach (after farm)
 
 **Who:** the same contributor, mid-migration. **Job:** step into a running
 part when the model needs a human call.
@@ -228,7 +310,7 @@ attach falls back to resuming the part's event log.
 is re-executed on takeover or on the resume fallback (design §3 side-effect
 rules).
 
-## 6. Research (v2 — scenario web tools)
+## 8. Research (v2 — scenario web tools)
 
 **Who:** a dev writing docs or evaluating a dependency. **Job:** pull real
 answers from the web into a task, scrubbed like any other tool output.
@@ -252,7 +334,7 @@ tools are on, the default approve level rises to `shell` unless you set
 **Done when:** the answer cites fetched URLs, and redaction (§9) has applied
 to every fetched page before it entered the transcript.
 
-## 7. Learning (`jas learn` — v3)
+## 9. Learning (`jas learn` — v3)
 
 **Who:** the dev who solved something fiddly once. **Job:** turn that
 research session into a reusable skill.
@@ -272,7 +354,7 @@ via `jas skills approve <name>`.
 fresh session, never overwrites an existing skill without `--force`, and an
 `--auto` draft is never advertised before approval.
 
-## 8. Per-project operating rules (v2 scenarios)
+## 10. Per-project operating rules (v2 scenarios)
 
 **Who:** a repo owner. **Job:** version the agent's behavior with the code.
 
@@ -304,9 +386,17 @@ secrets fixture (design §11) passes under this scenario's deny floor.
 
 - **Not an IDE plugin.** No LSP/editor integration — that's what the v2 RPC
   mode enables others to build.
-- **Not a chat assistant.** jas is task-shaped: a prompt, tool calls, a
-  checkable result. For open-ended conversation use a chat client.
+- **Not an open-ended general chat product.** Interactive chat **is** a core
+  feature (§1), but it is task-shaped pair programming over the same harness
+  as `jas run` (same tools, approvals, event log) — not a social chatbot or
+  a replacement for a general chat client.
+- **Not a file-tree cookie-cutter.** Blueprints / `jas new` were dropped
+  (design §8). Init today is chat + `AGENTS.md` / skills; reusable *agent*
+  policy is scenarios (`jas bootstrap`, v2) and, proposed, `jas spec` scaffold.
 - **Not autonomous infra.** Shell is YOLO-mode in v1 (documented; containerize
   if you care). jas doesn't manage servers, deploy, or hold production keys.
 - **Not a secret store.** Secrets never enter the transcript (§9), but jas is
   not a vault — blind secret access (v2) proxies *declared* keys only.
+- **Not "pi, but better."** Different jobs: pi optimizes interactive coding
+  product depth; jas keeps chat + project setup on a CI-grade receipt and a
+  narrow farm. Pick by the job (design §14).
