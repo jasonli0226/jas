@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -70,10 +71,62 @@ type replayLine struct {
 	FirstKeptID string `json:"first_kept_id"`
 }
 
-func newLogScanner(r io.Reader) *bufio.Scanner {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), maxLogLine)
-	return sc
+// logScanner reads newline-delimited lines with a bufio.Reader so a line
+// over maxLogLine is skipped instead of aborting the whole read: the reader
+// just keeps going, unlike bufio.Scanner, whose token would be too long.
+type logScanner struct {
+	br  *bufio.Reader
+	buf []byte
+	err error
+}
+
+func newLogScanner(r io.Reader) *logScanner {
+	return &logScanner{br: bufio.NewReaderSize(r, 64<<10)}
+}
+
+// next returns the next line (newline stripped). over reports the line
+// exceeded maxLogLine and was consumed to its end so reading can continue
+// past it. ok is false at EOF or on a read error (see Err); a partial line
+// before a read error is dropped.
+func (s *logScanner) next() (line []byte, over, ok bool) {
+	s.buf = s.buf[:0]
+	for {
+		chunk, err := s.br.ReadSlice('\n')
+		if !over && len(s.buf)+len(chunk) > maxLogLine {
+			over = true
+			s.buf = s.buf[:0]
+		}
+		if !over {
+			s.buf = append(s.buf, chunk...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue // mid-line: keep reading
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			s.err = err
+			return nil, false, false // stop, as bufio.Scanner does; see Err
+		}
+		if over {
+			return nil, true, true // whole oversized line consumed
+		}
+		if errors.Is(err, io.EOF) {
+			return trimEOL(s.buf), false, len(s.buf) > 0
+		}
+		return trimEOL(s.buf), false, true
+	}
+}
+
+func (s *logScanner) Err() error { return s.err }
+
+// trimEOL strips one trailing \n and \r, as bufio.ScanLines would.
+func trimEOL(b []byte) []byte {
+	if n := len(b); n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+		if n = len(b); n > 0 && b[n-1] == '\r' {
+			b = b[:n-1]
+		}
+	}
+	return b
 }
 
 // Replay rebuilds the conversation from a session file. It fails when the
@@ -90,9 +143,16 @@ func Replay(path string) (ReplayState, error) {
 	rp := &replayer{}
 	sc := newLogScanner(f)
 	n := 0
-	for sc.Scan() {
+	for {
+		line, over, ok := sc.next()
+		if !ok {
+			break
+		}
 		n++
-		line := sc.Bytes()
+		if over {
+			rp.notef("ignored oversized line %d (over %d bytes)", n, maxLogLine)
+			continue
+		}
 		if len(strings.TrimSpace(string(line))) == 0 {
 			continue
 		}
@@ -340,12 +400,19 @@ func readHead(path string) (info SessionInfo, root string, ok bool) {
 	defer f.Close()
 	started := false
 	sc := newLogScanner(f)
-	for sc.Scan() {
-		if ok && !bytes.Contains(sc.Bytes(), titledMarker) {
+	for {
+		line, over, more := sc.next()
+		if !more {
+			break
+		}
+		if over {
+			continue // oversized line: not a head event
+		}
+		if ok && !bytes.Contains(line, titledMarker) {
 			continue
 		}
 		var ev replayLine
-		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+		if json.Unmarshal(line, &ev) != nil {
 			continue
 		}
 		switch ev.Type {

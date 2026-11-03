@@ -162,6 +162,26 @@ func TestResumeSession_LogsInterruptedResults(t *testing.T) {
 	}
 }
 
+func TestReplay_SkipsOversizedLineAndContinues(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "first"}}}))
+	big := make([]byte, 17<<20) // over the 16MB maxLogLine limit
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": string(big)}}}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+		"content": []map[string]any{{"type": "text", "text": "last"}}}))
+	assert.NoErr(t, log.Close())
+
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, msgSummary(st.Messages), "user:first | user:last")
+	assert.Eq(t, len(st.Notices), 1)
+	assert.Contains(t, st.Notices[0], "oversized line 3")
+}
+
 func TestReplay_NoSessionStartedIsError(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "events.jsonl")
 	assert.NoErr(t, os.WriteFile(p, []byte("garbage\n"), 0o600))
