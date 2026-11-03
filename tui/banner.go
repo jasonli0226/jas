@@ -7,7 +7,7 @@ import (
 )
 
 // bannerHints is the key-hints line the start banner shows, verbatim.
-const bannerHints = "esc stop run · ctrl+c clear/twice-quit · / commands · /help full list"
+const bannerHints = "esc stop run · ctrl+l clear · ctrl+c clear/twice-quit · / commands · /help"
 
 // bannerIndent prefixes every section row and its continuation lines.
 const bannerIndent = "  "

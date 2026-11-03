@@ -29,8 +29,9 @@ stored config; `JAS_HOME` moves `~/.jas`.
 ## Chat
 
 Keys: Enter sends (typing while a reply runs steers it), Esc stops the run,
-Ctrl-C clears the input (twice on an empty box quits), Alt/Shift+Enter is a
-newline, Up/Down recalls input, `/` opens the command menu (Tab completes).
+Ctrl-L clears the screen (keeps the session), Ctrl-C clears the input (twice
+on an empty box quits), Alt/Shift+Enter is a newline, Up/Down recalls input,
+`/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in
 progress (`working…`, or `thinking…` while the model reasons).
 A start banner (version, key hints, loaded context files and skills; a
@@ -41,7 +42,7 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 | command | what it does |
 |---|---|
 | `/model [name]` | switch model (bare form: picker; Ctrl+S also sets the default) |
-| `/new` | fresh conversation (model, thinking, approval level and grants kept; reprints the start banner) |
+| `/new` | fresh conversation and clear the screen (model, thinking, approval level and grants kept; reprints the start banner) |
 | `/name [title]` | name this session, for `/resume` |
 | `/resume` | continue a session here (grants and level reset) |
 | `/compact [focus]` | summarize older messages to free context |

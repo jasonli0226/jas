@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -167,6 +168,8 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	case "ctrl+s":
 		msg = tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
+	case "ctrl+l":
+		msg = tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl}
 	default:
 		c.t.Fatalf("unknown key %q", k)
 	}
@@ -705,6 +708,81 @@ func TestChat_NoBannerOnContinue(t *testing.T) {
 func TestChat_BannerOnNew(t *testing.T) {
 	c := newTestChatOpts(t, newTestBackend(t), Options{Version: "1.0.0"})
 	c.submit("/new")
+	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), 2)
+}
+
+// cmdHasType reports whether cmd, expanded through Batch/Sequence, produces
+// a message whose dynamic type name is typ (e.g. "tea.clearScreenMsg").
+func cmdHasType(cmd tea.Cmd, typ string) bool {
+	if cmd == nil {
+		return false
+	}
+	msg := cmd()
+	if msg == nil {
+		return false
+	}
+	if fmt.Sprintf("%T", msg) == typ {
+		return true
+	}
+	v := reflect.ValueOf(msg)
+	if v.Kind() == reflect.Slice && v.Type().Elem() == reflect.TypeFor[tea.Cmd]() {
+		for i := range v.Len() {
+			if cmdHasType(v.Index(i).Interface().(tea.Cmd), typ) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestChat_CtrlLClearsScreenKeepsSession(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "hello"})
+	c := newTestChatOpts(t, b, Options{Version: "1.0.0"})
+	c.submit("hi")
+	c.pump()
+	id, gen := c.m.live.ID, c.m.gen
+	banners := strings.Count(c.printedText(), "v1.0.0")
+
+	_, cmd := c.m.Update(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
+	if !cmdHasType(cmd, "tea.clearScreenMsg") {
+		t.Fatal("Ctrl+L did not issue ClearScreen")
+	}
+	// clearView prints the banner while building the cmd; session stays.
+	assert.Eq(t, c.m.live.ID, id)
+	assert.Eq(t, c.m.gen, gen)
+	assert.Eq(t, c.m.running(), false)
+	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), banners+1)
+	assert.Contains(t, c.printedText(), testHints)
+	c.run(cmd)
+}
+
+func TestChat_CtrlLDuringRunKeepsRun(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t, fake.Turn{Text: "ok", Block: true}))
+	c.submit("hi")
+	assert.Eq(t, c.m.running(), true)
+	id, gen := c.m.live.ID, c.m.gen
+	_, cmd := c.m.Update(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
+	if !cmdHasType(cmd, "tea.clearScreenMsg") {
+		t.Fatal("Ctrl+L did not issue ClearScreen during a run")
+	}
+	assert.Eq(t, c.m.live.ID, id)
+	assert.Eq(t, c.m.gen, gen)
+	assert.Eq(t, c.m.running(), true)
+	c.run(cmd)
+	c.m.run.cancel()
+	c.pump()
+}
+
+func TestChat_NewClearsScreen(t *testing.T) {
+	c := newTestChatOpts(t, newTestBackend(t), Options{Version: "1.0.0"})
+	oldID := c.m.live.ID
+	c.typeText("/new")
+	_, cmd := c.m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !cmdHasType(cmd, "tea.clearScreenMsg") {
+		t.Fatal("/new did not issue ClearScreen")
+	}
+	c.run(cmd)
+	assert.Eq(t, c.m.live.ID != oldID, true)
 	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), 2)
 }
 

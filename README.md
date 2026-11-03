@@ -104,8 +104,8 @@ dim spinner line above the input shows the run in progress (`working…`, or
 
 - **Enter** sends; **Alt+Enter** or **Shift+Enter** adds a newline. Typing
   while a reply runs steers it: the text reaches the model at its next step.
-  **Esc** stops the run; **Ctrl-C** clears the input, and twice on an empty
-  box quits.
+  **Esc** stops the run; **Ctrl-L** clears the screen (keeps the session);
+  **Ctrl-C** clears the input, and twice on an empty box quits.
 - **`/`** opens a command menu, filtered as you type, with every command and
   `/skill:<name>`; Up/Down move, Tab or Enter completes. `/help` lists every
   command and key.
@@ -119,10 +119,12 @@ dim spinner line above the input shows the run in progress (`working…`, or
   and under the tool row.
 - **`jas --continue`** or **`/resume`** reopens a saved session and reprints
   its conversation; Up/Down history comes back with it.
-- The chat shows a start banner when it opens fresh and on **`/new`**: the
-  version, the key hints above, and the context files and skills it loaded
-  (context files left unloaded by a declined trust decision are marked
-  `not loaded`). Resuming — `--continue` or `/resume` — does not show it.
+- The chat shows a start banner when it opens fresh and on **`/new`** (which
+  also clears the screen): the version, the key hints above, and the context
+  files and skills it loaded (context files left unloaded by a declined trust
+  decision are marked `not loaded`). Resuming — `--continue` or `/resume` —
+  does not show it. **Ctrl-L** clears the screen and reprints the banner
+  without starting a new session.
 - **`/name <title>`** (or `jas --name`) names the session. The `/resume`
   picker lists it by that title instead of its first message, and the status
   line shows it.

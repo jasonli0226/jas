@@ -12,16 +12,23 @@ const (
 	quitHint   = "press Ctrl-C again to quit"
 )
 
-// onKey handles a key press: Enter, Esc and Ctrl-C are the chat's own, the
-// rest edit the input.
+// onKey handles a key press: Enter, Esc, Ctrl-L and Ctrl-C are the chat's
+// own; the rest edit the input.
 func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.quitting {
 		return nil
 	}
+	k := msg.String()
+	// Ctrl+L clears the view and reprints the banner; keep the session.
+	// Handled before the picker so it works while a picker is open (pickers
+	// do not use Ctrl+L).
+	if k == "ctrl+l" {
+		m.hint = ""
+		return m.clearView()
+	}
 	if m.picker != nil && m.approval == nil { // an approval prompt comes first
 		return m.onPickerKey(msg)
 	}
-	k := msg.String()
 	if k != "ctrl+c" {
 		m.hint = ""
 	}
