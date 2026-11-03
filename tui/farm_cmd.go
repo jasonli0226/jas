@@ -256,5 +256,17 @@ func (m *Model) farmHooks() FarmHooks {
 		Undelivered: func(part string, texts []string) {
 			send(farmUndeliveredMsg{part: part, texts: texts})
 		},
+		Gate: func(part, approve string) (core.Gate, error) {
+			level := m.gate.Level()
+			if approve != "" {
+				l, err := core.ParseLevel(approve)
+				if err != nil {
+					return nil, err
+				}
+				level = l
+			}
+			return m.gate.ForPart(part, level), nil
+		},
+		Ask: farmAsker(send),
 	}
 }

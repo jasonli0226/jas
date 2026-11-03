@@ -33,6 +33,7 @@ type Options struct {
 	Version  string // build version, shown once in the start banner
 	Now      func() time.Time
 	Redact   func(string) string // masks secrets in text the chat prints; nil is identity
+	FarmBell bool                // ring the terminal bell when a farm needs the owner
 }
 
 // Model is the inline chat: a transcript printed into scrollback above a live
@@ -72,10 +73,14 @@ type Model struct {
 	// farmQuitting: the owner chose to stop the farm and quit; the quit
 	// resumes when the farm has ended.
 	farmQuitting bool
-	screen       []string  // every block emitted to the screen (test hook)
-	farmReview   *FarmPlan // a plan under review (or being drafted)
-	farmReplan   *FarmPlan // a plan waiting for replan feedback in the input
-	reply        string    // the last final reply, for /copy
+	stash        *inputStash  // the input set aside while a prompt has it
+	ask          *farmAskMsg  // the open farm question
+	askPending   []farmAskMsg // farm questions waiting for the main chat
+	bells        int          // bells rung (test hook)
+	screen       []string     // every block emitted to the screen (test hook)
+	farmReview   *FarmPlan    // a plan under review (or being drafted)
+	farmReplan   *FarmPlan    // a plan waiting for replan feedback in the input
+	reply        string       // the last final reply, for /copy
 
 	slashFor    string // input text the / menu cursor belongs to
 	slashCursor int
@@ -228,6 +233,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onFarmCalled(msg)
 	case farmQuitMsg:
 		return m, m.quit()
+	case farmAskMsg:
+		return m, m.onFarmAsk(msg)
 	case farmWorkerEventMsg:
 		return m, m.onFarmWorkerEvent(msg)
 	case noticeMsg:
@@ -297,7 +304,7 @@ func (m *Model) View() tea.View {
 // approval prompt renders.
 func (m *Model) prompt() string {
 	if m.approval == nil {
-		return ""
+		return m.askPrompt()
 	}
 	return boldStyle.Render(ansi.Wrap(m.approval.prompt, m.width, ""))
 }

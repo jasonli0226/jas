@@ -58,7 +58,8 @@ type farmAgent struct {
 	worktree         string
 	after            []string
 	tokens           int
-	num              int // flip key 1..9; 0 = none
+	num              int  // flip key 1..9; 0 = none
+	needsApproval    bool // an approval prompt from this agent is open
 
 	queued  []string   // owner steers sent and not yet delivered
 	tr      Transcript // renders this agent's text and events
@@ -222,8 +223,12 @@ func (m *Model) farmRows() []string {
 		if a.num > 0 {
 			key = fmt.Sprint(a.num)
 		}
+		activity := m.clean(a.activity)
+		if a.needsApproval {
+			activity = "⚠ needs approval"
+		}
 		line := fmt.Sprintf("%s %-*s %-10s %-28s %s", key, width, m.clean(a.id), agentMarks[a.status],
-			m.clean(a.activity), formatTokens(a.tokens))
+			activity, formatTokens(a.tokens))
 		rows = append(rows, ansi.Truncate(strings.TrimRight(line, " "), m.width, "…"))
 	}
 	return append(rows, totals)
@@ -236,6 +241,9 @@ func (m *Model) farmTotals() string {
 		tok += " / " + formatTokens(f.budget)
 	}
 	line := fmt.Sprintf("farm %s tok · %s · check %s     %s", tok, m.o.Now().Sub(f.started).Round(time.Second), f.check, farmKeysHint)
+	if s := m.askStrip(); s != "" {
+		line = s + " · " + line
+	}
 	return dimStyle.Render(ansi.Truncate(line, m.width, "…"))
 }
 

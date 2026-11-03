@@ -134,6 +134,9 @@ Ctrl+1..9 (Alt+1..9) shows agent N live; Ctrl+0 (Alt+0) returns to the main
 chat, whose output is held meanwhile. `/farm attach <part|N>` / `/farm back`
 do the same. In an agent view Enter steers it; Esc/Ctrl+C only clear the
 input. `/farm pause|resume|drop <part|N>`, `/farm stop` (twice: cancel now);
-quitting with a running farm asks first.
+quitting with a running farm asks first. Agent approvals open in any view as
+`[part] approve …? [y/N/always/farm]`; failures and the final choice wait for
+the main chat with no turn running (`farm needs you · ctrl+0`). Config key
+`farm_bell` (default true) rings the bell for these.
 `--json` works throughout; `manifest.json` records the run. Experimental
 until the farm-vs-`jas run` benchmark lands.

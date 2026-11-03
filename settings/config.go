@@ -65,6 +65,7 @@ var Keys = []KeySpec{
 	{Name: "compact_keep_tokens", Default: strconv.Itoa(DefaultCompactKeep), Validate: positiveInt},
 	{Name: "compact_model", Validate: anyValue},                                                                      // "" = the session's model
 	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true}, // 0 = omit max_tokens
+	{Name: "farm_bell", Default: "true", Validate: oneOf("true", "false")},                                           // ring when a chat farm needs the owner
 }
 
 // LookupKey finds a plain key spec by name.

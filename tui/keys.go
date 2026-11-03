@@ -81,8 +81,10 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 // submitted while a session is opening.
 func (m *Model) onEnter() tea.Cmd {
 	if m.approval != nil {
-		m.answerApproval()
-		return nil
+		return m.answerApproval()
+	}
+	if m.ask != nil {
+		return m.answerFarmAsk()
 	}
 	if m.farmReplan != nil {
 		text := strings.TrimSpace(m.input.Value())

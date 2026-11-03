@@ -151,7 +151,10 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	m.run.cancel()
 	m.run = nil
 	m.queued = nil
-	m.approval = nil
+	if m.approval != nil && m.approval.part == "" { // a farm part's prompt stays open
+		m.approval = nil
+		m.restoreInput()
+	}
 	if msg.res.Final != "" {
 		m.reply = msg.res.Final
 	}
@@ -168,7 +171,7 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	if m.quitting {
 		closeCmd = m.closeSession() // before print, so flush waits for the close
 	}
-	return tea.Batch(closeCmd, m.print(blocks...))
+	return tea.Batch(closeCmd, m.print(blocks...), m.openFarmAsk())
 }
 
 // restoreSteering puts steering that never reached the model back in front
@@ -216,6 +219,9 @@ func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
 // and under a "<tool> <path>" header, in the tool group. One that arrives
 // with no run to answer for is refused at once.
 func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
+	if msg.part != "" {
+		return m.farmApproval(msg)
+	}
 	if m.run == nil {
 		msg.reply <- ""
 		return nil
@@ -227,22 +233,24 @@ func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 		cmd = m.print(append(out, renderDiff(msg.diff, m.width, 0)...)...)
 	}
 	m.approval = &msg
-	m.picker, m.onPick = nil, nil
+	m.stashInput()
 	return cmd
 }
 
 // answerApproval sends the input to the open prompt and closes it. Free text
 // is a denial that is also queued as steering, before the reply, so the loop
 // has it when the denied result goes back to the model.
-func (m *Model) answerApproval() {
+func (m *Model) answerApproval() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	m.input.Reset()
-	if replySteers(text) {
+	part := m.approval.part
+	if part == "" && replySteers(text) { // free text to a farm part is just a denial
 		m.live.Session.Steer(text)
 		m.queued = append(m.queued, text)
 	}
 	m.approval.reply <- text // buffered: the gate waits for exactly one answer
 	m.approval = nil
+	return m.approvalDone(part)
 }
 
 // runNotice is the line printed after a run that did not end ok.
@@ -271,6 +279,7 @@ func (m *Model) quit() tea.Cmd {
 		return m.confirmQuitFarm()
 	}
 	m.viewing = "" // the last blocks print wherever the owner was
+	m.cancelFarmAsks()
 	m.quitting = true
 	if m.run != nil {
 		m.run.cancel()

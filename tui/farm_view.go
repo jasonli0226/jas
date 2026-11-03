@@ -114,7 +114,7 @@ func (m *Model) flip(to string) tea.Cmd {
 	if to != "" {
 		m.input.Prompt = to + " › "
 	}
-	return tea.Sequence(tea.ClearScreen, m.emit(blocks...))
+	return tea.Batch(tea.Sequence(tea.ClearScreen, m.emit(blocks...)), m.openFarmAsk())
 }
 
 // fit returns the newest blocks that fit the screen, each line hard-wrapped
@@ -204,6 +204,9 @@ func (m *Model) farmStrip() string {
 	line := strings.Join(parts, "  ")
 	if m.held > 0 {
 		line += dimStyle.Render(fmt.Sprintf(" · main chat: %d new", m.held))
+	}
+	if s := m.askStrip(); s != "" {
+		return ansi.Truncate(line+" · "+boldStyle.Render(s), m.width, "…")
 	}
 	line += dimStyle.Render(" · ctrl+0 main chat")
 	return ansi.Truncate(line, m.width, "…")

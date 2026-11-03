@@ -150,7 +150,7 @@ Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,
 `compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`,
 `max_output_tokens` (default 16000, sent as `max_tokens` on every request),
-and per-model `models.<name>.context_window`.
+`farm_bell` (default true: ring when a chat farm needs you), and per-model `models.<name>.context_window`.
 
 The chat compacts its context: once the prompt passes the window minus
 `compact_reserve_tokens` (default 16384; never below half the window), older
@@ -373,7 +373,13 @@ reach jas. In an agent's view, Enter steers that agent (`queued for <part>`
 until it reads it; text it never reads comes back to the input); Esc and
 Ctrl+C only clear the input and never stop an agent. `/farm pause|resume|drop
 <part|N>` and `/farm stop` (twice to cancel now) control the farm; quitting
-with a farm running asks first.
+with a farm running asks first. An agent's approval prompt opens wherever you
+are, labelled `[part]` (answers: y, N, always for that part, farm for every
+part); your draft is set aside and comes back after. A failure (retry, drop,
+abort) or the final merge/keep/discard waits for the main chat with no turn
+running; meanwhile the strip shows `farm needs you · ctrl+0`. The terminal
+bell rings once per such prompt (`jas config set farm_bell false` turns it
+off).
 
 ## Design
 

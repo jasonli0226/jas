@@ -66,7 +66,7 @@ func chatCmd(ctx context.Context, args []string) error {
 	e.warnUnknownWindow(e.cfg.Model)
 	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e}, tui.Options{
 		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows", Version: version,
-		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact,
+		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact, FarmBell: e.cfg.FarmBell,
 	}, os.Stdin, os.Stdout))
 }
 
