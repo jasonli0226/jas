@@ -321,6 +321,7 @@ instructions).
 
 ```yaml
 check: "go build ./... && go test ./..."   # required; supervisor runs it
+part_check: ""            # optional; unset = check; "" = off (see Supervisor)
 vars:
   test_globs: ["*_test.go"]
   fuzz_command: ""            # optional; e.g. "npx playwright test" — enables fuzz role
@@ -670,8 +671,15 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
 - Starts parts whose `after` deps are done, up to `max_workers` at a time.
 - Worker system prompt = role prompt + part goal + plan `contracts` +
   `interfaces` + the list of other parts and what they own.
-- **Worker lifecycle:** a worker is *done* when it gives its final answer.
-  The supervisor then closes the session (no steering is drained after the
+- **Worker lifecycle:** a worker is *done* when it gives its final answer
+  **and** `part_check` passes in its worktree. `part_check` defaults to
+  `check`; set it to a narrower command, or `""` when parts cannot pass
+  `check` on their own (the check only holds on the merged tree). A failed
+  `part_check` (logged as `part_check{part, round, exit_code}`) goes back to
+  the worker once with the output tail; failing again fails the part with
+  reason `check`. **(owner-approved, 2026-11-04, after the dogfood run: a
+  part was marked done with code that did not compile.)** The supervisor
+  then closes the session (no steering is drained after the
   final answer), commits its changes on the part branch (see Commits), runs
   the write-limit diff check and marks the part done. A done part is never
   re-woken by board posts.
@@ -765,6 +773,11 @@ An LLM agent with the coder's tools (plus write access to `shared`) on
 2. Resolves conflicts and `blocked` requests, using the plan, `interfaces` and
    the board.
 3. May run `check` itself to iterate, within its budget.
+
+When every leaf merges cleanly the integrator session is skipped, unless the
+supervisor's `check` on the merged tree fails (logged as `integrate_check`):
+then the integrator runs with that output to fix the seams, and the verdict
+`check` runs after it as usual. **(owner-approved, 2026-11-04, dogfood)**
 4. Ends with a summary: parts merged/dropped, conflicts fixed, interfaces
    honoured/violated, per-part diffstat.
 
@@ -861,7 +874,9 @@ can't be prepared. (owner's decision)
   Independent parts keep running.
 - With a TTY, the owner is asked per failed part: **retry** (fresh session,
   told why the last try failed), **take over**, **drop** (part and dependents),
-  or **abort**.
+  or **abort**. An answer that names none of them (a whole word or prefix) is
+  asked again, never guessed. **(dogfood, 2026-11-04: "end" was taken as
+  drop.)**
 - Without a TTY, `on_failure` decides: `drop` (default) drops the part and its
   dependents, finishes the rest and integrates what remains; `abort` cancels
   all workers. Either way the farm cannot exit 0 if a part was dropped
@@ -912,8 +927,8 @@ worker events). Each farm event carries `farm_id`; worker detail is linked by
 spec hash, base, roles digest, config digest, trust decision), `farm_resumed`,
 `part_started` (includes `blast_radius` when set), `part_setup`,
 `part_ended` (status, exit code, tokens, diffstat), `board_posted`,
-`board_delivered`, `owner_decision`, `integrate_started`, `integrate_ended`,
-`check_ran`, `fuzz_ran` (after MVP; same shape as `check_ran`),
+`board_delivered`, `owner_decision`, `part_check`, `integrate_started`,
+`integrate_check`, `integrate_ended`, `check_ran`, `fuzz_ran` (after MVP; same shape as `check_ran`),
 `budget_stop`, `farm_ended` (exit code, reason, totals, `blast_radius_max`,
 optional `blast_gate`).
 

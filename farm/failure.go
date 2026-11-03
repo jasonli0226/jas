@@ -17,6 +17,7 @@ const (
 	ReasonApprovalNeeded = "approval_needed"
 	ReasonSetup          = "setup"
 	ReasonMergeConflict  = "merge_conflict"
+	ReasonCheck          = "check"
 )
 
 // Owner choices for a failed part (TTY) and BudgetStop values.

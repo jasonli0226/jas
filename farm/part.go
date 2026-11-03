@@ -10,12 +10,16 @@ import (
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/sessions"
+	"github.com/jasonli0226/jas/tools"
 )
 
 const (
 	eventsFile       = "events.jsonl"
 	workerRecordMode = "farm-worker"
 	supervisorRole   = "supervisor"
+	// partFixRounds is how many times a failed part_check goes back to the
+	// worker before the part fails.
+	partFixRounds = 1
 )
 
 // worker is one running attempt of a part.
@@ -51,16 +55,56 @@ func (s *Supervisor) runAttempt(ctx context.Context, part Part, attempt int, not
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
 	defer cancel()
 	res, sendErr := w.sess.Send(pctx, firstMessage(part, note))
-	farmPools := map[string]bool{poolFarm: true, poolWork: true}
-	end := classifyTurn(part.ID, res, farmPools, s.stopping(ctx))
-	if sendErr != nil && end.kind == endDone {
-		end = failed(part.ID, ReasonError, core.ExitFailure, sendErr.Error())
+	end := s.endOfTurn(ctx, part.ID, res, sendErr)
+	for round := 0; end.kind == endDone && s.Cfg.PartCheck != ""; round++ {
+		chk := s.partCheck(pctx, w, round)
+		if chk.ExitCode == 0 && !chk.TimedOut {
+			break
+		}
+		if round == partFixRounds {
+			end = failed(part.ID, ReasonCheck, core.ExitUnmet, fmt.Sprintf("part_check failed (exit %d)", chk.ExitCode))
+			res.Status, res.Code = "failed", core.ExitUnmet
+			break
+		}
+		res, sendErr = w.sess.Send(pctx, checkFixMessage(s.Cfg.PartCheck, chk))
+		end = s.endOfTurn(ctx, part.ID, res, sendErr)
 	}
 	if end.kind != endDone {
 		_ = w.sess.Close(res.Status, res.Code)
 		return end
 	}
 	return s.finishDone(w, res.Final)
+}
+
+// endOfTurn classifies a worker's finished turn.
+func (s *Supervisor) endOfTurn(ctx context.Context, id string, res core.TurnResult, sendErr error) attemptEnd {
+	end := classifyTurn(id, res, map[string]bool{poolFarm: true, poolWork: true}, s.stopping(ctx))
+	if sendErr != nil && end.kind == endDone {
+		end = failed(id, ReasonError, core.ExitFailure, sendErr.Error())
+	}
+	return end
+}
+
+// partCheck runs part_check in the worker's worktree before the part may be
+// done, and logs part_check.
+func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.CheckResult {
+	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.PartCheck, w.path), tools.RunShell)
+	s.event(EvPartCheck, map[string]any{"part": w.part.ID, "round": round, "exit_code": res.ExitCode,
+		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
+	return res
+}
+
+// checkFixMessage hands a failed part_check back to the worker for its one
+// fix round.
+func checkFixMessage(cmd string, res core.CheckResult) string {
+	what := fmt.Sprintf("exited %d", res.ExitCode)
+	if res.TimedOut {
+		what = "timed out"
+	}
+	return fmt.Sprintf("The supervisor ran this part's check `%s` in your worktree and it %s. "+
+		"Your part is not done until it passes. Fix the cause within your writable paths, "+
+		"run the check yourself, then give your final answer again.\n\nOutput (tail):\n```\n%s\n```",
+		cmd, what, strings.TrimSpace(res.Output))
 }
 
 // prepare makes the worktree (serially across parts), copies files and runs
