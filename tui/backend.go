@@ -34,6 +34,8 @@ type Backend interface {
 	ContextFiles() []ContextFile
 	SkillFiles() map[string]string                // SKILL.md path -> skill name
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
+	// Farmer is the farm port; nil when this chat cannot run farms.
+	Farmer() Farmer
 }
 
 // Live is one open session.

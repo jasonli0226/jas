@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -130,7 +131,11 @@ func parseChat(args []string) (chatArgs, error) {
 
 // chatBackend is the chat's tui.Backend over the real settings, provider,
 // redaction, trust decision and skills.
-type chatBackend struct{ e *env }
+type chatBackend struct {
+	e          *env
+	farmerOnce sync.Once
+	farmer     *chatFarmer
+}
 
 var _ tui.Backend = (*chatBackend)(nil)
 
