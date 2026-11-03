@@ -65,13 +65,22 @@ func (m *Model) banner() []string {
 	return banner(m.o.Version, m.b.ContextFiles(), m.b.SkillNames(), m.width)
 }
 
+// clearView clears the terminal scrollback view and reprints the start
+// banner. The session (context, grants, model) is unchanged. Sequence so
+// the clear runs before the banner print.
+func (m *Model) clearView() tea.Cmd {
+	return tea.Sequence(tea.ClearScreen, m.print(m.banner()...))
+}
+
 // newSession replaces the current session with a fresh one on m.model.
-// The start banner prints again: everything it showed may have changed.
+// The screen clears and the start banner prints again: everything it
+// showed may have changed. Clear+banner are sequenced; the open runs
+// alongside that Batch item.
 func (m *Model) newSession() tea.Cmd {
 	b, gate, model := m.b, m.gate, m.model
 	// print queues into the outbox, so the banner precedes the new
 	// session's blocks even though the open runs concurrently.
-	return tea.Batch(m.print(m.banner()...), m.beginOpen(func(ui core.UI) sessionMsg {
+	return tea.Batch(m.clearView(), m.beginOpen(func(ui core.UI) sessionMsg {
 		live, err := b.NewSession(model, ui, gate)
 		return sessionMsg{live: live, err: err}
 	}))

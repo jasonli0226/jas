@@ -43,7 +43,7 @@ var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume
 
 const helpText = `commands
   /help                  this list
-  /new                   start a fresh conversation (model, thinking, approval level and grants are kept)
+  /new                   start a fresh conversation and clear the screen (model, thinking, approval level and grants are kept)
   /model [name]          switch model; bare /model opens a picker
   /name [title]          name this session (shown in /resume); bare /name shows it
   /resume                continue a recent session in this project (grants and level reset)
@@ -61,6 +61,7 @@ an always grant on a shell command covers any arguments to the first two words
 keys
   Enter send or steer · Alt+Enter or Shift+Enter newline · Esc stop the run
   Up/Down recall earlier input (from the first or last line of the input)
+  Ctrl-L clear the screen (keep session)
   Ctrl-C clear the input; twice on an empty box quits
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel

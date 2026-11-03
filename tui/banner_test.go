@@ -12,7 +12,7 @@ func bannerLines(version string, files []ContextFile, skills []string, width int
 	return strings.Split(strings.Join(plain(banner(version, files, skills, width)), "\n"), "\n")
 }
 
-const testHints = "esc stop run · ctrl+c clear/twice-quit · / commands · /help full list"
+const testHints = "esc stop run · ctrl+l clear · ctrl+c clear/twice-quit · / commands · /help"
 
 func TestBanner(t *testing.T) {
 	lines := bannerLines("1.2.3", []ContextFile{{Path: "/p/AGENTS.md", Loaded: true}}, []string{"a", "b", "c"}, 80)

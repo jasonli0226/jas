@@ -331,6 +331,14 @@ func TestChat_HelpMentionsGrantScope(t *testing.T) {
 	assert.Contains(t, c.printedText(), "covers any arguments to the first two words")
 }
 
+func TestChat_HelpMentionsClearScreen(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.submit("/help")
+	got := c.printedText()
+	assert.Contains(t, got, "Ctrl-L clear the screen (keep session)")
+	assert.Contains(t, got, "start a fresh conversation and clear the screen")
+}
+
 // pendingNew types /new and returns its open command without running it.
 func (c *testChat) pendingNew() tea.Cmd {
 	c.t.Helper()
