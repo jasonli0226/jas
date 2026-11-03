@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jasonli0226/jas/core"
@@ -31,6 +32,7 @@ type activeRun struct {
 	cancel  context.CancelFunc
 	done    chan struct{} // closed when the work returns
 	compact bool          // a /compact, which prints its own result line
+	started time.Time     // when spawn began; drives the loader elapsed
 }
 
 func (m *Model) running() bool { return m.run != nil }
@@ -39,7 +41,7 @@ func (m *Model) running() bool { return m.run != nil }
 // ctx and posts the message it returns.
 func (m *Model) spawn(compact bool, work func(context.Context) tea.Msg) {
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &activeRun{cancel: cancel, done: make(chan struct{}), compact: compact}
+	r := &activeRun{cancel: cancel, done: make(chan struct{}), compact: compact, started: m.o.Now()}
 	m.run = r
 	m.frame = 0 // the loader starts from the first frame
 	send := m.send

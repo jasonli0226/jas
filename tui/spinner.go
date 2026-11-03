@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,7 +39,8 @@ func (m *Model) onTick() tea.Cmd {
 }
 
 // loader is the dim line above the input while a run is active: a braille
-// spinner and what the run is doing. Empty when idle.
+// spinner, what the run is doing, and how long it has been running. Empty
+// when idle.
 func (m *Model) loader() string {
 	if !m.running() {
 		return ""
@@ -47,5 +49,19 @@ func (m *Model) loader() string {
 	if m.tr.thinking {
 		what = "thinking…"
 	}
-	return dimStyle.Render(string(spinnerFrames[m.frame]) + " " + what)
+	elapsed := formatElapsed(m.o.Now().Sub(m.run.started))
+	return dimStyle.Render(fmt.Sprintf("%c %s %s", spinnerFrames[m.frame], what, elapsed))
+}
+
+// formatElapsed shortens a run duration for the loader: "3s", "1m 05s".
+// Sub-second values round down to 0s; negative durations clamp to 0.
+func formatElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	secs := int(d / time.Second)
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	return fmt.Sprintf("%dm %02ds", secs/60, secs%60)
 }
