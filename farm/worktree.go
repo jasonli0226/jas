@@ -67,9 +67,13 @@ func (w *Worktrees) Create(ctx context.Context, part, base string, deps []string
 	return path, branch, nil
 }
 
-// populate sets up excludes and merges the dep branches into the new worktree.
+// populate sets up excludes and the worker's TMPDIR, then merges the dep
+// branches into the new worktree.
 func (w *Worktrees) populate(ctx context.Context, path, part string, deps []string) error {
 	if err := w.ensureExclude(ctx); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(path, filepath.FromSlash(tmpRel)), 0o755); err != nil {
 		return err
 	}
 	for _, dep := range deps {
@@ -235,10 +239,7 @@ func (w *Worktrees) RunSetup(ctx context.Context, path string) (core.CheckResult
 	if strings.TrimSpace(w.Setup) == "" {
 		return core.CheckResult{}, nil
 	}
-	tmp := filepath.Join(path, filepath.FromSlash(tmpRel))
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
-		return core.CheckResult{}, err
-	}
+	tmp := filepath.Join(path, filepath.FromSlash(tmpRel)) // made by Create
 	env := append(tools.ShellEnv(nil), "TMPDIR="+tmp, "GIT_CONFIG_NOSYSTEM=1")
 	res := core.RunCheck(ctx, core.CheckSpec{Cmd: w.Setup, Dir: path, Env: env, MaxOutput: setupMaxBytes}, tools.RunShell)
 	if res.ExitCode != 0 {

@@ -14,6 +14,8 @@ const (
 	EvOwnerDecision    = "owner_decision"
 	EvIntegrateStarted = "integrate_started"
 	EvIntegrateEnded   = "integrate_ended"
+	EvPartCheck        = "part_check"      // check run on a part's worktree before it is done
+	EvIntegrateCheck   = "integrate_check" // check run after a clean merge, before the verdict
 	EvCheckRan         = core.EvCheckRan
 	EvBudgetStop       = core.EvBudgetStop
 	EvFarmEnded        = "farm_ended"

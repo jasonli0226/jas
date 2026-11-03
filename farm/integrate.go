@@ -86,7 +86,12 @@ func Integrate(ctx context.Context, s *Supervisor, done []string) (branch string
 		return branch, err
 	}
 	if len(conflicts) > 0 {
-		if err := s.runIntegrator(ctx, path, leaves, conflicts); err != nil {
+		if err := s.runIntegrator(ctx, path, leaves, conflicts, nil); err != nil {
+			return branch, err
+		}
+	} else if chk, ok := s.integrateCheck(ctx, path); !ok {
+		// A clean merge can still break at the seams: the integrator fixes it.
+		if err := s.runIntegrator(ctx, path, leaves, nil, &chk); err != nil {
 			return branch, err
 		}
 	}
@@ -179,9 +184,22 @@ func (s *Supervisor) integratorRoleFor() (Role, []string, error) {
 	return role, owns, nil
 }
 
-// runIntegrator runs the integrator session over the conflicting merges and
-// commits whatever it left staged or resolved.
-func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []string, conflicts []conflict) error {
+// integrateCheck runs check on a cleanly merged integrate worktree and logs
+// integrate_check. ok is true when it passed or no check is set.
+func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.CheckResult, bool) {
+	if strings.TrimSpace(s.Cfg.Check) == "" {
+		return core.CheckResult{}, true
+	}
+	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.Check, path), tools.RunShell)
+	s.event(EvIntegrateCheck, map[string]any{"exit_code": res.ExitCode,
+		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
+	return res, res.ExitCode == 0 && !res.TimedOut
+}
+
+// runIntegrator runs the integrator session over the conflicting merges, or
+// over a clean merge whose check failed, and commits whatever it left staged
+// or resolved.
+func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []string, conflicts []conflict, failing *core.CheckResult) error {
 	role, owns, err := s.integratorRoleFor()
 	if err != nil {
 		return err
@@ -220,7 +238,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	s.setIntegrator(func(ps *PartState) { ps.SessionID, ps.Log = sid, logPath })
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
 	defer cancel()
-	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts))
+	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts, failing))
 	end := classifyTurn(integratePart, res, map[string]bool{poolFarm: true}, ctx.Err() != nil)
 	if sendErr != nil && end.kind == endDone {
 		end = failed(integratePart, ReasonError, core.ExitFailure, sendErr.Error())
@@ -350,9 +368,10 @@ func IntegratorPrompt(plan Plan, role Role, base, branch, check string) string {
 	return b.String()
 }
 
-// integratorMessage lists the conflicting merges, the plan's contracts and
-// interfaces, and every board post (delivered or not).
-func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict) string {
+// integratorMessage lists the conflicting merges (or the failing check after
+// a clean merge), the plan's contracts and interfaces, and every board post
+// (delivered or not).
+func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict, failing *core.CheckResult) string {
 	var b strings.Builder
 	var clean []string
 	for _, id := range leaves {
@@ -363,9 +382,16 @@ func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict) st
 	if len(clean) > 0 {
 		fmt.Fprintf(&b, "Already merged cleanly: %s\n\n", strings.Join(clean, ", "))
 	}
-	b.WriteString("Merge these branches in order; each conflicted when merged automatically:\n")
-	for _, c := range conflicts {
-		fmt.Fprintf(&b, "- %s (part %s): conflicts in %s\n", c.branch, c.part, strings.Join(c.files, ", "))
+	if len(conflicts) > 0 {
+		b.WriteString("Merge these branches in order; each conflicted when merged automatically:\n")
+		for _, c := range conflicts {
+			fmt.Fprintf(&b, "- %s (part %s): conflicts in %s\n", c.branch, c.part, strings.Join(c.files, ", "))
+		}
+	}
+	if failing != nil {
+		fmt.Fprintf(&b, "Every branch merged cleanly, but the check `%s` fails on the merged tree (exit %d). "+
+			"Fix the seams so it passes, then commit.\n\nOutput (tail):\n```\n%s\n```\n",
+			s.Cfg.Check, failing.ExitCode, strings.TrimSpace(failing.Output))
 	}
 	if c := strings.TrimSpace(s.Plan.Contracts); c != "" {
 		fmt.Fprintf(&b, "\nContracts:\n%s\n", c)
@@ -389,14 +415,7 @@ func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict) st
 // Verdict runs the farm's check in dir (the integrate worktree) with
 // per_worker_timeout, logs check_ran and records the result in the manifest.
 func Verdict(ctx context.Context, s *Supervisor, dir string) core.CheckResult {
-	tmp := filepath.Join(dir, filepath.FromSlash(tmpRel))
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
-		s.noteErr(err)
-	}
-	spec := core.CheckSpec{
-		Cmd: s.Cfg.Check, Dir: dir, Timeout: s.Cfg.Budget.PerWorkerTimeout, MaxOutput: checkMaxBytes,
-		Env: append(tools.ShellEnv(nil), "TMPDIR="+tmp, "GIT_CONFIG_NOSYSTEM=1"),
-	}
+	spec := s.checkSpec(s.Cfg.Check, dir)
 	res := core.RunCheck(ctx, spec, tools.RunShell)
 	if err := core.LogCheck(s.Log, spec, res, s.Redact); err != nil {
 		s.noteErr(fmt.Errorf("farm log: %w", err))
@@ -404,6 +423,19 @@ func Verdict(ctx context.Context, s *Supervisor, dir string) core.CheckResult {
 	s.Manifest.Update(func(m *Manifest) { m.Check = &res })
 	s.save()
 	return res
+}
+
+// checkSpec runs cmd in dir (a farm worktree) with its TMPDIR and
+// per_worker_timeout, keeping the tail of the output.
+func (s *Supervisor) checkSpec(cmd, dir string) core.CheckSpec {
+	tmp := filepath.Join(dir, filepath.FromSlash(tmpRel))
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		s.noteErr(err)
+	}
+	return core.CheckSpec{
+		Cmd: cmd, Dir: dir, Timeout: s.Cfg.Budget.PerWorkerTimeout, MaxOutput: checkMaxBytes,
+		Env: append(tools.ShellEnv(nil), "TMPDIR="+tmp, "GIT_CONFIG_NOSYSTEM=1"),
+	}
 }
 
 // farmGitEnv makes git commits in a shell use the farm identity, unsigned.

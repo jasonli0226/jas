@@ -320,3 +320,14 @@ func TestWorktrees_CreateCleansUpAndRetries(t *testing.T) {
 		t.Fatalf("retry: %v", err)
 	}
 }
+
+func TestWorktrees_CreateMakesTmpDir(t *testing.T) {
+	w, base := newRepo(t) // no Setup: the worker's TMPDIR must still exist
+	path, _, err := w.Create(context.Background(), "core", base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(filepath.Join(path, filepath.FromSlash(tmpRel))); err != nil || !fi.IsDir() {
+		t.Fatalf("TMPDIR missing after Create: %v", err)
+	}
+}

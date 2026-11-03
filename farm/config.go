@@ -95,6 +95,7 @@ type RoleDef struct {
 // Config is the merged farm configuration.
 type Config struct {
 	Check     string
+	PartCheck string // run on each part before it is done; "" = off; unset in files = Check
 	Vars      map[string]Var
 	Split     Split
 	Worktree  Worktree
@@ -103,13 +104,16 @@ type Config struct {
 	OnFailure string // drop | abort
 	Models    Models
 	Roles     map[string]RoleDef
+
+	partCheckSet bool // some layer set part_check (possibly to "")
 }
 
 // fileCfg mirrors farm.yaml; pointers distinguish "unset" from zero.
 type fileCfg struct {
-	Check string               `yaml:"check"`
-	Vars  map[string]yaml.Node `yaml:"vars"`
-	Split struct {
+	Check     string               `yaml:"check"`
+	PartCheck *string              `yaml:"part_check"`
+	Vars      map[string]yaml.Node `yaml:"vars"`
+	Split     struct {
 		MaxWorkers    *int  `yaml:"max_workers"`
 		MinParts      *int  `yaml:"min_parts"`
 		DisjointFiles *bool `yaml:"disjoint_files"`
@@ -177,6 +181,9 @@ func LoadConfig(root, home string, projectTrusted bool) (Config, []string, error
 	if v := cfg.Vars["check"]; len(v.Value) > 0 {
 		cfg.Check = v.Value[0]
 	}
+	if !cfg.partCheckSet {
+		cfg.PartCheck = cfg.Check
+	}
 	if err := validate(cfg); err != nil {
 		return Config{}, nil, err
 	}
@@ -223,6 +230,9 @@ func apply(cfg *Config, f fileCfg, vars map[string][]string) error {
 	}
 	if f.Check != "" {
 		vars["check"] = []string{f.Check}
+	}
+	if f.PartCheck != nil {
+		cfg.PartCheck, cfg.partCheckSet = *f.PartCheck, true
 	}
 	set(&cfg.Split.MaxWorkers, f.Split.MaxWorkers)
 	set(&cfg.Split.MinParts, f.Split.MinParts)

@@ -90,9 +90,7 @@ func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty b
 	defer release()
 	var ask func(string, []string) (string, bool)
 	if e.interactive {
-		ask = func(prompt string, _ []string) (string, bool) {
-			return strings.TrimSpace(askLine(ctx, e.stdin, os.Stderr, prompt)), true
-		}
+		ask = farmAsk(ctx, e.stdin, os.Stderr)
 	}
 	code, reason, err := farm.RunFarm(ctx, farm.RunOptions{
 		PlanPath: planPath, Home: e.home, Main: e.root, JSON: jsonOut, AllowDirty: allowDirty,

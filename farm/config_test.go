@@ -127,3 +127,23 @@ func TestLoadConfig_BadInput(t *testing.T) {
 		t.Fatal("want error for unknown key")
 	}
 }
+
+func TestLoadConfig_PartCheckDefaultsToCheck(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	write(t, filepath.Join(home, "farm.yaml"), "check: make test\n")
+	cfg, _, err := LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.PartCheck, "make test")
+}
+
+func TestLoadConfig_PartCheckOverrideAndOff(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	write(t, filepath.Join(home, "farm.yaml"), "check: make test\npart_check: make unit\n")
+	cfg, _, err := LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.PartCheck, "make unit")
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "part_check: \"\"\n")
+	cfg, _, err = LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.PartCheck, "")
+}

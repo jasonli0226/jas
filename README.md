@@ -344,7 +344,10 @@ jas farm vars [--trust-project]             # each farm variable's value and sou
 ```
 
 Farm splits one big task into parts that run in parallel worktrees, then
-merges them behind a `check` gate. **Experimental** until the benchmark gate
+merges them behind a `check` gate. Each part must also pass `part_check`
+(defaults to `check`; `part_check: ""` in `.jas/farm.yaml` turns it off) in
+its own worktree before it counts as done; a failure goes back to the worker
+for one fix round. A clean merge whose `check` fails goes to the integrator. **Experimental** until the benchmark gate
 (farm vs plain `jas run` on wall-clock) lands. Not yet: `farm resume`,
 `researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
 `/farm` (attach and the live board stay [#12](https://github.com/jasonli0226/jas/issues/12)).

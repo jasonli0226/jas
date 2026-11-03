@@ -564,3 +564,83 @@ func TestRunFarm_IntegratorFarmPoolExit7(t *testing.T) {
 		t.Fatalf("integrate_ended %v", ev)
 	}
 }
+
+// brokenCheck fails while any file in the worktree contains BROKEN; it works
+// under sh and cmd alike.
+const brokenCheck = "git grep -q --untracked BROKEN && exit 1 || exit 0"
+
+func TestRunFarm_PartCheckFailureGetsOneFixRound(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "BROKEN\n"), final("a done"), writeCall("a/x.txt", "ok\n"), final("a fixed")}
+	})
+	r.opts.Cfg.PartCheck = brokenCheck
+	code, reason := r.run(context.Background())
+	if code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(""))
+	}
+	var codes []any
+	for _, ev := range r.events(EvPartCheck) {
+		if ev["part"] == "a" {
+			codes = append(codes, ev["exit_code"])
+		}
+	}
+	if fmt.Sprint(codes) != "[1 0]" {
+		t.Fatalf("part a checks %v", codes)
+	}
+	br := branchPrefix + r.farmID() + "/a"
+	if got, _ := r.git("show", br+":a/x.txt"); got != "ok" {
+		t.Fatalf("a/x.txt on part branch = %q", got)
+	}
+}
+
+func TestRunFarm_PartCheckStillFailingFailsPart(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "BROKEN\n"), final("a done"), final("tried")}
+	})
+	r.opts.Cfg.PartCheck = brokenCheck
+	code, _ := r.run(context.Background())
+	if code != core.ExitUnmet {
+		t.Fatalf("exit %d", code)
+	}
+	ended := r.events(EvPartEnded)
+	var got string
+	for _, ev := range ended {
+		if ev["part"] == "a" {
+			got = fmt.Sprint(ev["status"], " ", ev["reason"])
+		}
+	}
+	if got != "failed check" {
+		t.Fatalf("part a ended %q; events %v", got, ended)
+	}
+}
+
+func TestRunFarm_CleanMergeFailingCheckGoesToIntegrator(t *testing.T) {
+	var intMsg string
+	r := newRunRig(t, brokenCheck, twoParts(), func(ws WorkerSession) []fake.Turn {
+		switch ws.Part.ID {
+		case "a":
+			return writes(map[string]string{"a/x.txt": "BROKEN\n"}, "a done")
+		case "b":
+			return twoWriters(ws)
+		}
+		intMsg = ws.System
+		commit, _ := json.Marshal(map[string]string{"command": "git add -A && git commit --no-verify -q -m fix"})
+		return []fake.Turn{writeCall("a/x.txt", "ok\n"), call("shell", string(commit)), final("fixed a/x.txt")}
+	})
+	code, reason := r.run(context.Background())
+	if code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(""))
+	}
+	if intMsg == "" {
+		t.Fatal("integrator never ran")
+	}
+	if ev := r.last(EvIntegrateCheck); ev["exit_code"] != float64(1) {
+		t.Fatalf("integrate_check %v", ev)
+	}
+}

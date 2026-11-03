@@ -116,7 +116,11 @@ jas farm clean [--branches]
 jas farm vars
 ```
 
-Roles: `coder` writes its part, `tester` adds tests. Budgets cover each part
+Roles: `coder` writes its part, `tester` adds tests. A part is done only when
+`part_check` (default: `check`; `part_check: ""` turns it off) passes in its
+worktree; a failure gets one fix round. A clean merge whose `check` fails is
+handed to the integrator. At the failure prompt, answer `retry`, `drop` or
+`abort` (or a prefix); anything else is asked again. Budgets cover each part
 and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
 `--json` works throughout; `manifest.json` records the run. Experimental
 until the farm-vs-`jas run` benchmark lands.
