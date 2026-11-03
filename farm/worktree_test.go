@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jasonli0226/jas/core"
 )
 
 func mustGit(t *testing.T, g GitRunner, dir string, args ...string) string {
@@ -116,7 +119,6 @@ func TestWorktrees_CommitIdentityAndTrailers(t *testing.T) {
 	ctx := context.Background()
 	p, _, _ := w.Create(ctx, "core", base, nil)
 	writeFile(t, filepath.Join(p, "b.txt"), "b\n")
-	writeFile(t, filepath.Join(p, ".jas", "tmp", "junk"), "j\n")
 	sha, err := w.Commit(ctx, p, "core", "feat: b")
 	if err != nil {
 		t.Fatal(err)
@@ -327,8 +329,31 @@ func TestWorktrees_CreateMakesTmpDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(filepath.Join(path, filepath.FromSlash(tmpRel))); err != nil || !fi.IsDir() {
+	tmp := TmpDir(path)
+	if fi, err := os.Stat(tmp); err != nil || !fi.IsDir() {
 		t.Fatalf("TMPDIR missing after Create: %v", err)
+	}
+	// Inside a git checkout, t.TempDir() in the project's own tests would
+	// land in a repo; tests that expect a plain temp dir then fail.
+	if within(tmp, path) || within(tmp, w.Main) {
+		t.Fatalf("TMPDIR %s is inside a checkout", tmp)
+	}
+	if err := w.Remove(context.Background(), "core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Fatalf("TMPDIR left after Remove: %v", err)
+	}
+}
+
+func TestWorkerPolicy_TmpDirOutsideWorktree(t *testing.T) {
+	wt := filepath.Join(t.TempDir(), "wt", "f1", "core")
+	p := WorkerPolicy(core.ExecPolicy{}, Role{}, wt)
+	if !slices.Contains(p.Env, "TMPDIR="+TmpDir(wt)) {
+		t.Fatalf("env %v", p.Env)
+	}
+	if within(TmpDir(wt), wt) {
+		t.Fatalf("TmpDir %s inside worktree", TmpDir(wt))
 	}
 }
 

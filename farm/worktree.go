@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	tmpRel        = ".jas/tmp"
-	excludeTmp    = "/.jas/tmp/"       // each worker's TMPDIR, inside its worktree
+	tmpRoot       = "jas-farm"         // under the system temp dir; see TmpDir
 	excludeTrees  = "/.jas/worktrees/" // the default worktree dir, inside main
 	branchPrefix  = "jas/farm/"
 	setupMaxBytes = 32 * 1024
@@ -42,6 +41,13 @@ type Worktrees struct {
 	Deny         func(abs string) bool
 	excludeOnce  sync.Once
 	excludeError error
+}
+
+// TmpDir is the private TMPDIR for a worktree <dir>/<farm-id>/<part>:
+// <system temp>/jas-farm/<farm-id>/<part>. It stays outside every checkout,
+// so temp dirs made by the project's own tests are not inside a git repo.
+func TmpDir(worktree string) string {
+	return filepath.Join(os.TempDir(), tmpRoot, filepath.Base(filepath.Dir(worktree)), filepath.Base(worktree))
 }
 
 // Branch returns the branch name for a part.
@@ -74,7 +80,7 @@ func (w *Worktrees) populate(ctx context.Context, path, part string, deps []stri
 	if err := w.ensureExclude(ctx); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(path, filepath.FromSlash(tmpRel)), 0o755); err != nil {
+	if err := os.MkdirAll(TmpDir(path), 0o700); err != nil {
 		return err
 	}
 	for _, dep := range deps {
@@ -119,7 +125,7 @@ func (w *Worktrees) ensureExclude(ctx context.Context) error {
 			have[strings.TrimSpace(l)] = true
 		}
 		var add []byte
-		for _, l := range []string{excludeTmp, excludeTrees} {
+		for _, l := range []string{excludeTrees} {
 			if !have[l] {
 				add = append(add, l+"\n"...)
 			}
@@ -248,7 +254,7 @@ func (w *Worktrees) RunSetup(ctx context.Context, path string) (core.CheckResult
 	if strings.TrimSpace(w.Setup) == "" {
 		return core.CheckResult{}, nil
 	}
-	tmp := filepath.Join(path, filepath.FromSlash(tmpRel)) // made by Create
+	tmp := TmpDir(path) // made by Create
 	env := append(tools.ShellEnv(nil), "TMPDIR="+tmp, "GIT_CONFIG_NOSYSTEM=1")
 	res := core.RunCheck(ctx, core.CheckSpec{Cmd: w.Setup, Dir: path, Env: env, MaxOutput: setupMaxBytes}, tools.RunShell)
 	if res.ExitCode != 0 {
@@ -283,6 +289,7 @@ func (w *Worktrees) Commit(ctx context.Context, path, part, msg string) (string,
 // Remove deletes the part's worktree; its branch is kept.
 func (w *Worktrees) Remove(ctx context.Context, part string) error {
 	_, err := w.Git.Run(ctx, w.Main, "worktree", "remove", "--force", w.Path(part))
+	_ = os.RemoveAll(TmpDir(w.Path(part)))
 	return err
 }
 

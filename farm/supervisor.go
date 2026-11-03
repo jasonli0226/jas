@@ -59,7 +59,12 @@ type Supervisor struct {
 	Policy    core.ExecPolicy // base worker policy; see WorkerPolicy
 	Approvals *Approvals      // nil: no TTY, approval level never unless a role sets one
 	Redact    func(string) string
-	Clock     Clock // rate limiter clock; nil is real time
+	Progress  *Progress // nil: no progress lines (--json, tests)
+
+	// mergeCheck is a passing integrate_check on a clean merge that nothing
+	// changed afterwards; Verdict reuses it instead of running check again.
+	mergeCheck *core.CheckResult
+	Clock      Clock // rate limiter clock; nil is real time
 
 	soft     context.Context
 	stopFlag atomic.Bool // set: workers' next requests are refused

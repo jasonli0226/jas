@@ -2,7 +2,6 @@ package farm
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -73,7 +72,7 @@ func WorkerPolicy(base core.ExecPolicy, role Role, worktree string) core.ExecPol
 	}
 	p.Deny = append(slices.Clone(base.Deny), sessionsDeny)
 	p.Env = append(slices.Clone(base.Env),
-		"TMPDIR="+filepath.Join(worktree, filepath.FromSlash(tmpRel)), "GIT_CONFIG_NOSYSTEM=1")
+		"TMPDIR="+TmpDir(worktree), "GIT_CONFIG_NOSYSTEM=1")
 	return p
 }
 

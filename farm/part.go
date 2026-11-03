@@ -150,10 +150,11 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 		name = fmt.Sprintf("events-%d.jsonl", attempt)
 	}
 	logPath := filepath.Join(s.Dir, partsDir, id, name)
-	log, err := core.OpenEventLog(logPath, nil, s.Redact)
+	flog, err := core.OpenEventLog(logPath, nil, s.Redact)
 	if err != nil {
 		return err
 	}
+	log := s.Progress.workerLog(id, flog)
 	w.log = log
 	sid := core.NewSessionID(time.Now())
 	gate, err := s.gate(id, w.role.Approve)

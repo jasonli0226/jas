@@ -335,8 +335,8 @@ worktree:
   copy: [".env.test"]     # gitignored files copied in (deny floor still applies)
   setup: "go mod download" # run once per worktree before the worker starts
 budget:
-  per_worker_tokens: 400000
-  farm_tokens: 1500000
+  per_worker_tokens: 1500000 # cached prompt prefix counts in full; raised after dogfood run 2
+  farm_tokens: 5000000
   max_output_tokens: 16000 # sent as max_tokens on every request; the gate's output bound
   integrator_reserve: 0.2  # fraction of farm_tokens held back for the integrator
   per_worker_timeout: 30m
@@ -655,7 +655,9 @@ sections** instead of free text:
   copied unless the owner's deny overrides allow it — they don't by default).
 - `worktree.setup` runs once per worktree (logged, with its exit code) before
   the worker starts; failure fails the part.
-- Each worker gets its own `TMPDIR` (`<worktree>/.jas/tmp`) and
+- Each worker gets its own `TMPDIR` (`<system temp>/jas-farm/<farm-id>/<part-id>`,
+  made with the worktree, removed with it; never inside a checkout, or the
+  project's own tests that expect a plain temp dir fail; dogfood run 2) and
   `GIT_CONFIG_NOSYSTEM=1`; repo hooks do not run on jas's own commits
   (`--no-verify`). Ports and shared services are the project's problem
   (document; sandbox prerequisite).
@@ -691,7 +693,9 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   running. Without a TTY a gated call fails the part (exit 5 in the manifest),
   then `on_failure` applies.
 - Output (`jas farm run`): plain inline lines printed on change (part
-  started / tool / done / failed, tokens) and board posts as they arrive. No
+  started / tool / part_check / done / failed, integrate, check) and board
+  posts as they arrive, e.g. `[core] → shell go test ./core/...`. Without
+  them a long farm looks hung (dogfood run 2). No
   fullscreen (AGENTS.md constraints). In chat, live rows (see Interactive
   mode). With `--json`, see CI contract.
 

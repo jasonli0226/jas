@@ -644,3 +644,40 @@ func TestRunFarm_CleanMergeFailingCheckGoesToIntegrator(t *testing.T) {
 		t.Fatalf("integrate_check %v", ev)
 	}
 }
+
+func TestRunFarm_PrintsProgress(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	if code, reason := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d %s", code, reason)
+	}
+	out := r.stdout.String()
+	for _, want := range []string{
+		"[a] started (coder)",
+		"[a] → write a/x.txt",
+		"[b] done",
+		"integrate: merging a, b",
+		"check: passed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("progress lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunFarm_CleanMergeRunsCheckOnce(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	r := newRunRig(t, "echo x>>"+count, twoParts(), twoWriters)
+	if code, reason := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d %s", code, reason)
+	}
+	b, err := os.ReadFile(count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(b), "x"); n != 1 {
+		t.Fatalf("check ran %d times on a clean merge", n)
+	}
+	if ev := r.last(EvCheckRan); ev["exit_code"] != float64(0) {
+		t.Fatalf("check_ran %v", ev)
+	}
+}

@@ -250,7 +250,11 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	log := idLog{EventLog: flog, id: id}
+	var prog *Progress
+	if !o.JSON {
+		prog = NewProgress(o.Stdout, o.Redact)
+	}
+	log := prog.farmLog(idLog{EventLog: flog, id: id})
 	board, err := OpenBoard(filepath.Join(dir, boardFile), o.Redact, o.Cfg.Board)
 	if err != nil {
 		flog.Close()
@@ -265,7 +269,7 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 		Plan: pre.plan, Cfg: o.Cfg, FarmID: id, Dir: dir, Main: o.Main, Git: git, WT: wt, Board: board, Log: log,
 		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA},
 		NewSession: o.NewSession, Ask: o.Ask, Pools: NewPools(o.Cfg), Hard: o.Hard,
-		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact,
+		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact, Progress: prog,
 	}
 	r := &farmRun{o: o, git: git, pre: pre, s: s, log: log, board: board, start: now}
 	s.event(EvFarmStarted, map[string]any{
