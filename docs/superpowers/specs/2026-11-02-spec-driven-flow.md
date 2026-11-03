@@ -70,6 +70,7 @@ approved:                            # written by `jas spec` on approval
 - Pages: /todos
 - API: GET /api/todos, POST /api/todos
 - Owns (hint): server/api/todos/**, web/pages/todos/**
+- Blast radius: medium   # optional; farm planner inherits onto covering parts (farm design, Blast radius)
 - Acceptance criteria:
   - AC-todos-1: a signed-in user sees only their todos (test: tests/e2e/todos.spec.ts "lists own todos")
   - AC-todos-2: empty title is rejected with 422
@@ -465,7 +466,9 @@ the ones proposed in these specs; payloads are abbreviated.
 ## Relation to other specs
 
 - **Farm:** `jas farm plan --spec` splits by feature sections; see the farm
-  spec's "Spec-driven planning" and "Web app from zero".
+  spec's "Spec-driven planning" and "Web app from zero". Optional per-feature
+  `Blast radius:` is inherited onto covering plan parts (farm design, Blast
+  radius; after MVP).
 - **Session awareness:** section runs register their sections in the session
   record, so parallel humans/sessions see "F-auth in progress".
 - **Prerequisites:** scaffold and section runs need jas-run `check`

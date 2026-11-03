@@ -64,6 +64,18 @@ Second review (2026-11-02, owner-approved fixes):
   confirmation and leaves a commit trailer; planner input is an editable,
   visible task description.
 
+Third update (2026-11-03, Asia/Tokyo; owner-requested after the Rob Shocks
+orchestrator/worker video and the research doc's "verification beats debate"
+finding):
+
+- **Blast-radius tags** on plan parts (and optionally on spec feature
+  sections): `low | medium | high`. They drive keep/merge policy and are
+  recorded in `manifest.json` and farm events. After MVP; see Blast radius.
+- **Post-integrate `fuzz` role**, distinct from the LLM `reviewer`: an
+  optional automated hammer (the project's fuzz/e2e script against the
+  integrated tree) that can fail the farm with reason `fuzz_failed`. After
+  MVP; see Post-integrate steps and Roles.
+
 ## Positioning
 
 Farm is **not** "better than one agent". The evidence says the opposite for
@@ -105,7 +117,9 @@ jas farm run plan.yaml
       workers post typed commitments to a board
   → integrator agent merges branches, fixes seams     (LLM)
   → supervisor runs `check` — the verdict             (code)
-  → owner decides what happens to the integrated branch (human; no TTY = keep)
+  → (after MVP) optional fuzz on the integrated tree  (role + command)
+  → owner decides what happens to the integrated branch (human; no TTY = keep;
+      blast-radius policy may require an extra confirm)
 ```
 
 `jas farm "<task>"` is a thin interactive wrapper over the two commands.
@@ -130,7 +144,7 @@ needed: drafting the plan, doing a part, fixing merge seams.
    CI-first; `jas farm "<task>"` for one terminal.
 2. A planner agent drafts the plan; the owner reviews it before any worker
    starts. The planner **refuses by default** unless a split clearly helps.
-3. Roles (coder, tester, researcher, reviewer built in) define each worker's
+3. Roles (coder, tester, researcher, reviewer, fuzz built in) define each worker's
    tools, write limits, prompt, model and budget. Roles are data.
 4. Workers communicate one way through a **typed** board of commitments.
 5. The supervisor, not a model, decides success by running `check`.
@@ -142,7 +156,8 @@ needed: drafting the plan, doing a part, fixing merge seams.
 - **Best-of-N.** Dropped from the roadmap.
 - **Discussion / debate mode.** Replaced by an optional `reviewer` part in the
   next version (see Next version). Debate rarely beats self-consistency at
-  equal compute (*research*, "Evidence").
+  equal compute (*research*, "Evidence"). A post-integrate `fuzz` step is
+  also planned (automated check, not debate); it is not discussion mode.
 - **Free agent-to-agent conversation.** The board is typed one-way posts.
 - **`jas attach` from another terminal over a Unix socket, RPC mode, any
   fullscreen dashboard.** Later versions. Running a farm from inside the
@@ -181,12 +196,15 @@ The spec describes the full farm. The **first shippable version** is:
 
 **After MVP**, in this order: `researcher`/`reviewer` roles and
 `jas farm init`; resume (`jas farm resume`) and take-over; spec-driven
-planning (`--spec`); interactive mode (`/farm`). Prerequisites 1, 2, 4 and 6
+planning (`--spec`); interactive mode (`/farm`); **blast-radius tags**
+(policy + log/manifest fields) and the post-integrate **`fuzz` role**
+(alongside, not instead of, `reviewer`). Prerequisites 1, 2, 4 and 6
 (event-log schema, provider fidelity, OS sandbox, and session-awareness
 steps 2–3) remain bet-order work that farm benefits from; MVP does not wait
 for them, but the
 README marks farm experimental until they and the benchmark gate land.
-**(owner-approved, 2026-11-02 review)**
+**(owner-approved, 2026-11-02 review; blast-radius + fuzz owner-requested
+2026-11-03)**
 
 ## Prerequisites and benchmark gate
 
@@ -271,6 +289,7 @@ instructions).
 check: "go build ./... && go test ./..."   # required; supervisor runs it
 vars:
   test_globs: ["*_test.go"]
+  fuzz_command: ""            # optional; e.g. "npx playwright test" — enables fuzz role
   migrations_dir: db/migrations
 split:
   max_workers: 3          # default 3; 2 is fine; >4 warns
@@ -325,6 +344,7 @@ A small fixed set of built-in names, plus owner-defined names under `vars:`.
 | `src_globs` | non-test source patterns |
 | `build` | build command (optional) |
 | `lint` | lint command (optional) |
+| `fuzz_command` | post-integrate fuzz/e2e command (optional; after MVP) |
 
 Resolution, highest wins: project `vars:` → user `vars:` → detection → unset.
 Detection is deterministic (no LLM), from marker files:
@@ -360,7 +380,8 @@ whole-role replacement **(author's call)**).
 | `coder` | read, grep, write, edit, shell | the part's `owns` | default role |
 | `tester` | read, grep, write, edit, shell | paths matching **both** `${test_globs}` and `owns` | "Write and fix tests only; if non-test code must change, post `blocked`." Unavailable if `test_globs` unset. |
 | `researcher` | read, grep (+ web tools once shipped, design §12.1) | none | output: `interface`/`note` posts and its final answer |
-| `reviewer` | read, grep | none | clean context, may use a different/cheaper model; output: findings in its final answer |
+| `reviewer` | read, grep | none | LLM, clean context, may use a different/cheaper model; output: findings in its final answer. After MVP. |
+| `fuzz` | read, grep, ls, shell | none | **Post-integrate only** (not a parallel DAG part). Runs `${fuzz_command}` (or the role prompt's script) against the integrated tree; reports via final answer + board `note`. Unavailable if `fuzz_command` unset. Distinct from supervisor `check` and from LLM `reviewer`. After MVP. |
 
 Rust and similar: when a tester cannot be limited by `test_globs`, the planner
 gives it the coder's `owns` and orders it `after` that coder.
@@ -403,22 +424,27 @@ parts:
   - id: research
     role: researcher
     goal: "Find slog idioms and gotchas for this codebase; post findings."
+    blast_radius: low            # optional; see Blast radius (after MVP)
   - id: core
     role: coder
     goal: "Migrate core/ to slog."
     owns: ["core/**"]
     after: [research]
+    blast_radius: medium
   - id: cli
     role: coder
     goal: "Migrate cmd/ to slog."
     owns: ["cmd/**"]
     after: [research]
+    blast_radius: medium
   - id: tests-core
     role: tester
     goal: "Update core tests for the new log output."
     owns: ["core/**"]
     after: [core]
+    blast_radius: low
 shared: ["go.mod", "go.sum"]   # owned by the integrator only
+post_integrate: [fuzz]         # optional; after MVP — see Post-integrate steps
 why_split: "4 packages, no shared files beyond go.mod; ~2x wall-clock expected"
 proposed_roles: {}
 approved:                # written by `jas farm plan` on owner approval
@@ -466,12 +492,51 @@ normal, cheap outcome, not an error.
 - A plan that fails validation goes back to the planner once with the errors;
   a second failure is shown to the owner (or exits 2 without a TTY).
 
+### Blast radius (after MVP)
+
+Optional tag on each plan part: `blast_radius: low | medium | high`
+**(author's call on the enum)**. Omitted parts default to `medium`
+**(author's call)**. The tag is advisory for the planner and **policy for
+the supervisor** after the verdict path.
+
+**Spec-driven inheritance.** When planning from a spec, a feature section may
+declare the same tag (see spec-driven-flow). The planner copies a section's
+tag onto every writing part that covers it. A part that covers several
+sections takes the **max** severity. A part may **raise** severity above its
+sections' max (e.g. the planner knows the change hits auth wiring); it may
+**not lower** it. Validation fails if a section tagged `high` is covered only
+by parts that omit the field (inheritance must materialize the tag).
+
+**Policy** **(author's call)**:
+
+| tag | after supervisor `check` (and fuzz, if any) passes |
+|---|---|
+| `low` | keep and merge choices same as today (interactive offers merge; no-TTY = keep). |
+| `medium` | interactive: short confirm before merge is offered (`merge medium-blast? y/n`). CI / no-TTY: always **keep** (unchanged). `--accept-medium-blast` records owner acknowledgment on `farm_ended` / the manifest for humans and PR bots; it does **not** enable auto-merge (auto-merge remains forbidden without a TTY). |
+| `high` | never treat as routine: interactive still requires a typed `merge high-blast` confirm even when check passes; CI / no-TTY stays at keep with `blast_gate: high` recorded. The gate is always logged. |
+
+**Recorded fields.** Each part's tag is written into `manifest.json` under
+that part. `part_started` carries `blast_radius`; `farm_ended` carries
+`blast_radius_max` (the max over required writing parts) and, when a gate
+applied, `blast_gate: medium|high`. Aggregate max uses `low < medium < high`.
+
+**Planner guidance (prompt, not a hard code rule).** If the task clearly
+touches auth, payments, secrets, or destructive data paths and the draft
+would tag every writing part `low`, the planner should refuse
+(`unclear_task` or a future `under_tagged_blast`) or force at least one
+`high` part. Code may later warn when `owns` globs match well-known sensitive
+paths (`**/auth/**`, `**/billing/**`, …) and every tag is `low`; that warning
+is left to the builder.
+
+MVP ignores unknown `blast_radius` fields (forward compatible) and does not
+enforce the policy.
+
 ### Review
 
 The owner sees a summary (parts, roles, owns, shared, order, contracts,
-interfaces, proposed roles, `why_split`) and chooses: **approve** (writes
-`approved:`), **edit** (opens `$EDITOR`, re-validates), **replan** with
-feedback, or **quit**.
+interfaces, proposed roles, `why_split`, blast-radius tags when present) and
+chooses: **approve** (writes `approved:`), **edit** (opens `$EDITOR`,
+re-validates), **replan** with feedback, or **quit**.
 
 ### Plan trust in CI
 
@@ -503,7 +568,9 @@ sections** instead of free text:
   their acceptance criteria (`AC-…`) and the section's owned-path hints as
   its `owns` (the planner may narrow, never widen, a hint without saying why
   in `why_split`). The plan records `spec: {path, sha256, sections}`, so the
-  approved plan hash pins the spec hash too.
+  approved plan hash pins the spec hash too. After MVP, a section may declare
+  `blast_radius`; the planner inherits it onto covering parts (see Blast
+  radius).
 - The spec's Data model and API contract become plan `contracts` and
   `interfaces` verbatim. Generated clients, schema files and manifests
   (`package.json`, `go.mod`, lockfiles) go to `shared:` (integrator-owned).
@@ -604,7 +671,7 @@ steps).
   | `interface` | `name`, `shape`, `note` | a signature/insertion point others rely on |
   | `blocked` | `on` (part or `shared:<path>`), `need` | needs a change it may not make |
   | `done` | `summary`, `diffstat` | auto-posted by the supervisor at part completion |
-  | `note` | `text` | researcher/reviewer findings only |
+  | `note` | `text` | researcher/reviewer/fuzz findings only |
 
   Text fields are capped (`board.post_chars`, ~500). Every post passes through
   the same redactor as `events.jsonl` before it is stored, printed or
@@ -673,9 +740,57 @@ Then the **supervisor runs `check`** in the integrate worktree (with
 is the verdict and drives the exit code.
 
 Final choice: with a TTY the owner picks **merge** (into the branch they
-started on), **keep** (e.g. open a PR themselves) or **discard**. Without a
+started on), **keep** (e.g. open a PR themselves) or **discard**, subject to
+blast-radius policy when that ships (see Blast radius). Without a
 TTY the choice is always **keep**. Worktrees are removed after the choice;
 branches stay unless discarded.
+
+### Post-integrate steps (after MVP)
+
+Parallel `parts:` run **before** the integrator. Anything that must see the
+merged tree is a **post-integrate step**, not a DAG part. Declared on the
+plan as:
+
+```yaml
+post_integrate: [fuzz]    # optional list; unknown names are a validation error
+```
+
+A plan part with `role: fuzz` inside `parts:` is a validation error — fuzz is
+scheduled here, not in the DAG.
+
+**Supervisor order after the integrator finishes** **(author's call)**:
+
+1. Integrator completes (merged tree on `jas/farm/<id>/integrate`).
+2. Supervisor runs **`check`** (required; today's verdict).
+3. If `check` passed and `post_integrate` lists `fuzz` and the `fuzz` role is
+   available (`fuzz_command` set): run the **fuzz** step on the same integrate
+   worktree.
+4. Apply blast-radius gate (if tags present), then owner / policy final choice.
+
+Unit/`check` therefore gates expensive e2e. If `check` failed, fuzz is
+skipped and the farm ends with exit 6 / `check_failed` as today.
+
+**Fuzz step.** The supervisor starts a short-lived session with the `fuzz`
+role (read, grep, ls, shell; writes: none) whose goal is to run
+`${fuzz_command}` (or follow the role prompt) against the integrated tree /
+preview surface, then summarize. Preferred path: the role prompt tells the
+agent to invoke the configured command and report exit code + failures; the
+supervisor also records `fuzz_ran{cmd, exit_code, duration, output}` like
+`check_ran`. Non-zero → farm exit **6** with `reason: fuzz_failed` (distinct
+from `check_failed` for audit). Exit 0 → continue to the blast-radius gate /
+final choice.
+
+**Distinct from `check`.** `check` is the owner-required command
+(tests/lint/build) and is always run. Fuzz is optional, agent-or-script
+exploration of edge cases (Playwright, property tests, a project fuzz
+target). **Distinct from `reviewer`.** Reviewer is an LLM read of the diff;
+fuzz is code-driven. A plan may request both (`post_integrate: [fuzz]` plus a
+`reviewer` part — reviewer scheduling is under Next version; if both exist,
+order is integrate → check → fuzz → reviewer **(author's call)**).
+
+Until this ships, `post_integrate` is not implemented: a plan that includes
+it should be rejected at validation (fail closed). Examples in this doc show
+the after-MVP shape.
 
 ## Budgets
 
@@ -737,16 +852,17 @@ never reuse 3/4/5 (those stay per-part, in the manifest).
 | 0 | every required part done and the supervisor's `check` passed | plan written (and approved with a TTY) |
 | 1 | internal, provider-after-retries, or git failure | same |
 | 2 | usage/config error: bad flags, no `check`, invalid or unapproved plan or spec, hash mismatch, dirty tree without `--allow-dirty` | same |
-| 6 | **farm unmet**: `check`/`contract_check` failed, or a part failed/was dropped (also `jas run --spec` scaffold/section when jas's `check` fails) | — |
+| 6 | **farm unmet**: `check`/`contract_check`/fuzz failed, or a part failed/was dropped (also `jas run --spec` scaffold/section when jas's `check` fails) | — |
 | 7 | **budget exceeded**: farm token pool + reserve or `farm_timeout` exhausted (also used by `jas run --max-tokens/--timeout`) | planner hit its budget |
 | 8 | — | **planner refused** to split (suggests `jas run`), with or without a TTY; also `jas farm "<task>"` when the planner refuses (no workers start) |
 | 130 | interrupted | interrupted |
 
 The same code appears in `farm_ended`, always with a `reason`, because one
 code covers several causes: 6 → `check_failed` | `contract_check_failed` |
-`part_failed` | `part_dropped` | `criteria_unmet`; 7 → `tokens` | `timeout`;
-8 → the refusal reason (`small_change`, …). `manifest.json` repeats it.
-design §3's table gains rows 6, 7, 8.
+`fuzz_failed` | `part_failed` | `part_dropped` | `criteria_unmet`; 7 →
+`tokens` | `timeout`; 8 → the refusal reason (`small_change`, …).
+`manifest.json` repeats it. design §3's table gains rows 6, 7, 8.
+`fuzz_failed` is after MVP; until then the reason set is unchanged.
 
 ### `--json`
 
@@ -755,17 +871,20 @@ worker events). Each farm event carries `farm_id`; worker detail is linked by
 `session_id` and log path. Event types (versioned per design §3):
 `farm_plan_refused` (planner log; reason, suggest), `farm_started` (plan hash,
 spec hash, base, roles digest, config digest, trust decision), `farm_resumed`,
-`part_started`, `part_setup`, `part_ended` (status, exit code, tokens,
-diffstat), `board_posted`, `board_delivered`, `owner_decision`,
-`integrate_started`, `integrate_ended`, `check_ran`, `budget_stop`,
-`farm_ended` (exit code, reason, totals).
+`part_started` (includes `blast_radius` when set), `part_setup`,
+`part_ended` (status, exit code, tokens, diffstat), `board_posted`,
+`board_delivered`, `owner_decision`, `integrate_started`, `integrate_ended`,
+`check_ran`, `fuzz_ran` (after MVP; same shape as `check_ran`),
+`budget_stop`, `farm_ended` (exit code, reason, totals, `blast_radius_max`,
+optional `blast_gate`).
 
 ### `manifest.json`
 
 Written atomically (temp + rename) on every part transition, under a lock:
 farm id, plan hash, base, per part {role, branch, worktree, session id, log
-path, status, exit code, tokens, diffstat, failure reason}, integrator result,
-`check` result, final choice, totals. `jas farm status` and CI read it.
+path, status, exit code, tokens, diffstat, failure reason, `blast_radius`},
+integrator result, `check` result, optional `fuzz` result, `blast_radius_max`,
+optional `blast_gate`, final choice, totals. `jas farm status` and CI read it.
 
 ## Interactive mode
 
@@ -932,17 +1051,34 @@ are recorded the same way with `by: "policy:…"`.
   integrated diff against the plan; its findings go to the integrator for one
   fix round or to the owner. This is the shipped shape of "many agents
   propose, one answer" (parallel finders → verify → single writer;
-  *research*, "Fit for jas").
+  *research*, "Fit for jas"). LLM findings only — not a substitute for fuzz.
+- **Blast-radius tags** (see Blast radius): `low|medium|high` on parts /
+  spec sections; keep/merge policy; `manifest` + `part_started` /
+  `farm_ended` fields; planner prompt guidance for auth/payments/secrets.
+  Sourced from the Rob Shocks orchestrator video (blast radius / never-merge
+  starter rule) plus owner request 2026-11-03.
+- **Post-integrate `fuzz` role** (see Post-integrate steps): optional
+  `post_integrate: [fuzz]`; supervisor order integrate → check → fuzz;
+  `fuzz_command` variable; `fuzz_ran` event; exit 6 / `fuzz_failed`.
+  Automated hammer (Playwright / edge-case script), not debate — matches
+  *research* that parallel read-only verification works. Distinct from
+  `reviewer` and from required `check`.
 - `jas attach` from another terminal over a Unix socket, approval inbox
   across farms.
 
 ## Left to the builder
 
-- Planner and integrator prompt wording.
-- Status-line and live-row format.
+- Planner and integrator prompt wording (including blast-radius guidance for
+  auth/payments/secrets, and the fuzz role prompt that prefers running
+  `${fuzz_command}` over improvising).
+- Status-line and live-row format (blast-radius column optional).
 - How detection walks a monorepo.
 - The small-change threshold for `small_change` refusals (tune with the
   benchmark gate).
+- Whether well-known sensitive path globs emit a soft warning when every
+  part is tagged `low` (prompt-only vs code warn).
+- Exact UX copy for medium/high merge confirms and whether `--accept-medium-blast`
+  is also accepted on interactive `jas farm run`.
 
 ## Docs to update when this ships
 
