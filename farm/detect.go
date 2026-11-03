@@ -1,8 +1,6 @@
 package farm
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,7 +10,8 @@ import (
 	"strings"
 )
 
-const repoIDHexLen = 12
+// InRepoWorktrees is the default worktree dir, relative to the main checkout.
+const InRepoWorktrees = ".jas/worktrees"
 
 func exists(root, name string) bool {
 	_, err := os.Stat(filepath.Join(root, name))
@@ -45,23 +44,19 @@ func Detect(root string) map[string][]string {
 }
 
 // ResolveWorktreeDir returns the base directory for part worktrees:
-// cfg.Worktree.Dir or <cache>/jas/worktrees/<repo-id>. The result has
-// symlinks resolved and must lie outside the main checkout (and its linked
-// worktrees) and outside jasHome.
+// cfg.Worktree.Dir or <repo>/.jas/worktrees (git-excluded; Go, pytest and tsc
+// skip dot-dirs). The result has symlinks resolved; inside the main checkout
+// (or its linked worktrees) only .jas/worktrees is allowed, and it must lie
+// outside jasHome.
 func ResolveWorktreeDir(cfg Config, mainRoot, jasHome string) (string, error) {
 	root, err := realAbs(mainRoot)
 	if err != nil {
 		return "", fmt.Errorf("repo root: %w", err)
 	}
+	inRepo := filepath.Join(root, filepath.FromSlash(InRepoWorktrees))
 	dir := cfg.Worktree.Dir
 	if dir == "" {
-		base := os.Getenv("XDG_CACHE_HOME")
-		if base == "" {
-			if base, err = os.UserCacheDir(); err != nil {
-				return "", fmt.Errorf("cache dir: %w", err)
-			}
-		}
-		dir = filepath.Join(base, "jas", "worktrees", repoID(root))
+		dir = inRepo
 	}
 	resolved, err := realAbs(dir)
 	if err != nil {
@@ -69,8 +64,8 @@ func ResolveWorktreeDir(cfg Config, mainRoot, jasHome string) (string, error) {
 	}
 	forbidden := append([]string{root}, linkedWorktrees(root)...)
 	for _, f := range forbidden {
-		if within(resolved, f) {
-			return "", fmt.Errorf("worktree dir %s is inside the repo (%s)", resolved, f)
+		if within(resolved, f) && !within(resolved, inRepo) {
+			return "", fmt.Errorf("worktree dir %s is inside the repo (%s); only %s is allowed there", resolved, f, InRepoWorktrees)
 		}
 	}
 	home, err := realAbs(jasHome)
@@ -81,11 +76,6 @@ func ResolveWorktreeDir(cfg Config, mainRoot, jasHome string) (string, error) {
 		return "", fmt.Errorf("worktree dir %s is inside the jas home (%s)", resolved, home)
 	}
 	return resolved, nil
-}
-
-func repoID(absRoot string) string {
-	sum := sha256.Sum256([]byte(absRoot))
-	return hex.EncodeToString(sum[:])[:repoIDHexLen] + "-" + filepath.Base(absRoot)
 }
 
 // within reports whether p equals or is under parent.

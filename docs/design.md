@@ -675,7 +675,7 @@ TUI slash commands.
 ├── scenario.yaml              # runtime rules (§8) — project scope, wins over global
 ├── hooks/                     # project hook scripts
 ├── sessions/                  # session-awareness records, one JSON per live session (git-excluded; proposed)
-└── worktrees/                 # farm worktrees <farm-id>/<part-id> (git-excluded; not under ~/.jas, deny floor)
+└── worktrees/                 # farm worktrees <farm-id>/<part-id> (git-excluded; denied to file tools of sessions in the main checkout)
 
 <project>/AGENTS.md            # loaded in v1 (#8); complements scenario.yaml
 ```
@@ -768,7 +768,7 @@ Persistent config lives in `~/.jas/` and is managed with `jas config` /
 **Session storage** stays simple: `~/.jas/sessions/<id>/events.jsonl` (§3) is
 the whole story — no DB, replay = tail the file. Farm state (v2) lives in
 `~/.jas/farms/<farm-id>/` (plan, supervisor log, board, manifest, one event
-log per part); worktrees live in the user cache dir (`~/.cache/jas/worktrees/`), outside the repo; see the farm spec.
+log per part); worktrees live in the repo's git-excluded `.jas/worktrees/`; see the farm spec.
 
 ## 11. Security acceptance: v1, and project trust
 

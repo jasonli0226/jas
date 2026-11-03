@@ -16,7 +16,8 @@ import (
 
 const (
 	tmpRel        = ".jas/tmp"
-	excludeLine   = "/.jas/tmp/"
+	excludeTmp    = "/.jas/tmp/"       // each worker's TMPDIR, inside its worktree
+	excludeTrees  = "/.jas/worktrees/" // the default worktree dir, inside main
 	branchPrefix  = "jas/farm/"
 	setupMaxBytes = 32 * 1024
 )
@@ -99,7 +100,7 @@ func (w *Worktrees) discard(path, branch string) {
 	_, _ = w.Git.Run(ctx, w.Main, "branch", "-D", branch)
 }
 
-// ensureExclude adds /.jas/tmp/ to the shared info/exclude once.
+// ensureExclude adds the farm's lines to the shared info/exclude once.
 func (w *Worktrees) ensureExclude(ctx context.Context) error {
 	w.excludeOnce.Do(func() {
 		out, err := w.Git.Run(ctx, w.Main, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
@@ -113,10 +114,18 @@ func (w *Worktrees) ensureExclude(ctx context.Context) error {
 			w.excludeError = err
 			return
 		}
+		have := map[string]bool{}
 		for _, l := range strings.Split(string(data), "\n") {
-			if strings.TrimSpace(l) == excludeLine {
-				return
+			have[strings.TrimSpace(l)] = true
+		}
+		var add []byte
+		for _, l := range []string{excludeTmp, excludeTrees} {
+			if !have[l] {
+				add = append(add, l+"\n"...)
 			}
+		}
+		if len(add) == 0 {
+			return
 		}
 		if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
 			data = append(data, '\n')
@@ -125,7 +134,7 @@ func (w *Worktrees) ensureExclude(ctx context.Context) error {
 			w.excludeError = err
 			return
 		}
-		w.excludeError = os.WriteFile(p, append(data, excludeLine+"\n"...), 0o644)
+		w.excludeError = os.WriteFile(p, append(data, add...), 0o644)
 	})
 	return w.excludeError
 }

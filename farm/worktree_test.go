@@ -331,3 +331,14 @@ func TestWorktrees_CreateMakesTmpDir(t *testing.T) {
 		t.Fatalf("TMPDIR missing after Create: %v", err)
 	}
 }
+
+func TestWorktrees_CreateExcludesInRepoWorktrees(t *testing.T) {
+	w, base := newRepo(t)
+	w.Dir = filepath.Join(w.Main, ".jas", "worktrees") // the default
+	if _, _, err := w.Create(context.Background(), "core", base, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := mustGit(t, w.Git, w.Main, "status", "--porcelain"); out != "" {
+		t.Fatalf("main checkout dirty after Create: %q", out)
+	}
+}

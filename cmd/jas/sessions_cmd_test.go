@@ -66,3 +66,24 @@ func TestCLI_RunPrunesStaleRecords(t *testing.T) {
 		t.Fatalf("stale record not pruned: %v", err)
 	}
 }
+
+func TestCLI_FileToolsDenyFarmWorktrees(t *testing.T) {
+	dir := t.TempDir()
+	wt := filepath.Join(dir, ".jas", "worktrees", "f1", "a")
+	assert.NoErr(t, os.MkdirAll(wt, 0o700))
+	assert.NoErr(t, os.WriteFile(filepath.Join(wt, "x.go"), []byte("package a"), 0o600))
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "read", Args: `{"path":".jas/worktrees/f1/a/x.go"}`}}},
+		{Text: "done"},
+	})
+	env := []string{"JAS_MODEL=m", "JAS_BASE_URL=" + url, "JAS_API_KEY=test-key-0123456789", "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir)}
+	out, _, code := runJasIn(t, dir, env, "run", "--json", "task")
+	assert.Eq(t, code, 0)
+	var result string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, `"type":"tool_result"`) {
+			result = l
+		}
+	}
+	assert.Contains(t, result, "denied")
+}

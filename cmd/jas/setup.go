@@ -85,7 +85,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	}
 	root := core.FindRoot(cwd)
 
-	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home), sessionsDenyPattern}}
+	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home), sessionsDenyPattern, farmWorktreesDenyPattern}}
 	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
 	reportRedactor = red
 	stdin := bufio.NewReader(os.Stdin)
