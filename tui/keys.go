@@ -12,8 +12,8 @@ const (
 	quitHint   = "press Ctrl-C again to quit"
 )
 
-// onKey handles a key press: Enter, Esc, Ctrl-L and Ctrl-C are the chat's
-// own; the rest edit the input.
+// onKey handles a key press: Enter, Esc, Ctrl-L, Ctrl-O and Ctrl-C are the
+// chat's own; the rest edit the input.
 func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.quitting {
 		return nil
@@ -25,6 +25,11 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if k == "ctrl+l" {
 		m.hint = ""
 		return m.clearView()
+	}
+	if k == "ctrl+o" {
+		m.hint = ""
+		m.toggleToolExpand()
+		return nil
 	}
 	if m.picker != nil && m.approval == nil { // an approval prompt comes first
 		return m.onPickerKey(msg)
@@ -39,6 +44,11 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.onEnter()
 	case "esc":
+		if m.toolExpand {
+			m.toolExpand = false
+			m.toolExpandOff = 0
+			return nil
+		}
 		m.approval = nil // the cancelled ctx unblocks the gate
 		if m.run != nil {
 			m.run.cancel()
@@ -47,6 +57,9 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		return m.onCtrlC()
 	case "up", "down":
+		if m.toolExpand && m.scrollToolExpand(k) {
+			return nil
+		}
 		if m.onHistoryKey(k) {
 			return nil
 		}
@@ -119,4 +132,50 @@ func (m *Model) onCtrlC() tea.Cmd {
 	}
 	m.hint = quitHint
 	return nil
+}
+
+// toggleToolExpand opens or closes the live-region full-output panel for the
+// most recent tool result.
+func (m *Model) toggleToolExpand() {
+	if m.toolExpand {
+		m.toolExpand = false
+		m.toolExpandOff = 0
+		return
+	}
+	if m.lastTool.Tool == "" || strings.TrimSpace(m.lastTool.Output) == "" {
+		m.hint = "no tool output to expand"
+		return
+	}
+	m.toolExpand = true
+	m.toolExpandOff = 0
+}
+
+// scrollToolExpand moves the expand panel with Up/Down. ok is false when the
+// panel is closed so the caller can fall through to input history.
+func (m *Model) scrollToolExpand(k string) bool {
+	if !m.toolExpand {
+		return false
+	}
+	lines := strings.Count(strings.TrimRight(m.lastTool.Output, "\n"), "\n") + 1
+	if strings.TrimRight(m.lastTool.Output, "\n") == "" {
+		return true
+	}
+	maxLines := expandMaxLines
+	if m.height > 0 {
+		if room := m.height - 8; room > 4 && room < maxLines {
+			maxLines = room
+		}
+	}
+	maxOff := max(lines-maxLines, 0)
+	switch k {
+	case "up":
+		if m.toolExpandOff > 0 {
+			m.toolExpandOff--
+		}
+	case "down":
+		if m.toolExpandOff < maxOff {
+			m.toolExpandOff++
+		}
+	}
+	return true
 }

@@ -170,6 +170,8 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 	case "ctrl+l":
 		msg = tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl}
+	case "ctrl+o":
+		msg = tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}
 	default:
 		c.t.Fatalf("unknown key %q", k)
 	}
@@ -800,4 +802,42 @@ func TestChat_NoBannerOnResume(t *testing.T) {
 	c.key("enter")
 	assert.Eq(t, c.m.live.Path, first.m.live.Path)
 	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), 1)
+}
+
+func TestChat_ToolPreviewPrintsUnderRow(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.update(eventMsg{gen: c.m.gen, typ: core.EvToolStarted, data: map[string]any{
+		"call_id": "c", "tool": "shell", "args": map[string]any{"command": "seq 3"}}})
+	c.update(eventMsg{gen: c.m.gen, typ: core.EvToolResult, data: map[string]any{
+		"call_id": "c", "tool": "shell", "status": "ok", "output": "1\n2\n3"}})
+	printed := strings.Join(plain(c.m.Printed()), "\n")
+	assert.Contains(t, printed, "▸ shell seq 3 ok")
+	assert.Contains(t, printed, "1\n2\n3")
+	assert.Eq(t, c.m.lastTool.Output, "1\n2\n3")
+}
+
+func TestChat_CtrlOTogglesExpandPanel(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.update(eventMsg{gen: c.m.gen, typ: core.EvToolStarted, data: map[string]any{
+		"call_id": "c", "tool": "shell", "args": map[string]any{"command": "echo hi"}}})
+	c.update(eventMsg{gen: c.m.gen, typ: core.EvToolResult, data: map[string]any{
+		"call_id": "c", "tool": "shell", "status": "ok", "output": "hi\nthere"}})
+	c.key("ctrl+o")
+	view := c.view()
+	assert.Contains(t, view, "full output")
+	assert.Contains(t, view, "Ctrl+O collapse")
+	assert.Contains(t, view, "hi")
+	assert.Contains(t, view, "there")
+	c.key("esc")
+	assert.NotContains(t, c.view(), "full output")
+	c.key("ctrl+o")
+	assert.Contains(t, c.view(), "full output")
+	c.key("ctrl+o")
+	assert.NotContains(t, c.view(), "full output")
+}
+
+func TestChat_CtrlOWithoutToolHints(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.key("ctrl+o")
+	assert.Contains(t, c.view(), "no tool output to expand")
 }

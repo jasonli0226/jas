@@ -336,6 +336,7 @@ func TestChat_HelpMentionsClearScreen(t *testing.T) {
 	c.submit("/help")
 	got := c.printedText()
 	assert.Contains(t, got, "Ctrl-L clear the screen (keep session)")
+	assert.Contains(t, got, "Ctrl-O expand or collapse the latest tool output")
 	assert.Contains(t, got, "start a fresh conversation and clear the screen")
 }
 
@@ -382,7 +383,7 @@ func TestChat_ShutdownWithNewThatNeverRan(t *testing.T) {
 	c := newTestChat(t, b)
 	open := c.pendingNew()
 	assert.NoErr(t, c.shutdown())
-	assert.Eq(t, b.closes.Load(), 1) // the current session
+	assert.Eq(t, b.closes.Load(), 1)           // the current session
 	for _, cmd := range batchCmds(t, open()) { // the late open runs nothing
 		cmd()
 	}
