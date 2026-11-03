@@ -331,7 +331,7 @@ split:
   min_parts: 2
   disjoint_files: true
 worktree:
-  dir: ""                 # "" = user cache dir (see Worktrees); must be outside the repo
+  dir: ""                 # "" = <repo>/.jas/worktrees (see Worktrees); inside the repo only there
   copy: [".env.test"]     # gitignored files copied in (deny floor still applies)
   setup: "go mod download" # run once per worktree before the worker starts
 budget:
@@ -626,24 +626,25 @@ sections** instead of free text:
 
 ## Worktrees
 
-- Location: `${XDG_CACHE_HOME:-~/.cache}/jas/worktrees/<repo-id>/<farm-id>/<part-id>`
-  (Windows: `%LocalAppData%\jas\worktrees\…`); `<repo-id>` is a short hash
-  of the main checkout's absolute path plus its directory name. Configurable
-  with `worktree.dir` (absolute).
+- Location: `<repo>/.jas/worktrees/<farm-id>/<part-id>`, git-excluded
+  (`/.jas/worktrees/` in `.git/info/exclude`). Configurable with
+  `worktree.dir` (absolute), e.g. a cache dir outside the repo.
+  **(owner's decision, 2026-11-04; reverses the second review's move to the
+  user cache dir.)**
+- **Why in the repo is acceptable:** the dot-dir is skipped by the tools that
+  matter most (Go's `./...`, pytest's default `norecursedirs`, tsc's
+  wildcards), it is easy to find, and it goes away with the repo. Tools that
+  do scan dot-dirs (ESLint 9 flat config, some watchers, Docker `COPY . .`
+  without `.dockerignore`) can see the parts' half-done copies; such
+  projects should ignore `.jas/` or set `worktree.dir` outside the repo.
 - **Load-time validation** of the resolved directory, default or configured,
-  after resolving symlinks: it must not be inside the main checkout (or any
-  of its linked worktrees), and must not be inside `~/.jas` or `JAS_HOME`.
-  Either violation is a config error (exit 2) naming the rule. Reasons
-  below.
-- **Not inside the repo.** `.git/info/exclude` hides an in-repo directory from
-  git only; pytest and jest collect tests recursively, tsc `include` globs and
-  eslint scan it, and file watchers fire on it, so the main checkout's own
-  `check` would run the farm's half-done copies. A `worktree.dir` inside the
-  repo is a config error (exit 2).
-- **Not under `~/.jas`:** the deny floor (`~/.jas/**` and `<JAS_HOME>/**`)
-  would refuse every file tool inside its own root.
+  after resolving symlinks: inside the main checkout (or any of its linked
+  worktrees) only `.jas/worktrees` is allowed, and it must not be inside
+  `~/.jas` or `JAS_HOME` (the deny floor would refuse every file tool in its
+  own root). A violation is a config error (exit 2) naming the rule.
 - Sessions whose root is the main checkout deny file-tool access to
-  `.jas/sessions/**` (session awareness).
+  `.jas/sessions/**` (session awareness) and `.jas/worktrees/**`, so a chat
+  does not read or edit a part's half-done copy.
 - Branch: `jas/farm/<farm-id>/<part-id>`; integrator `jas/farm/<farm-id>/integrate`.
 - A part with no deps branches from `base`; a part with deps branches from
   `base` with its deps' branches merged in. A conflict there fails the part.
@@ -1063,11 +1064,11 @@ feature at a time.
   manifest.json      current state (atomic)
   parts/<part-id>/events.jsonl
   integrate/events.jsonl
-${XDG_CACHE_HOME:-~/.cache}/jas/worktrees/<repo-id>/<farm-id>/<part-id>/   (outside the repo; removed after the final choice)
+<repo>/.jas/worktrees/<farm-id>/<part-id>/   (git-excluded; removed after the final choice)
 ```
 
 Logs stay under `~/.jas` (protected from workers' file tools by the deny
-floor); worktrees live in the user cache dir, outside both the repo and `~/.jas`.
+floor); worktrees live in the repo's git-excluded `.jas/worktrees`, outside `~/.jas`.
 
 ## Other core consistency
 

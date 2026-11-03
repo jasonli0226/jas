@@ -37,18 +37,19 @@ func TestDetect_Markers(t *testing.T) {
 }
 
 func TestResolveWorktreeDir(t *testing.T) {
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
 	repo, jasHome := t.TempDir(), t.TempDir()
 
 	got, err := ResolveWorktreeDir(Config{}, repo, jasHome)
 	assert.NoErr(t, err)
-	realCache, _ := filepath.EvalSymlinks(cache)
-	assert.Eq(t, filepath.Dir(filepath.Dir(got)), filepath.Join(realCache, "jas"))
-	assert.Eq(t, filepath.Base(filepath.Dir(got)), "worktrees")
-	assert.Contains(t, filepath.Base(got), "-"+filepath.Base(repo))
+	realRepo, _ := filepath.EvalSymlinks(repo)
+	assert.Eq(t, got, filepath.Join(realRepo, ".jas", "worktrees"))
 
 	var c Config
+	c.Worktree.Dir = filepath.Join(repo, ".jas", "worktrees", "mine")
+	got, err = ResolveWorktreeDir(c, repo, jasHome)
+	assert.NoErr(t, err)
+	assert.Eq(t, got, filepath.Join(realRepo, ".jas", "worktrees", "mine"))
+
 	c.Worktree.Dir = filepath.Join(repo, "wt")
 	_, err = ResolveWorktreeDir(c, repo, jasHome)
 	if err == nil {

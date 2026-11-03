@@ -13,12 +13,18 @@ import (
 	"time"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/sessions"
 )
 
 // sessionsDenyPattern keeps file tools away from peer session records, so a
 // model cannot forge or delete them (session-awareness spec, Security).
 const sessionsDenyPattern = ".jas/sessions/**"
+
+// farmWorktreesDenyPattern keeps file tools in the main checkout out of the
+// farm's in-repo worktrees, so a chat does not read or edit a part's
+// half-done copy of the code.
+const farmWorktreesDenyPattern = farm.InRepoWorktrees + "/**"
 
 // recordTitleRunes caps a record title, as the spec's first-80-chars rule.
 const recordTitleRunes = 80

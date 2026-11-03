@@ -347,7 +347,10 @@ Farm splits one big task into parts that run in parallel worktrees, then
 merges them behind a `check` gate. Each part must also pass `part_check`
 (defaults to `check`; `part_check: ""` in `.jas/farm.yaml` turns it off) in
 its own worktree before it counts as done; a failure goes back to the worker
-for one fix round. A clean merge whose `check` fails goes to the integrator. **Experimental** until the benchmark gate
+for one fix round. A clean merge whose `check` fails goes to the integrator.
+Worktrees live in the repo under `.jas/worktrees/<farm-id>/<part>`
+(git-excluded, hidden from your chat's file tools); set `worktree.dir` to an
+absolute path to put them elsewhere. **Experimental** until the benchmark gate
 (farm vs plain `jas run` on wall-clock) lands. Not yet: `farm resume`,
 `researcher`/`reviewer` roles, `--spec` planning, `farm init`, interactive
 `/farm` (attach and the live board stay [#12](https://github.com/jasonli0226/jas/issues/12)).
