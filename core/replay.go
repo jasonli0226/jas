@@ -86,7 +86,8 @@ func newLogScanner(r io.Reader) *logScanner {
 
 // next returns the next line (newline stripped). over reports the line
 // exceeded maxLogLine and was consumed to its end so reading can continue
-// past it. ok is false at EOF (or a read error; see Err).
+// past it. ok is false at EOF or on a read error (see Err); a partial line
+// before a read error is dropped.
 func (s *logScanner) next() (line []byte, over, ok bool) {
 	s.buf = s.buf[:0]
 	for {
@@ -103,6 +104,7 @@ func (s *logScanner) next() (line []byte, over, ok bool) {
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			s.err = err
+			return nil, false, false // stop, as bufio.Scanner does; see Err
 		}
 		if over {
 			return nil, true, true // whole oversized line consumed

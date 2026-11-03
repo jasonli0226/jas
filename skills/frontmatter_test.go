@@ -122,14 +122,19 @@ func TestParseFrontmatter_Golden(t *testing.T) {
 			want: map[string]string{"name": "v"},
 		},
 		{
-			name: "nested map skipped entirely",
-			src:  "---\nname: x\nmetadata:\n  author: me\n  license: MIT\nversion: 2\n---\n",
-			want: map[string]string{"name": "x", "version": "2"},
+			name: "plain value continued on indented lines",
+			src:  "---\nname: x\ndescription:\n  Use when probing\n  the parser\n---\n",
+			want: map[string]string{"name": "x", "description": "Use when probing the parser"},
 		},
 		{
-			name: "nested map followed by sibling key",
+			name: "nested map folded into a string (quirk, #51)",
+			src:  "---\nname: x\nmetadata:\n  author: me\n  license: MIT\nversion: 2\n---\n",
+			want: map[string]string{"name": "x", "metadata": "author: me license: MIT", "version": "2"},
+		},
+		{
+			name: "nested map folded, then sibling key",
 			src:  "---\nmetadata:\n  a: b\nname: x\n---\n",
-			want: map[string]string{"name": "x"},
+			want: map[string]string{"metadata": "a: b", "name": "x"},
 		},
 		{
 			name: "quoted double with escapes",
@@ -177,9 +182,9 @@ func TestParseFrontmatter_Golden(t *testing.T) {
 			want: map[string]string{"name": "x"},
 		},
 		{
-			name: "unindented list treated as continuation",
+			name: "unindented list folded into a string (quirk)",
 			src:  "---\nname: x\nallowed-tools:\n- Read\n- Grep\ndescription: d\n---\n",
-			want: map[string]string{"name": "x", "description": "d"},
+			want: map[string]string{"name": "x", "allowed-tools": "- Read - Grep", "description": "d"},
 		},
 		{
 			name: "plain value folding indented lines",
