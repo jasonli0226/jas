@@ -18,8 +18,8 @@ import (
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// plain strips styling and the background bands' padding: trailing spaces
-// on each line and the blank rows above and below a band.
+// plain strips styling and trailing spaces from each band line. (User bands
+// no longer carry vertical padding rows.)
 func plain(blocks []string) []string {
 	out := make([]string, len(blocks))
 	for i, b := range blocks {
@@ -73,7 +73,7 @@ func TestTranscript_ToolEventsPrintRowInOrder(t *testing.T) {
 	eqStrings(t, got, []string{"● before"})
 	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
 		"status": "ok", "output": "x\ny\n"}, t0))
-	eqStrings(t, got, []string{"", "▸ read a.go (2 lines)"})
+	eqStrings(t, got, []string{"▸ read a.go (2 lines)"})
 }
 
 func TestTranscript_FlushPrintsPartialAndThought(t *testing.T) {
@@ -105,8 +105,8 @@ func TestTranscript_UserBand(t *testing.T) {
 	got := tr.User("hi")
 	assert.Eq(t, len(got), 1)
 	lines := strings.Split(ansi.Strip(got[0]), "\n")
-	assert.Eq(t, len(lines), 3) // padding row, text, padding row
-	assert.Eq(t, strings.TrimRight(lines[1], " "), "› hi")
+	assert.Eq(t, len(lines), 1) // no vertical padding
+	assert.Eq(t, strings.TrimRight(lines[0], " "), "› hi")
 	for _, l := range lines {
 		assert.Eq(t, ansi.StringWidth(l), 20)
 	}
@@ -116,13 +116,13 @@ func TestTranscript_UserBand(t *testing.T) {
 func TestTranscript_AssistantChrome(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.Text("Hello\nthere\n\nWorld\n\n", t0))
-	eqStrings(t, got, []string{"● Hello\n  there", "", "  World"})
+	eqStrings(t, got, []string{"● Hello\n  there", "  World"})
 
-	// A tool row ends the agent turn; the next text is a new turn.
+	// A tool row ends the agent turn; the next text is a new turn (no blank).
 	tr.Event("tool_started", map[string]any{"call_id": "c", "args": map[string]any{}}, t0)
 	tr.Event("tool_result", map[string]any{"call_id": "c", "tool": "ls", "status": "ok"}, t0)
 	got = plain(tr.Text("Again\n\n", t0))
-	eqStrings(t, got, []string{"", "● Again"})
+	eqStrings(t, got, []string{"● Again"})
 }
 
 func TestTranscript_WrapsUnderMarker(t *testing.T) {
@@ -142,7 +142,7 @@ func TestTranscript_AssistantLiveMatchesPrinted(t *testing.T) {
 	tr.Text("par", t0)
 	assert.Eq(t, ansi.Strip(tr.Live()), "\n● par")
 	tr.Text("t\n\nnext", t0)
-	assert.Eq(t, ansi.Strip(tr.Live()), "\n  next")
+	assert.Eq(t, ansi.Strip(tr.Live()), "  next")
 }
 
 func TestTranscript_TurnGap(t *testing.T) {
@@ -152,6 +152,33 @@ func TestTranscript_TurnGap(t *testing.T) {
 	got = append(got, tr.Flush(t0)...)
 	got = append(got, tr.User("more")...)
 	eqStrings(t, plain(got), []string{"› hi", "", "● Hello", "", "› more"})
+}
+
+// Tighter spacing: consecutive agent blocks and agent↔tool have no blank;
+// a blank still precedes each user turn. User bands have no vertical pad.
+func TestTranscript_TighterSpacing(t *testing.T) {
+	var tr Transcript
+	got := plain(tr.Text("One\n\nTwo\n\n", t0))
+	eqStrings(t, got, []string{"● One", "  Two"})
+
+	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "ls",
+		"args": map[string]any{"path": "."}}, t0)
+	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "ls",
+		"status": "ok", "output": "a\n"}, t0))
+	eqStrings(t, got, []string{"▸ ls . (1 entries)"})
+
+	got = plain(tr.Text("After\n\n", t0))
+	eqStrings(t, got, []string{"● After"})
+
+	got = plain(tr.User("next"))
+	eqStrings(t, got, []string{"", "› next"})
+
+	tr2 := Transcript{Width: 16}
+	band := tr2.User("hi")
+	assert.Eq(t, len(band), 1)
+	lines := strings.Split(ansi.Strip(band[0]), "\n")
+	assert.Eq(t, len(lines), 1)
+	assert.Eq(t, strings.TrimRight(lines[0], " "), "› hi")
 }
 
 func TestToolRow_Formats(t *testing.T) {
@@ -246,10 +273,10 @@ func TestTranscript_ToolStartedShowsRunningRow(t *testing.T) {
 	eqStrings(t, plain(tr.Event("tool_started", started, t0)), []string{})
 	// The running row lives in the live region with the gap it will print
 	// with, so the final row lands where the running one was.
-	assert.Eq(t, strings.TrimRight(ansi.Strip(tr.Live()), " "), "\n▸ read a.go running")
+	assert.Eq(t, strings.TrimRight(ansi.Strip(tr.Live()), " "), "▸ read a.go running")
 	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
 		"status": "ok", "output": "x\n"}, t0))
-	eqStrings(t, got, []string{"", "▸ read a.go (1 lines)"})
+	eqStrings(t, got, []string{"▸ read a.go (1 lines)"})
 	assert.Eq(t, tr.Live(), "")
 }
 
@@ -279,7 +306,7 @@ func TestTranscript_HistoryReprintsTurns(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
 	eqStrings(t, got, []string{"· compacted earlier messages", "", "› hello", "", "● hi there",
-		"", "▸ ls src (2 entries)", "", "● done"})
+		"▸ ls src (2 entries)", "● done"})
 }
 
 func TestTranscript_HistoryEmpty(t *testing.T) {

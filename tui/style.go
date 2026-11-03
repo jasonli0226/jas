@@ -33,7 +33,7 @@ var (
 	boldStyle      = lipgloss.NewStyle().Bold(true)
 	dimStyle       = lipgloss.NewStyle().Faint(true)
 	errStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	userStyle      = lipgloss.NewStyle().Background(userBg).Foreground(textFg).Padding(1, 0)
+	userStyle      = lipgloss.NewStyle().Background(userBg).Foreground(textFg).Padding(0, 0)
 	assistantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	toolStyle      = lipgloss.NewStyle().Foreground(textFg)
 	fenceStyle     = lipgloss.NewStyle().Foreground(mutedFg)
