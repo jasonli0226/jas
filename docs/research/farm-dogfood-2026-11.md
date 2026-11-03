@@ -67,7 +67,42 @@ farm's `check` (#108).
 
 **Cost.** About 650k tokens of the ~30M validation budget.
 
+## Run 2 (2026-11-04, farm `20261103T163357-b4b2f8`)
+
+Same task on the build with the run 1 fixes (#109) and in-repo worktrees
+(#110). The planner split it the same way (`replay-fix`, `frontmatter-tests`).
+Stopped by the owner with Ctrl-C; nothing merged.
+
+| part | result | tokens (prompt / cached) | calls |
+|---|---|---|---|
+| replay-fix | failed: budget, after 70 s | 369k / 320k | 18 |
+| frontmatter-tests | `part_check` failed, in its fix round when stopped | — | — |
+
+What worked: `TMPDIR` existed, so workers built and tested normally;
+`part_check` caught a failing tree and handed the output back to the worker.
+
+## Findings (run 2)
+
+8. **The budget counts cached tokens in full.** `replay-fix` was making
+   steady progress (edit, test, fix) when it hit 400k; 87% of that was
+   cached prompt prefix, billed at a fraction. *Fixed:* defaults raised to
+   `per_worker_tokens` 1.5M and `farm_tokens` 5M (owner's choice over
+   discounting cached tokens). Tune with the benchmark.
+9. **`TMPDIR` inside the worktree breaks the project's own tests.** Every
+   `t.TempDir()` landed inside a git checkout, so jas tests that expect a
+   plain temp dir failed (`TestFindRoot_GitAndPlain` and 12 more) under
+   `part_check`, whatever the worker wrote. Not caused by the in-repo move:
+   the cache-dir layout had the same `TMPDIR`. *Fixed:* `TMPDIR` is now
+   `<system temp>/jas-farm/<farm-id>/<part>`.
+10. **No live output.** `jas farm run` printed nothing between the plan
+    prompt and the final line, so a farm in a fix round looked hung.
+    *Fixed:* one line per farm event and per worker tool call.
+11. **`check` ran twice after a clean merge** (`integrate_check`, then the
+    verdict, on the same tree). *Fixed:* the verdict reuses a passing
+    merge check.
+12. **Plain `grep -r` sees `.jas/worktrees`** (as expected from the in-repo
+    choice); jas's own file tools in the main checkout are denied there.
+
 ## Next
 
-Run 2: the same task on the fixed build. Expect each part to pass
-`part_check` before it is done, then a clean merge and a passing verdict.
+Run 3: the same task on the fixed build.

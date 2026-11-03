@@ -536,7 +536,7 @@ func TestWorkerPolicy(t *testing.T) {
 	if !slices.Contains(p.Deny, ".jas/sessions/**") || !slices.Contains(p.Deny, "~/.jas/**") {
 		t.Fatalf("deny %v", p.Deny)
 	}
-	for _, want := range []string{"GOPATH", "TMPDIR=" + filepath.Join("/wt/a", ".jas", "tmp"), "GIT_CONFIG_NOSYSTEM=1"} {
+	for _, want := range []string{"GOPATH", "TMPDIR=" + TmpDir("/wt/a"), "GIT_CONFIG_NOSYSTEM=1"} {
 		if !slices.Contains(p.Env, want) {
 			t.Fatalf("env %v lacks %s", p.Env, want)
 		}

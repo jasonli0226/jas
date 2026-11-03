@@ -185,7 +185,8 @@ func (s *Supervisor) integratorRoleFor() (Role, []string, error) {
 }
 
 // integrateCheck runs check on a cleanly merged integrate worktree and logs
-// integrate_check. ok is true when it passed or no check is set.
+// integrate_check. ok is true when it passed or no check is set; a pass is
+// kept for Verdict, since nothing changes the tree before it.
 func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.CheckResult, bool) {
 	if strings.TrimSpace(s.Cfg.Check) == "" {
 		return core.CheckResult{}, true
@@ -193,7 +194,11 @@ func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.Chec
 	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.Check, path), tools.RunShell)
 	s.event(EvIntegrateCheck, map[string]any{"exit_code": res.ExitCode,
 		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
-	return res, res.ExitCode == 0 && !res.TimedOut
+	ok := res.ExitCode == 0 && !res.TimedOut
+	if ok {
+		s.mergeCheck = &res
+	}
+	return res, ok
 }
 
 // runIntegrator runs the integrator session over the conflicting merges, or
@@ -205,10 +210,11 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 		return err
 	}
 	logPath := filepath.Join(s.Dir, integratePart, eventsFile)
-	log, err := core.OpenEventLog(logPath, nil, s.Redact)
+	flog, err := core.OpenEventLog(logPath, nil, s.Redact)
 	if err != nil {
 		return err
 	}
+	log := s.Progress.workerLog(integratePart, flog)
 	defer func() {
 		if err := log.Close(); err != nil {
 			s.noteErr(fmt.Errorf("integrator log: %w", err))
@@ -416,7 +422,12 @@ func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict, fa
 // per_worker_timeout, logs check_ran and records the result in the manifest.
 func Verdict(ctx context.Context, s *Supervisor, dir string) core.CheckResult {
 	spec := s.checkSpec(s.Cfg.Check, dir)
-	res := core.RunCheck(ctx, spec, tools.RunShell)
+	var res core.CheckResult
+	if s.mergeCheck != nil {
+		res = *s.mergeCheck
+	} else {
+		res = core.RunCheck(ctx, spec, tools.RunShell)
+	}
 	if err := core.LogCheck(s.Log, spec, res, s.Redact); err != nil {
 		s.noteErr(fmt.Errorf("farm log: %w", err))
 	}
@@ -428,8 +439,8 @@ func Verdict(ctx context.Context, s *Supervisor, dir string) core.CheckResult {
 // checkSpec runs cmd in dir (a farm worktree) with its TMPDIR and
 // per_worker_timeout, keeping the tail of the output.
 func (s *Supervisor) checkSpec(cmd, dir string) core.CheckSpec {
-	tmp := filepath.Join(dir, filepath.FromSlash(tmpRel))
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
+	tmp := TmpDir(dir)
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
 		s.noteErr(err)
 	}
 	return core.CheckSpec{

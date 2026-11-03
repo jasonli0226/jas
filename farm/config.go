@@ -148,7 +148,7 @@ type fileCfg struct {
 func defaults() Config {
 	return Config{
 		Split:     Split{MaxWorkers: 3, MinParts: 2, DisjointFiles: true},
-		Budget:    Budget{PerWorkerTokens: 400000, FarmTokens: 1500000, MaxOutputTokens: 16000, IntegratorReserve: 0.2, PerWorkerTimeout: 30 * time.Minute, FarmTimeout: 2 * time.Hour},
+		Budget:    Budget{PerWorkerTokens: 1500000, FarmTokens: 5000000, MaxOutputTokens: 16000, IntegratorReserve: 0.2, PerWorkerTimeout: 30 * time.Minute, FarmTimeout: 2 * time.Hour},
 		Board:     BoardCfg{MaxRounds: 3, PostChars: 500, DeliverChars: 2000},
 		OnFailure: onFailureDrop,
 		Roles:     map[string]RoleDef{},
