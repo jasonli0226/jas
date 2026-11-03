@@ -191,5 +191,7 @@ Community threads / issues
 | Pre-call budget check, budget-stop exit code | farm spec, Budgets; CI contract |
 | Pinned exit codes, `--json`, manifest | farm spec, CI contract |
 | Discussion mode → clean-context `reviewer` part | farm spec, Next version |
+| Parallel read-only verification (not debate) | farm spec: `reviewer` + post-integrate `fuzz` (Next version / after MVP) |
+| Blast-radius / never-merge discipline for risky parts | farm spec, Blast radius (after MVP; owner 2026-11-03) |
 | Farm-vs-solo benchmark before promoting | farm spec, Prerequisites and benchmark gate |
 | Hand-rolled "who is touching what" hacks for parallel sessions | session-awareness spec |
