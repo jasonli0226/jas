@@ -18,6 +18,11 @@ const progressArgRunes = 80
 // a farm run without --json shows what it is doing. Lines are redacted and
 // sanitized; safe for concurrent use.
 type Progress struct {
+	// Width is the terminal's column count, or 0 when unknown; lines are
+	// clipped to fit so they never wrap (a wrapped line can be overwritten
+	// when the terminal reflows). nil: never clip.
+	Width func() int
+
 	mu     sync.Mutex
 	w      io.Writer
 	redact func(string) string
@@ -35,9 +40,23 @@ func (p *Progress) print(line string) {
 	if p.redact != nil {
 		line = p.redact(line)
 	}
+	line = core.Sanitize(line)
+	if p.Width != nil {
+		line = fitWidth(line, p.Width())
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintln(p.w, core.Sanitize(line))
+	fmt.Fprintln(p.w, line)
+}
+
+// fitWidth clips line to width-1 runes, ending in "…", so it fits one row
+// with the cursor's column to spare. width <= 1 means unknown: no clip.
+func fitWidth(line string, width int) string {
+	r := []rune(line)
+	if width <= 1 || len(r) < width {
+		return line
+	}
+	return string(r[:width-2]) + "…"
 }
 
 // farmLine renders a farm.jsonl event, or "" for events not shown.

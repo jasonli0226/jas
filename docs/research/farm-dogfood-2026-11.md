@@ -103,6 +103,42 @@ What worked: `TMPDIR` existed, so workers built and tested normally;
 12. **Plain `grep -r` sees `.jas/worktrees`** (as expected from the in-repo
     choice); jas's own file tools in the main checkout are denied there.
 
-## Next
+## Run 3 (2026-11-04, farm `20261103T165153-e414f5`)
 
-Run 3: the same task on the fixed build.
+Same task on the build with #109–#112. **Exit 0** in 3 min 54 s, the first
+passing farm. Owner kept the branches; reviewed and landed as #113, closing
+#48 and #51.
+
+| part | result | time | tokens (prompt / cached / out) | calls |
+|---|---|---|---|---|
+| frontmatter-tests | done; `part_check` passed first time | 2m 0s | 170k / 163k / 6k | 13 |
+| replay-fix | done; `part_check` passed first time | 2m 26s | 309k / 288k / 6k | 16 |
+| integrate | clean merge; `check` passed, reused as the verdict | 46s | 0 | 0 |
+
+Total 491k tokens, about 93% of them cached prompt prefix.
+
+## Findings (run 3)
+
+13. **A green `check` still let a regression through.** The frontmatter part
+    "fixed" nested-map folding by skipping any bare `key:` followed by
+    indented lines, which also dropped valid multi-line plain values (an
+    indented `description:`), and wrote goldens that pinned the new
+    behaviour. The task said to fix only clear bugs. Human review caught it;
+    the change was reverted in #113. Supports the spec's post-integrate
+    `reviewer` step and "nothing merges without the owner".
+14. **The replay part was sound but missed one edge**: on a persistent read
+    error its reader looped instead of stopping. Fixed in review (#113).
+15. **`check` does not run gofmt**, and neither does CI (`go vet` only); two
+    worker test files were not gofmt-clean. Worth adding `gofmt -l` to the
+    project's `check`.
+16. **Progress lines were overwritten in the owner's terminal.** jas writes
+    plain text and `\n` only (no `\r`, escapes or raw mode); the overwritten
+    lines were the ones longer than a row, consistent with the terminal
+    reflowing wrapped lines. *Fixed:* progress lines are clipped to the
+    terminal width (the spec's "truncate, never wrap").
+
+## Where this leaves validation
+
+Three runs, about 1.6M tokens. The farm can now run a real two-part task end
+to end. One task is not evidence about farm vs solo: next is the benchmark
+harness (spec, Validation step 2).

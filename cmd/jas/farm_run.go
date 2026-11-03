@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"strings"
 
+	"golang.org/x/term"
+
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/settings"
@@ -97,7 +99,7 @@ func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty b
 		Stdout: os.Stdout, Stderr: os.Stderr, Ask: ask,
 		Cfg: cfg, Trusted: e.pc.trusted, NewSession: farmSession(e),
 		Approvals: farm.NewApprovals(e.stdin, os.Stderr, e.interactive, e.level),
-		Hard:      hard, Policy: e.policy, Redact: e.red.Redact,
+		Hard:      hard, Policy: e.policy, Redact: e.red.Redact, Width: stdoutWidth,
 	})
 	if err != nil {
 		return err // a refusal is already an exit 2 ExitError
@@ -156,4 +158,14 @@ func secondInterrupt() (context.Context, func()) {
 		}
 	}()
 	return hard, func() { signal.Stop(ch); cancel() }
+}
+
+// stdoutWidth is the terminal's width when stdout is one, else 0. It is read
+// per line, so a resized terminal is followed.
+func stdoutWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return 0
+	}
+	return w
 }
