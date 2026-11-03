@@ -7,10 +7,11 @@ it uses every piece of the feature once. Budget: roughly 0.5–1M tokens.
 
 ## Before you start
 
-- Build the binary from the branch under test:
+- Build the binary from an up-to-date `main`:
 
   ```sh
-  cd ~/projects/jas-farm-interactive   # the feat/farm-interactive worktree
+  cd ~/projects/jas
+  git switch main && git pull
   make build                           # → bin/jas
   ```
 
@@ -20,7 +21,7 @@ it uses every piece of the feature once. Budget: roughly 0.5–1M tokens.
   ```sh
   cd ~/projects/jas
   git status --short          # must print nothing
-  ~/projects/jas-farm-interactive/bin/jas farm vars --trust-project   # check resolves
+  ./bin/jas farm vars --trust-project   # check resolves
   ```
 
 - A terminal that sends Ctrl+digit (kitty, Ghostty, WezTerm, recent
@@ -37,7 +38,7 @@ Two small, independent issues in different files, so the planner splits:
 
 ## Steps and what you should see
 
-Start the chat: `~/projects/jas-farm-interactive/bin/jas` (pass
+Start the chat: `./bin/jas` (pass
 `--model openrouter/z-ai/glm-5.3` or similar if your default differs).
 
 | # | Do | Expect |
