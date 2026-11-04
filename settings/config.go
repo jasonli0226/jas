@@ -98,10 +98,10 @@ type Value struct {
 // Effective is the resolved value of every key.
 type Effective map[string]Value
 
-// Resolve merges layers: flag > env > file > default. An empty string counts
-// as unset in every layer. Stored named providers are exposed as
-// "providers.<name>.base_url" keys for Build.
-func Resolve(flags map[string]string, env func(string) string, file File) Effective {
+// Resolve merges layers: flag > env > local > project > global > default.
+// An empty string counts as unset in every layer. Stored named providers are
+// exposed as "providers.<name>.base_url" keys for Build (local > project > global).
+func Resolve(flags map[string]string, env func(string) string, layers Layers) Effective {
 	out := Effective{}
 	for _, k := range Keys {
 		switch {
@@ -109,14 +109,32 @@ func Resolve(flags map[string]string, env func(string) string, file File) Effect
 			out[k.Name] = Value{flags[k.Name], SourceFlag}
 		case env(k.EnvName()) != "":
 			out[k.Name] = Value{env(k.EnvName()), envSource(k.EnvName())}
-		case file.Values[k.Name] != "":
-			out[k.Name] = Value{file.Values[k.Name], SourceFile}
 		default:
-			out[k.Name] = Value{k.Default, SourceDefault}
+			raw, src := pick(layers.Local.Values[k.Name], layers.Project.Values[k.Name], layers.Global.Values[k.Name])
+			if raw == "" {
+				out[k.Name] = Value{k.Default, SourceDefault}
+			} else {
+				out[k.Name] = Value{raw, src}
+			}
 		}
 	}
-	for name, p := range file.Providers {
-		out[providersPrefix+name+baseURLSuffix] = Value{p.BaseURL, SourceFile}
+	// Providers: overlay global → project → local so the most specific wins.
+	type pe struct {
+		url string
+		src Source
+	}
+	providers := map[string]pe{}
+	for name, p := range layers.Global.Providers {
+		providers[name] = pe{p.BaseURL, SourceFile}
+	}
+	for name, p := range layers.Project.Providers {
+		providers[name] = pe{p.BaseURL, SourceProject}
+	}
+	for name, p := range layers.Local.Providers {
+		providers[name] = pe{p.BaseURL, SourceLocal}
+	}
+	for name, p := range providers {
+		out[providersPrefix+name+baseURLSuffix] = Value{p.url, p.src}
 	}
 	return out
 }

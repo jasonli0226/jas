@@ -57,8 +57,9 @@ Release builds for Linux (amd64, arm64), macOS (amd64, arm64) and Windows
 
 Run `jas` with no arguments the first time for interactive onboarding
 (provider, API key read without echo, default model); it then opens the chat.
-Or configure by hand;
-settings live in `~/.jas/` (`JAS_HOME` overrides):
+Or configure by hand. Global settings live in `~/.jas/` (`JAS_HOME`
+overrides); project prefs go in `<root>/.jas/config.json` and personal
+overrides in `<root>/.jas/config.local.json`:
 
 ```sh
 jas auth add openrouter                            # key -> ~/.jas/auth.json (0600), no echo
@@ -83,7 +84,7 @@ jas run --compact "..."                             # compact long runs like the
 jas sessions                                        # other jas sessions in this repo
 ```
 
-Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init`,
+Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init` (scopes `--global|--project|--local`),
 `jas auth add|list|rm|rotate`, `jas sessions [--prune]`, `jas --version`.
 Run flags: `--json`, `--model`, `--provider`, `--base-url`, `--approve`,
 `--max-turns`, `--max-output-tokens`, `--trust-project`, `--name` (session
@@ -135,20 +136,36 @@ dim spinner line above the input shows the run in progress (`working…`, or
 
 ## Configuration
 
-Precedence: flag > `JAS_*` env var > `~/.jas/config.json` > built-in default.
-Every key `k` has a `JAS_<K>` env var; `JAS_API_KEY` supplies the key (use
-these in CI and containers, where there is no `~/.jas/`).
+Settings use Claude Code's three layers (prefs only — runtime policy stays in
+`.jas/scenario.yaml` later). `auth.json` and `trust.json` stay global-only.
+
+```
+~/.jas/config.json                 # global defaults
+<project>/.jas/config.json         # shared team prefs (commit)
+<project>/.jas/config.local.json   # personal override (gitignore)
+```
+
+Precedence: flag > `JAS_*` env var > local > project > global > built-in
+default. Every key `k` has a `JAS_<K>` env var; `JAS_API_KEY` supplies the key
+(use these in CI and containers, where there is no `~/.jas/`). `jas config list`
+and chat `/settings` show each effective value and its source.
 
 ```sh
-jas config set model z-ai/glm-5.3
+jas config set model z-ai/glm-5.3                 # → ~/.jas/config.json (default)
+jas config set --project approve shell             # → <root>/.jas/config.json
+jas config set --local max_turns 80                # → <root>/.jas/config.local.json
 jas config set base_url https://openrouter.ai/api/v1
-jas config set approve mutating                 # persisted default for --approve
-jas config set max_turns 80
 jas config set models.my-local.context_window 32768
-jas config get model
-jas config unset base_url
-jas config list                                 # value + source of every key
+jas config get model                               # effective value
+jas config get --project approve                   # value stored in that layer
+jas config unset --local max_turns
+jas config list                                    # value + source of every key
 ```
+
+In chat, `/settings` lists effective values; `/settings <key> <value>` writes
+to **local** by default (scope with `--local` / `--project` / `--global`).
+`/model` + **Ctrl+S** still stores the default model in the global file.
+Add `.jas/config.local.json` to `.gitignore` so personal overrides stay local.
 
 Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,

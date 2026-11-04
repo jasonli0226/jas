@@ -307,8 +307,11 @@ func TestChat_SlashMenuPrefixFirstAndUpDown(t *testing.T) {
 	c := newTestChat(t, newTestBackend(t))
 	c.typeText("/s")
 	v := c.view()
+	assert.Eq(t, strings.Index(v, "/session") < strings.Index(v, "/settings"), true)
+	assert.Eq(t, strings.Index(v, "/settings") < strings.Index(v, "/skill:review"), true)
 	assert.Eq(t, strings.Index(v, "/skill:review") < strings.Index(v, "/resume"), true)
-	c.update(tea.KeyPressMsg{Code: tea.KeyDown})
+	c.update(tea.KeyPressMsg{Code: tea.KeyDown}) // session → settings
+	c.update(tea.KeyPressMsg{Code: tea.KeyDown}) // settings → skill:review
 	assert.Contains(t, c.view(), "› /skill:review")
 	c.update(tea.KeyPressMsg{Code: tea.KeyEnter}) // a partial name completes
 	assert.Eq(t, c.m.input.Value(), "/skill:review ")
@@ -627,4 +630,40 @@ func TestChat_ReloadListedAndInHelp(t *testing.T) {
 	c.submit("/help")
 	assert.Contains(t, c.printedText(), "/reload")
 	assert.Contains(t, c.printedText(), "reload AGENTS.md, skills and project context")
+}
+
+func TestChat_SettingsListSetUnset(t *testing.T) {
+	b := newTestBackend(t)
+	b.settings = map[string]SettingLine{
+		"model":   {Key: "model", Value: "m", Source: "global config"},
+		"approve": {Key: "approve", Value: "never", Source: "default"},
+	}
+	c := newTestChat(t, b)
+	c.submit("/settings")
+	out := c.printedText()
+	assert.Contains(t, out, "settings (effective)")
+	assert.Contains(t, out, "model")
+	assert.Contains(t, out, "global config")
+	assert.Contains(t, out, "default local")
+	c.submit("/settings model")
+	assert.Contains(t, c.printedText(), "global config")
+	c.submit("/settings approve shell")
+	assert.Contains(t, c.printedText(), "approve=shell (local config)")
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "local approve=shell")
+	assert.Eq(t, c.m.gate.Level(), core.ShellOnly)
+	c.submit("/settings --project model other")
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "project model=other")
+	c.submit("/settings unset approve")
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "unset local approve")
+	c.submit("/settings --global unset model")
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "unset global model")
+}
+
+func TestTakeSettingsScope(t *testing.T) {
+	scope, rest := takeSettingsScope("--local approve shell")
+	assert.Eq(t, scope, "local")
+	assert.Eq(t, strings.Join(rest, " "), "approve shell")
+	scope, rest = takeSettingsScope("unset --project model")
+	assert.Eq(t, scope, "project")
+	assert.Eq(t, strings.Join(rest, " "), "unset model")
 }

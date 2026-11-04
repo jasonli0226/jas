@@ -34,6 +34,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"resume":   (*Model).cmdResume,
 	"compact":  (*Model).startCompact,
 	"reload":   (*Model).cmdReload,
+	"settings": (*Model).cmdSettings,
 	"farm":     (*Model).cmdFarm,
 }
 
@@ -51,6 +52,9 @@ const helpText = `commands
   /resume                continue a recent session in this project (grants and level reset)
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /reload                reload AGENTS.md, skills and project context into this session
+  /settings              list effective settings and sources
+  /settings <key> [val]  show or set a setting (default write: local)
+  /settings unset <key>  remove a setting from local (or --global/--project)
   /session               session file, tokens used, context use
   /thinking              show or hide thinking
   /approve [level]       approval level: never | shell | mutating
@@ -160,6 +164,8 @@ var commandDesc = map[string]string{
 	"resume":   "continue a recent session",
 	"compact":  "summarize older messages",
 	"reload":   "reload AGENTS.md and skills",
+	"settings": "view or change settings",
+	"farm":     "plan or show a farm",
 }
 
 // slashMenu is the / menu for the input: open while the input is a / name
@@ -363,6 +369,73 @@ func (m *Model) onReloadDone(msg reloadDoneMsg) tea.Cmd {
 		return m.notice("reloaded")
 	}
 	return m.notice(msg.notices...)
+}
+
+
+// cmdSettings lists, shows, sets or unsets layered settings. Default write
+// scope is local (<project>/.jas/config.local.json). Scope flags:
+// --global, --project, --local.
+func (m *Model) cmdSettings(arg string) tea.Cmd {
+	scope, rest := takeSettingsScope(arg)
+	if len(rest) == 0 {
+		lines := m.b.ListSettings()
+		out := make([]string, 0, len(lines)+1)
+		out = append(out, "settings (effective)")
+		for _, l := range lines {
+			out = append(out, fmt.Sprintf("  %s  %s  (%s)", l.Key, l.Value, l.Source))
+		}
+		out = append(out, "write with /settings [--local|--project|--global] <key> <value> (default "+m.b.DefaultSettingsScope()+")")
+		return m.notice(out...)
+	}
+	if rest[0] == "unset" {
+		if len(rest) != 2 {
+			return m.print(errStyle.Render("usage: /settings unset [--global|--project|--local] <key>"))
+		}
+		if err := m.b.UnsetSetting(scope, rest[1]); err != nil {
+			return m.print(errStyle.Render(m.clean(err.Error())))
+		}
+		if scope == "" {
+			scope = m.b.DefaultSettingsScope()
+		}
+		return m.notice(fmt.Sprintf("unset %s from %s config", rest[1], scope))
+	}
+	if len(rest) == 1 {
+		line, err := m.b.GetSetting(rest[0])
+		if err != nil {
+			return m.print(errStyle.Render(m.clean(err.Error())))
+		}
+		return m.notice(fmt.Sprintf("%s  %s  (%s)", line.Key, line.Value, line.Source))
+	}
+	if len(rest) != 2 {
+		return m.print(errStyle.Render("usage: /settings [--global|--project|--local] <key> <value>"))
+	}
+	key, value := rest[0], rest[1]
+	if err := m.b.SetSetting(scope, key, value); err != nil {
+		return m.print(errStyle.Render(m.clean(err.Error())))
+	}
+	if scope == "" {
+		scope = m.b.DefaultSettingsScope()
+	}
+	cmds := []tea.Cmd{m.notice(fmt.Sprintf("%s=%s (%s config)", key, m.clean(value), scope))}
+	if key == "approve" {
+		if level, err := core.ParseLevel(value); err == nil {
+			m.gate.SetLevel(level)
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// takeSettingsScope pulls --global|--project|--local from the /settings arg.
+func takeSettingsScope(arg string) (scope string, rest []string) {
+	for _, tok := range strings.Fields(arg) {
+		switch tok {
+		case "--global", "--project", "--local":
+			scope = strings.TrimPrefix(tok, "--")
+		default:
+			rest = append(rest, tok)
+		}
+	}
+	return scope, rest
 }
 
 func (m *Model) cmdHelp(string) tea.Cmd {

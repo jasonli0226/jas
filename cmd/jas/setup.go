@@ -21,7 +21,8 @@ import (
 // the provider. `jas run` and the chat both build one with prepare.
 type env struct {
 	cfg         settings.Run
-	file        settings.File
+	layers      settings.Layers
+	flags       map[string]string // CLI flags from prepare; kept for mid-session reconfigure
 	level       core.Level
 	key         string
 	auth        map[string]settings.AuthEntry // every stored key, for any provider
@@ -52,19 +53,25 @@ func authKeys(auth map[string]settings.AuthEntry, env func(string) string) []str
 	return keys
 }
 
-// prepare resolves settings from flags, env and config.json, the API key, the
-// project root, skills and the project trust decision. It sets
-// reportRedactor once the key is known and prints warnings to stderr.
+// prepare resolves settings from flags, env and the Claude-style config
+// layers (global / project / local), the API key, the project root, skills
+// and the project trust decision. It sets reportRedactor once the key is
+// known and prints warnings to stderr.
 func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, error) {
 	home, err := settingsHome()
 	if err != nil {
 		return nil, err
 	}
-	file, err := settings.LoadFile(filepath.Join(home, configFile))
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("getwd: %w", err)
+	}
+	root := core.FindRoot(cwd)
+	layers, err := settings.LoadLayers(home, root)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := settings.Resolve(flags, os.Getenv, file).Build()
+	cfg, err := settings.Resolve(flags, os.Getenv, layers).Build()
 	if err != nil {
 		return nil, usageErr("%v", err)
 	}
@@ -80,11 +87,6 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	if err != nil {
 		return nil, usageErr("%v", err)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
-	}
-	root := core.FindRoot(cwd)
 
 	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: []string{homeDenyPattern(home), sessionsDenyPattern, farmWorktreesDenyPattern}}
 	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
@@ -110,7 +112,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	skillList, skillDirs := listedSkills(pc.skills)
 	policy.ReadRoots = skillDirs
 	return &env{
-		cfg: cfg, file: file, level: level, key: key, auth: auth, root: root, home: home, red: red,
+		cfg: cfg, layers: layers, flags: flags, level: level, key: key, auth: auth, root: root, home: home, red: red,
 		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
 	}, nil
@@ -118,7 +120,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 
 // window returns the context window for model and whether it is known.
 func (e *env) window(model string) (int, bool) {
-	return settings.ContextWindow(model, e.file.ContextOverrides())
+	return settings.ContextWindow(model, e.layers.ContextOverrides())
 }
 
 // budget is a fresh context budget for model.

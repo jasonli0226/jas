@@ -86,7 +86,7 @@ jas (single Go binary)
 │   └── mcp.go               MCP client (stdio + HTTP) — external tools become tools (v2)
 │
 ├── settings/                ~/.jas/ agent dir (§10; global scope v1, project scope v2)
-│   ├── config.go            resolution: CLI flag > JAS_* env > project (v2) > global > defaults
+│   ├── config.go            prefs: CLI > JAS_* > local > project > global > defaults
 │   ├── auth.go              auth.json (0600) / $ENV references, key resolution
 │   └── models.go            compiled-in model catalog (context window) + config overrides
 ├── scenario/                loader + merger + bootstrap (§8, v2)
@@ -456,8 +456,8 @@ per-task containers ship in v3).
       and the TUI from another terminal)
 - [ ] **Scenarios** (§8), with the v1 project trust gate (§3) extended to
       scenario files and hook scripts (§11)
-- [ ] **Project-scoped settings** (§10): `jas config set --project …` writes
-      `.jas/scenario.yaml` keys
+- [x] **Claude 3-way settings** (§10): global / project `config.json` /
+      `config.local.json`, plus `/settings`; prefs stay out of `scenario.yaml`
 - [x] **Checkpoint/resume** from `events.jsonl` replay (§3 side-effect rules):
       shipped for the chat as `jas --continue` and `/resume`
 - [ ] **Blind secret access** (§9 layer 3)
@@ -518,16 +518,18 @@ sandbox, toolsets, hooks, mcp). See #9.
 
 ### 8.1 Discovery & precedence (most specific wins, layer-merge)
 
-Scenario discovery follows the single resolution order defined in §10:
+Scenario **policy** discovery (separate from prefs in §10):
 
 ```
 CLI flag            jas run --scenario <name|path>  explicit, wins (name → ~/.jas/scenarios/<name>/ or built-in)
-└── env vars        JAS_MODEL / JAS_BASE_URL / ...  transient overrides
-    └── project     .jas/scenario.yaml              per-project, versioned with repo
-        └── global  ~/.jas/config.json +            personal defaults
-                    ~/.jas/scenarios/<name>/
-            └── built-in scenarios/ (Go-compiled)   2-3 starter presets
+└── project         .jas/scenario.yaml              tools/hooks/sandbox/MCP only — not prefs
+    └── global      ~/.jas/scenarios/<name>/
+        └── built-in scenarios/ (Go-compiled)       2-3 starter presets
 ```
+
+Plain prefs (`model`, `approve`, …) use the Claude 3-way config files in §10
+(`config.local.json` / project `config.json` / `~/.jas/config.json`), not
+`scenario.yaml`.
 
 ### 8.2 Scenario file (declarative YAML, checked into the repo)
 
@@ -646,7 +648,7 @@ and `JAS_API_KEY` set; agent is asked "print the config" and "print your
 environment"; transcript and `events.jsonl` must contain zero secret values
 (CI assertion).
 
-## 10. Settings & storage, `~/.jas/` (global scope v1, project scope v2)
+## 10. Settings & storage (Claude-style layers + `~/.jas/`)
 
 jas needs a persistent home. Env vars alone can't express saved keys,
 per-model overrides, or defaults you set once and forget. Modeled on pi's agent
@@ -654,46 +656,49 @@ dir (verified against a local `~/.pi/agent/` install): one settings dir, keys
 kept apart from config, and **everything configurable from the CLI and
 stored**. pi writes `defaultProvider`/`defaultModel` to `settings.json` when
 you pick a model and saves keys to `auth.json` on `/login`. Env vars are only a
-fallback there. jas does the same from v1 with plain subcommands instead of
-TUI slash commands.
+fallback there. jas does the same from v1 with plain subcommands and chat `/settings`.
 
 ```
-~/.jas/                        # agent dir (global)
-├── config.json                # settings: default model/provider/base_url, thinking,
-│                              # default tools, sandbox policy, UI prefs
-├── models.json                # custom OpenAI-compatible endpoints + model overrides
-│                              #   [{name, baseURL, models, apiKeyEnv}]  — NO raw keys here
-├── auth.json                  # saved API keys (chmod 0600; see §9 for the threat model)
-├── trust.json                 # project trust answers: root path + content hash (§3)
+~/.jas/                        # agent dir (global-only for auth/trust/sessions)
+├── config.json                # global prefs: model/provider/base_url, approve, UI, …
+├── models.json                # (v2) named OpenAI-compatible endpoints — NO raw keys
+├── auth.json                  # saved API keys (chmod 0600; global-only forever)
+├── trust.json                 # project trust answers (global-only forever)
 ├── scenarios/                 # saved scenario presets (not blueprints — #9)
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3)
-├── farms/                     # farm state: <farm-id>/{plan.yaml, farm.jsonl, board.jsonl, manifest.json, parts/} (farm spec)
-├── run/                       # after farm: supervisor sockets for attach (<farm-id>.sock, 0600)
+├── farms/                     # farm state (farm spec)
+├── run/                       # supervisor sockets for attach
 └── AGENTS.md                  # global instructions appended to every system prompt
 
 <project>/.jas/
-├── scenario.yaml              # runtime rules (§8) — project scope, wins over global
+├── config.json                # shared team prefs (commit) — Claude-style project settings
+├── config.local.json          # personal prefs (gitignore) — overrides project
+├── scenario.yaml              # runtime policy only: tools/hooks/sandbox/MCP (§8) — NOT prefs
 ├── hooks/                     # project hook scripts
-├── sessions/                  # session-awareness records, one JSON per live session (git-excluded; proposed)
-└── worktrees/                 # farm worktrees <farm-id>/<part-id> (git-excluded; denied to file tools of sessions in the main checkout)
+├── sessions/                  # session-awareness records (git-excluded; proposed)
+└── worktrees/                 # farm worktrees (git-excluded)
 
 <project>/AGENTS.md            # loaded in v1 (#8); complements scenario.yaml
 ```
 
-**Resolution order** — the single source of truth for both settings and
-scenarios (§8.1). Most specific wins, maps merge key-by-key; lists use pi's
-`+name`/`-name` add/remove semantics:
+**Prefs resolution** (Claude 3-way; shipped):
 
 ```
-CLI flag > JAS_* env vars > project .jas/scenario.yaml
-         > ~/.jas/config.json + ~/.jas/scenarios/ > built-in defaults
+CLI flag > JAS_* env vars > <project>/.jas/config.local.json
+         > <project>/.jas/config.json > ~/.jas/config.json > built-in defaults
 ```
 
-v1 creates and reads the global files (`config.json`, `auth.json`,
-`trust.json`, `sessions/`). In v1, per-model overrides live in `config.json`
-under `models`, and a custom endpoint is just `base_url`. `models.json` (named
-custom endpoints, each with its own key) arrives in v2. Project scope (`.jas/scenario.yaml`)
-joins the chain in v2.
+`jas config list` and chat `/settings` label each value with its source
+(`flag`, `env JAS_*`, `local config`, `project config`, `global config`,
+`default`). CLI `jas config set|unset` defaults to **global** for compat;
+`/settings` defaults to **local**. Scope flags: `--global|--project|--local`.
+
+**Scenario / policy resolution** (§8.1; later) stays separate from prefs.
+Maps merge key-by-key; lists use pi's `+name`/`-name` add/remove semantics.
+Do **not** dump prefs into `scenario.yaml`.
+
+Per-model overrides live in each config layer under `models`. `models.json`
+(named custom endpoints, each with its own key) arrives in v2.
 
 **First-run experience** (v1; also `jas config init` to rerun it):
 
@@ -708,16 +713,18 @@ Default model:   # anthropic/claude-sonnet-4.6 → config.json
 without editing JSON, and every stored value can be overridden for one run:
 
 ```sh
-jas config set model anthropic/claude-sonnet-4.6   # → ~/.jas/config.json
+jas config set model anthropic/claude-sonnet-4.6   # → ~/.jas/config.json (default write)
+jas config set --project approve shell             # → <root>/.jas/config.json
+jas config set --local max_turns 80                # → <root>/.jas/config.local.json
 jas config set base_url https://openrouter.ai/api/v1
-jas config set approve mutating                    # persisted default for --approve
-jas config set max_turns 80
 jas config set models.my-local.context_window 32768
-jas config get model
-jas config unset base_url
+jas config get model                               # effective
+jas config get --project approve                   # stored in that layer
+jas config unset --local max_turns
 jas config list          # effective value of every key, and where it came from:
                          #   model  anthropic/claude-sonnet-4.6  (global config)
-                         #   approve  shell                      (env JAS_APPROVE)
+                         #   approve  shell                      (project config)
+                         #   max_turns  80                       (local config)
 
 jas auth add openrouter                 # prompts for the key, no echo → auth.json
 jas auth add openrouter --env OPENROUTER_API_KEY   # store a reference, not the key
@@ -925,7 +932,7 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 | Setting config | TUI: `/model` saves the default, `pi config` toggles resources | `jas config set/get/unset/list`, first-run onboarding; `/model` picker Ctrl+S stores the default | config is scriptable, no TUI needed; the inline picker adds the shortcut |
 | Keys | `auth.json` via `/login` (incl. OAuth); env vars as fallback; `--api-key` flag | `auth.json` (0600) or `$ENV` reference via `jas auth`; `JAS_API_KEY` fallback; **no `--api-key` flag** | argv leaks to shell history and `ps` |
 | Model catalog | `models-store.json` with context window, costs, thinking levels | compiled-in catalog + `models.<name>.context_window` override (v1); `models.json` (v2) | needed for the v1 context budget |
-| Override order | CLI flag > settings > env fallback | CLI flag > `JAS_*` env > project (v2) > global > defaults | env sits above stored config so CI can override without touching `~/.jas/` |
+| Override order | CLI flag > settings > env fallback | CLI flag > `JAS_*` > local > project > global > defaults | env sits above stored config so CI can override without touching `~/.jas/` |
 | Modes | text, `--mode json`, `--mode rpc` | `jas run`, `--json` (v1); RPC over stdio + Unix socket (v2) | the socket enables `attach` from another terminal |
 | Tool approval | none built in (YOLO; gating via extensions) | `--approve=never\|shell\|mutating` ladder, exit 5 without a TTY | gate exists in core so CI can rely on it |
 | Project trust | `--approve`/`-a` trusts project-local files; `--no-context-files` | trust gate on `AGENTS.md`/`CLAUDE.md` (v1), extended to scenarios (v2); `--trust-project` | note the flag clash: pi's `--approve` means *trust*, jas's means *tool gating* |

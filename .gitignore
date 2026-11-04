@@ -37,3 +37,8 @@ _pi-mono/
 # Claude Code worktrees
 .claude/worktrees/
 .superpowers/
+
+# Personal jas project overrides (shared .jas/config.json may be committed)
+.jas/config.local.json
+.jas/sessions/
+.jas/worktrees/
