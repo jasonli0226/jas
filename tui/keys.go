@@ -12,6 +12,11 @@ const (
 	quitHint   = "press Ctrl-C again to quit"
 )
 
+// physicalShift reports whether a Shift key is currently held on the host
+// console. On native Windows it polls GetAsyncKeyState (same approach as
+// pi); elsewhere it is always false. Tests may override it.
+var physicalShift = shiftHeld
+
 // onKey handles a key press: Enter, Esc, Ctrl-L, Ctrl-O and Ctrl-C are the
 // chat's own; the rest edit the input.
 func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -19,6 +24,16 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	k := msg.String()
+	// Native Windows terminals often collapse Shift+Enter to plain Enter
+	// (or ESC+Enter). Poll the physical Shift key like pi and rewrite so
+	// the textarea InsertNewline binding fires.
+	if physicalShift() {
+		switch k {
+		case "enter", "alt+enter":
+			msg = tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}
+			k = "shift+enter"
+		}
+	}
 	// Ctrl+L clears the view and reprints the banner; keep the session.
 	// Handled before the picker so it works while a picker is open (pickers
 	// do not use Ctrl+L).

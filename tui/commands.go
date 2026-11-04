@@ -72,7 +72,7 @@ an always grant on a shell command covers any arguments to the first two words
   (always on "go test ./core" also allows "go test ./...");
   shells, interpreters, sudo/env/xargs-style wrappers, find and rm never get one
 keys
-  Enter send or steer · Alt+Enter or Shift+Enter newline · Esc stop the run
+  Enter send or steer · Alt+Enter, Shift+Enter or Ctrl+J newline · Esc stop the run
   Up/Down recall earlier input (from the first or last line of the input)
   Ctrl-L clear the screen (keep session)
   Ctrl-O expand or collapse the latest tool output

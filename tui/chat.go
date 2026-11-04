@@ -137,8 +137,10 @@ func New(b Backend, o Options) *Model {
 	in.MinHeight = 1
 	in.MaxHeight = inputMaxHeight
 	in.SetHeight(1)
-	// Enter submits; only Alt+Enter and Shift+Enter insert a newline.
-	in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "shift+enter"))
+	// Enter submits; Alt/Shift+Enter and Ctrl+J (portable LF) insert a newline.
+	// On native Windows, onKey also rewrites plain Enter to shift+enter when
+	// GetAsyncKeyState says Shift is held (terminals that drop the modifier).
+	in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "shift+enter", "ctrl+j"))
 	st := textarea.DefaultDarkStyles()
 	st.Cursor.Blink = false
 	st.Focused.CursorLine = lipgloss.NewStyle()
@@ -306,8 +308,9 @@ func (m *Model) View() tea.View {
 		parts = append(parts, m.farmRows()...)
 	}
 	// The zero KeyboardEnhancements still requests basic key disambiguation
-	// (Bubble Tea always sets that flag), which is what reports Shift+Enter
-	// apart from Enter on terminals that support it.
+	// (Bubble Tea always sets that flag): Kitty keyboard + modifyOtherKeys=2
+	// report Shift+Enter where the terminal supports them. Windows Terminal
+	// (pre-Kitty) still needs the GetAsyncKeyState fallback in onKey.
 	return tea.NewView(strings.Join(parts, "\n"))
 }
 
