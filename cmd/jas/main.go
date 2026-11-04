@@ -17,15 +17,19 @@ import (
 var version = "dev"
 
 const usage = `usage:
-  jas [--continue] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project]
-  jas run [--json] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--trust-project] "task"
+  jas [--continue] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N] [--trust-project]
+  jas run [--json] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N]
+          [--max-tokens N] [--timeout D] [--compact] [--trust-project] "task"
   jas farm plan "task" [-o plan.yaml] [--allow-dirty]
   jas farm run plan.yaml [--json] [--allow-dirty]
   jas farm "task"
   jas farm status|clean|vars
   jas config set|get|unset|list|init
   jas auth add|list|rm|rotate
+  jas sessions [--prune]
   jas --version
+
+full reference: docs/manual.md in the jas repo
 
 example: jas config set model z-ai/glm-5.3`
 
