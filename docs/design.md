@@ -78,11 +78,13 @@ jas (single Go binary)
 │   ├── types.go             Message / ContentBlock / StreamEvent (provider-neutral)
 │   └── openai.go            OpenRouter/vLLM/ollama. Retry/backoff, SSE idle timeout.
 │
-├── tools/                   built-in toolset (v1; mcp/web/git_clone = v2)
+├── tools/                   built-in toolset (v1; web = v2 opt-in; mcp/git_clone later)
 │   ├── shell.go             run commands (YOLO + --approve gate; §3.1)
 │   ├── files.go             read/write/edit/ls (edit = exact-match replace, see below)
 │   ├── grep.go              regex search (ripgrep-style, no ripgrep dep)
-│   ├── git_clone.go         shallow clone, path-confined to session dir (v2; §12.1)
+│   ├── web_fetch.go         HTTP GET → HTML→text; behind web_tools=true (§12.1)
+│   ├── web_search.go        SearXNG / DuckDuckGo chain; behind web_tools=true (§12.1)
+│   ├── git_clone.go         shallow clone, path-confined to session dir (deferred; §12.1)
 │   └── mcp.go               MCP client (stdio + HTTP) — external tools become tools (v2)
 │
 ├── settings/                ~/.jas/ agent dir (§10; global scope v1, project scope v2)
@@ -461,7 +463,7 @@ per-task containers ship in v3).
 - [x] **Checkpoint/resume** from `events.jsonl` replay (§3 side-effect rules):
       shipped for the chat as `jas --continue` and `/resume`
 - [ ] **Blind secret access** (§9 layer 3)
-- [ ] **Web access**: `web_fetch` + `web_search` + `git_clone` scenario tools (§12.1)
+- [x] **Web access (partial)**: in-tree `web_fetch` + `web_search` behind `web_tools=true` (§12.1); `git_clone` still deferred
 - [ ] **Steering & follow-up queues**: user messages enter after the current
       turn or after the run ends; one-at-a-time/all
 - [ ] **Evals**: fixed-task eval harness with fixtures — with/without scenario
@@ -846,23 +848,27 @@ search/fetch as a first-class extension.
 jas adopts the same philosophy, formalized (see #11):
 
 - **v1:** nothing. The shell tool gives curl for free.
-- **v2:** optional scenario tools (pluggable, like pi's MCP approach but native):
-  - `web_fetch <url>` — **pure** HTTP GET → HTML stripped to markdown/text
-    (pure Go, `x/net/html`). No cloning, no side effects beyond the GET.
-  - `web_search <query>` — behind a pluggable provider configured in
-    `models.json`-style settings (`search: {provider: tavily|brave|duckduckgo|http}`,
-    apiKeyEnv for paid ones; DuckDuckGo HTML scraping needs no key)
-  - `git_clone <url> [dest]` — **explicit** shallow clone, path-confined to
-    the session dir. The model chooses it when it needs repo context; the
-    caller sees the side effects (disk + network). Not a special case of
-    `web_fetch`.
-- Provider chain: `search.providers` list in settings, tried in order;
-  default `[duckduckgo]` (keyless), opt-in extras like `[tavily, brave]`
-- Search providers are a tiny interface, not a dependency: `Search(q) []Result`.
+- **v2 (shipped, opt-in):** in-tree Go tools, enabled only when
+  `web_tools=true` in layered settings (default off). Chat and `jas run`
+  register them via `tools.SessionTools`. When enabled and `approve` is still
+  the built-in default, the session approve level rises to `shell` unless the
+  user set `never` explicitly (§11).
+  - `web_fetch <url>` — **pure** HTTP GET → HTML stripped to plain text
+    (pure Go, `x/net/html`). Size/timeout capped. No cloning, no side effects
+    beyond the GET. Kind = ReadOnly.
+  - `web_search <query>` — pluggable `Searcher` chain. If `search_base_url` is
+    set, SearXNG JSON is tried first; otherwise DuckDuckGo lite (keyless HTML).
+    Brave/Tavily and paid `apiKeyEnv` providers are deferred.
+  - `git_clone <url> [dest]` — **deferred**. Explicit shallow clone,
+    path-confined to the session dir; not a special case of `web_fetch`.
+- Provider chain today: SearXNG (when `search_base_url` set) → DuckDuckGo.
+  Future: configurable `search.providers` list with paid backends.
+- Search providers are a tiny interface, not a dependency:
+  `Search(ctx, q, limit) []Result`.
 - Redaction middleware (§9) applies to tool output → web content is scrubbed
   like any other tool result before it enters the transcript.
 - PDF/video understanding is **v3+** (remote servers need API keys); v2 keeps
-  to fetch + search + clone.
+  to fetch + search (+ clone later).
 
 ### 12.2 `jas learn <topic>` — research → skill
 

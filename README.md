@@ -171,7 +171,12 @@ Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,
 `compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`,
 `max_output_tokens` (default 16000, sent as `max_tokens` on every request),
-`farm_bell` (default true: ring when a chat farm needs you), and per-model `models.<name>.context_window`.
+`farm_bell` (default true: ring when a chat farm needs you),
+`web_tools` (default false: opt-in `web_fetch` + `web_search`; when true and
+`approve` is still the built-in default, the session approve level rises to
+`shell` — an explicit `never` is kept), `search_base_url` (optional SearXNG
+root for `web_search`; otherwise DuckDuckGo lite), and per-model
+`models.<name>.context_window`.
 
 The chat compacts its context: once the prompt passes the window minus
 `compact_reserve_tokens` (default 16384; never below half the window), older
@@ -242,6 +247,23 @@ shadow it freely — a same-named skill in `~/.agents/skills/` wins).
 - Validation is lenient: a bad name warns, a missing description or broken
   frontmatter skips the skill. `disable-model-invocation: true` hides a skill
   from the model.
+
+## Web tools (opt-in)
+
+`web_fetch` and `web_search` are off by default. Turn them on with
+`web_tools=true` (layered settings / `JAS_WEB_TOOLS` / `/settings`). Chat and
+`jas run` then offer both tools; farm parts do not.
+
+```sh
+jas config set --local web_tools true
+jas config set --local search_base_url http://localhost:8080   # optional SearXNG
+```
+
+Without `search_base_url`, search uses DuckDuckGo lite (no API key). Fetched
+pages are untrusted: when `web_tools` is on and `approve` is still the
+built-in default, the session approve level rises to `shell` (an explicit
+`never` is kept). Tool output still goes through redaction. `git_clone` is
+not shipped yet.
 
 ## Approval ladder
 

@@ -310,22 +310,23 @@ attach falls back to resuming the part's event log.
 is re-executed on takeover or on the resume fallback (design §3 side-effect
 rules).
 
-## 8. Research (v2 — scenario web tools)
+## 8. Research (v2 — opt-in web tools)
 
 **Who:** a dev writing docs or evaluating a dependency. **Job:** pull real
 answers from the web into a task, scrubbed like any other tool output.
 
-v2 adds `web_fetch` (pure HTTP GET), `web_search` (pluggable provider chain,
-DuckDuckGo keyless default), and `git_clone` (explicit, path-confined) as
-scenario tools (design §12.1). An illustrative invocation:
+In-tree `web_fetch` (pure HTTP GET → HTML stripped to text) and `web_search`
+(SearXNG when `search_base_url` is set, else DuckDuckGo lite) ship behind
+`web_tools=true` (default off; design §12.1). `git_clone` is still deferred.
+Enable for chat / `jas run`:
 
 ```sh
-jas run --scenario <web-tools-scenario> "read the Go 1.23 iterator proposal
-and list the new range-over-func semantics for our docs"
+jas config set --local web_tools true
+# optional private search:
+# jas config set --local search_base_url http://localhost:8080
+jas run "read the Go 1.23 iterator proposal and list the new range-over-func
+semantics for our docs"
 ```
-
-(`--scenario` takes a name or a path; the name is illustrative — design §8.1
-names the 2-3 built-in starters separately.)
 
 Fetched pages are untrusted input that can carry prompt injection. When web
 tools are on, the default approve level rises to `shell` unless you set

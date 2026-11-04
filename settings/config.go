@@ -66,6 +66,8 @@ var Keys = []KeySpec{
 	{Name: "compact_model", Validate: anyValue},                                                                      // "" = the session's model
 	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true}, // 0 = omit max_tokens
 	{Name: "farm_bell", Default: "true", Validate: oneOf("true", "false")},                                           // ring when a chat farm needs the owner
+	{Name: "web_tools", Default: "false", Validate: oneOf("true", "false")},                                          // opt-in web_fetch + web_search (§12.1)
+	{Name: "search_base_url", Validate: emptyOrURL},                                                                   // optional SearXNG root for web_search
 }
 
 // LookupKey finds a plain key spec by name.
@@ -139,6 +141,19 @@ func Resolve(flags map[string]string, env func(string) string, layers Layers) Ef
 	return out
 }
 
+// SessionApprove is the approve level for a chat / jas run session.
+// When web_tools is enabled and approve is still the built-in default
+// (never), it rises to shell so prompt injection from fetched pages cannot
+// drive shell silently (design §11). An explicit never from flag, env, or
+// any config layer is preserved.
+func (e Effective) SessionApprove() string {
+	approve := e["approve"].Raw
+	if e["web_tools"].Raw == "true" && e["approve"].Source == SourceDefault {
+		return "shell"
+	}
+	return approve
+}
+
 // Validate checks every non-default value, naming the key and its source.
 func (e Effective) Validate() error {
 	for _, k := range Keys {
@@ -182,6 +197,14 @@ func validURL(s string) error {
 		return fmt.Errorf("%q is not a valid http(s) URL", s)
 	}
 	return nil
+}
+
+// emptyOrURL accepts "" or a credential-free http(s) URL (search_base_url).
+func emptyOrURL(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return validURL(s)
 }
 
 func positiveInt(s string) error {

@@ -84,7 +84,7 @@ func runCmd(ctx context.Context, args []string) error {
 	defer rec.Close()
 
 	exec := &core.Executor{
-		Reg:    core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...),
+		Reg:    core.NewRegistry(tools.SessionTools(e.cfg.WebTools, e.cfg.SearchBaseURL)...),
 		Policy: e.policy,
 		Gate: &core.Approver{
 			Level: e.level, In: e.stdin, Out: os.Stderr, Interactive: e.interactive,

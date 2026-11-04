@@ -264,3 +264,60 @@ func TestConfig_FarmBellKey(t *testing.T) {
 		t.Fatal("farm_bell must accept true/false only")
 	}
 }
+
+func TestWebTools_DefaultsAndBuild(t *testing.T) {
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), Layers{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.WebTools, false)
+	assert.Eq(t, r.SearchBaseURL, "")
+	assert.Eq(t, r.Approve, "never")
+
+	env := envOf(map[string]string{
+		"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1",
+		"JAS_WEB_TOOLS": "true", "JAS_SEARCH_BASE_URL": "http://searx.local",
+	})
+	r, err = Resolve(nil, env, Layers{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.WebTools, true)
+	assert.Eq(t, r.SearchBaseURL, "http://searx.local")
+	// web_tools on + default approve → shell (§11)
+	assert.Eq(t, r.Approve, "shell")
+
+	if _, err := (File{}).Set("web_tools", "maybe"); err == nil {
+		t.Fatal("web_tools=maybe should fail")
+	}
+	if _, err := (File{}).Set("search_base_url", "not a url"); err == nil {
+		t.Fatal("bad search_base_url should fail")
+	}
+	if _, err := (File{}).Set("search_base_url", ""); err != nil {
+		t.Fatalf("empty search_base_url should be ok: %v", err)
+	}
+}
+
+func TestSessionApprove_WebTools(t *testing.T) {
+	// Default never + web off → never
+	e := Resolve(nil, envOf(nil), Layers{})
+	assert.Eq(t, e.SessionApprove(), "never")
+
+	// Default never + web on → shell
+	e = Resolve(nil, envOf(map[string]string{"JAS_WEB_TOOLS": "true"}), Layers{})
+	assert.Eq(t, e.SessionApprove(), "shell")
+
+	// Explicit never (env) + web on → keep never
+	e = Resolve(nil, envOf(map[string]string{"JAS_WEB_TOOLS": "true", "JAS_APPROVE": "never"}), Layers{})
+	assert.Eq(t, e.SessionApprove(), "never")
+
+	// Explicit never (global file) + web on → keep never
+	e = Resolve(nil, envOf(map[string]string{"JAS_WEB_TOOLS": "true"}), Layers{
+		Global: File{Values: map[string]string{"approve": "never"}},
+	})
+	assert.Eq(t, e.SessionApprove(), "never")
+
+	// Explicit mutating + web on → keep mutating
+	e = Resolve(nil, envOf(map[string]string{"JAS_WEB_TOOLS": "true", "JAS_APPROVE": "mutating"}), Layers{})
+	assert.Eq(t, e.SessionApprove(), "mutating")
+
+	// Flag never wins and stays never
+	e = Resolve(map[string]string{"approve": "never"}, envOf(map[string]string{"JAS_WEB_TOOLS": "true"}), Layers{})
+	assert.Eq(t, e.SessionApprove(), "never")
+}
