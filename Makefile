@@ -1,7 +1,7 @@
 LDFLAGS := -s -w
 MAX_SIZE := 15728640
 
-.PHONY: build install chat test perf bench size
+.PHONY: build install chat test perf bench size manual
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/jas ./cmd/jas
@@ -15,6 +15,10 @@ install:
 #   make chat ARGS=--continue    make chat DIR=~/some/project
 chat: build
 	cd $(or $(DIR),.) && $(CURDIR)/bin/jas $(ARGS)
+
+# Copies docs/manual.md into the built-in jas skill (a test checks they match).
+manual:
+	cp docs/manual.md cmd/jas/manual/jas/references/manual.md
 
 test:
 	go vet ./...

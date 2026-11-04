@@ -7,8 +7,10 @@ description: Manual for jas, the coding-agent harness this session runs in. Use 
 
 jas is a tiny, fast coding-agent harness in Go: an inline chat (replies
 stream into the terminal's own scrollback, no full-screen mode) plus a
-CI-friendly one-shot runner. This file is the stable surface; a jas checkout
-has the full docs in `README.md` and `docs/`.
+CI-friendly one-shot runner. This file is the stable surface. For exact
+flags, keys, defaults, exit codes and event fields, read
+`references/manual.md` next to this file (the full manual, also
+`docs/manual.md` in a jas checkout).
 
 ## CLI
 

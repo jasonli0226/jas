@@ -84,16 +84,8 @@ jas run --compact "..."                             # compact long runs like the
 jas sessions                                        # other jas sessions in this repo
 ```
 
-Subcommands: `jas` (chat), `jas run`, `jas config set|get|unset|list|init` (scopes `--global|--project|--local`),
-`jas auth add|list|rm|rotate`, `jas sessions [--prune]`, `jas --version`.
-Run flags: `--json`, `--model`, `--provider`, `--base-url`, `--approve`,
-`--max-turns`, `--max-output-tokens`, `--trust-project`, `--name` (session
-title), and the run-only `--max-tokens N` (stop before a request that would
-cross N total tokens), `--timeout D` (wall-clock cap, e.g. `30m`) and
-`--compact`. The chat takes the same flags
-except `--json`, plus `--continue`; it needs a terminal, so scripts use
-`jas run`. `jas run` prints diffs only on a terminal. There is deliberately
-no `--api-key` flag (argv leaks via shell history and `ps`).
+Every command, flag, key, chat command, setting, exit code and event type
+is listed in the **[manual](docs/manual.md)**.
 
 ## Chat
 
@@ -103,43 +95,15 @@ model, approval level, context use and token counts. While a reply runs, a
 dim spinner line above the input shows the run in progress (`working…`, or
 `thinking…` while the model reasons).
 
-- **Enter** sends; **Alt+Enter**, **Shift+Enter**, or **Ctrl+J** adds a
-  newline. On native Windows, Shift+Enter still works when the terminal
-  collapses it to Enter (same GetAsyncKeyState probe as pi; not available
-  under WSL/SSH). Typing while a reply runs steers it: the text reaches the
-  model at its next step. **Ctrl+Q** instead queues a follow-up: it waits
-  until the run ends ok and then goes out as the next message (several are
-  sent together); if the run stops early it comes back into the input.
-  **Alt+Up** pulls every queued message back into the input to edit.
-  **Esc** stops the run; **Ctrl-L** clears the
-  screen (keeps the session); **Ctrl-C** clears the input, and twice on an
-  empty box quits.
-- **`/`** opens a command menu, filtered as you type, with every command and
-  `/skill:<name>`; Up/Down move, Tab or Enter completes. `/help` lists every
-  command and key.
-- **`/model`** lists every configured model (qualified when several providers
-  are set) — Enter switches the session, **Ctrl+S** also stores the choice as
-  the config default. A model on another provider is refused; `/new` starts a
-  session on it.
-- **Up/Down** from the first or last line of the input recall earlier input.
-- Each tool call shows a running row while it runs, then one result row.
-- Edits and writes show a diff (line numbers, `+`/`-`) in the approval prompt
-  and under the tool row.
-- **`jas --continue`** or **`/resume`** reopens a saved session and reprints
-  its conversation; Up/Down history comes back with it.
-- The chat shows a start banner when it opens fresh and on **`/new`** (which
-  also clears the screen): the version, the key hints above, and the context
-  files and skills it loaded (context files left unloaded by a declined trust
-  decision are marked `not loaded`). Resuming — `--continue` or `/resume` —
-  does not show it. **Ctrl-L** clears the screen and reprints the banner
-  without starting a new session.
-- **`/reload`** rebuilds the system prompt from disk mid-session: rediscovers
-  skills and re-reads `AGENTS.md` / `CLAUDE.md` under the same trust rules
-  (a hash change may ask again). The next turn uses the new context; it does
-  not undo filesystem edits.
-- **`/name <title>`** (or `jas --name`) names the session. The `/resume`
-  picker lists it by that title instead of its first message, and the status
-  line shows it.
+- **Enter** sends; while a reply runs, Enter **steers** it (the text reaches
+  the model at its next step) and **Ctrl+Q** queues a **follow-up** for when
+  it ends. **Esc** stops the run.
+- **`/`** opens the command menu; `/help` lists every command and key.
+- `/model` switches models, `/resume` or `jas --continue` reopens a session,
+  `/compact` frees context, `/reload` picks up edited `AGENTS.md` and skills.
+- Edits and writes show a diff in the approval prompt and under the tool row.
+
+All keys and commands: [manual → Chat](docs/manual.md#chat).
 
 ## Configuration
 
@@ -177,16 +141,7 @@ still writes to **local** by default (scope with `--local` / `--project` /
 global file. Add `.jas/config.local.json` to `.gitignore` so personal
 overrides stay local.
 
-Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
-`max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,
-`compact_reserve_tokens`, `compact_keep_tokens`, `compact_model`,
-`max_output_tokens` (default 16000, sent as `max_tokens` on every request),
-`farm_bell` (default true: ring when a chat farm needs you),
-`web_tools` (default false: opt-in `web_fetch` + `web_search`; when true and
-`approve` is still the built-in default, the session approve level rises to
-`shell` — an explicit `never` is kept), `search_base_url` (optional SearXNG
-root for `web_search`; otherwise DuckDuckGo lite), and per-model
-`models.<name>.context_window`.
+Every key, its default and its env var: [manual → Settings](docs/manual.md#settings).
 
 The chat compacts its context: once the prompt passes the window minus
 `compact_reserve_tokens` (default 16384; never below half the window), older
@@ -275,70 +230,24 @@ built-in default, the session approve level rises to `shell` (an explicit
 `never` is kept). Tool output still goes through redaction. `git_clone` is
 not shipped yet.
 
-## Approval ladder
+## Approvals and exit codes
 
-`--approve` (or `jas config set approve`) gates tool calls; each level gates a
-superset of the one before.
+`--approve never|shell|mutating` (or `jas config set approve`) gates tool
+calls: `never` (default) asks nothing, `shell` asks before every `shell`
+call, `mutating` also before `write` and `edit`. In the chat, answering
+`always` grants matching calls until jas quits. With no terminal, a gated
+call exits 5. `jas run` exits 0 on a final answer and non-zero for usage
+errors, a full context, the turn cap, budgets and interrupts.
 
-| level | prompts before |
-|---|---|
-| `never` (default) | nothing |
-| `shell` | every `shell` call |
-| `mutating` | every `shell`, `write` and `edit` call |
+Rules for always grants, every exit code and the `--json` event types:
+[manual → Approvals](docs/manual.md#approvals),
+[Exit codes](docs/manual.md#exit-codes), [Event log](docs/manual.md#event-log).
 
-A denied call returns `status: denied` to the model and the run continues.
-With no TTY (CI, piped stdin) a gated call cannot be answered: jas records
-`approval: unavailable` and exits 5.
-
-### Always grants (chat)
-
-The chat asks `approve <tool>: <call>? [y/N/always]`. `y` allows the call
-once, Enter or `n` denies it, and any other text denies it and is passed to
-the model as steering. `always` allows matching calls until jas quits:
-grants survive `/new` but not `/resume` or `--continue`, are never saved, and
-`/allowed` lists and removes them. A call that can't get a grant is allowed
-once. An
-`edit` or `write` grant covers the whole tool. A shell grant covers later
-commands with the same first two words, a program and its subcommand
-(`go test`, `git commit`, `npm run`), with any arguments.
-
-No shell grant is offered for:
-
-- commands containing `;`, `&`, `|`, `$(`, a backtick, `>`, `<` or a
-  newline, or starting with `VAR=` (on Windows also `^` and `%`);
-- one-word commands, programs given by path (`./run.sh`), or a second word
-  that is a flag or path;
-- shells, interpreters (`python`, `node`, …), wrappers that run another
-  command (`env`, `sudo`, `xargs`, `timeout`, …), `find`, `rm` and similar.
-
-Arguments after the two words are not checked, and some subcommands take
-flags that run another program (`go test -exec`, `git fetch --upload-pack`).
-Grant only what you would approve with any arguments.
-
-## Exit codes
-
-| code | meaning |
-|---|---|
-| 0 | model gave a final answer |
-| 1 | provider failure after retries, unreadable or corrupt `config.json`/`auth.json`/`trust.json`, or internal error |
-| 2 | usage error (bad flags, invalid setting value, missing model/key) |
-| 3 | context full |
-| 4 | turn cap (`max_turns`) hit |
-| 5 | approval required but no TTY to ask |
-| 7 | budget exceeded: `--max-tokens` or `--timeout` reached (`reason` is `tokens` or `timeout`) |
-| 130 | interrupted (Ctrl-C / SIGTERM) |
-
-Tool errors are results the model sees; they never set the exit code.
-Exit 7 is preceded by a `budget_stop` event, and `session_ended` carries the
-`reason` for every non-zero exit.
-
-Each session also writes a small status record to
-`<repo>/.jas/sessions/<id>.json` (git-excluded; file tools can't touch it),
-so `jas sessions` lists the other jas sessions working in the same repo,
-including linked worktrees. Every
-run that gets past setup appends a versioned JSONL event log at
-`~/.jas/sessions/<id>/events.jsonl`; the same code appears in its
-`session_ended` event.
+Each session writes a small status record to
+`<repo>/.jas/sessions/<id>.json` (git-excluded), so `jas sessions` lists the
+other jas sessions working in the same repo, including linked worktrees.
+Every run that gets past setup appends a versioned JSONL event log at
+`~/.jas/sessions/<id>/events.jsonl`.
 
 ## Shell safety: this is YOLO
 

@@ -82,7 +82,8 @@ keys
   Ctrl-C clear the input; twice on an empty box quits
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel
-  in the /model picker: Ctrl+S also sets the default for new sessions`
+  in the /model picker: Ctrl+S also sets the default for new sessions
+full manual: docs/manual.md in the jas repo, or ask jas ("how do I …?")`
 
 // parseCommand splits "/name arg..." at the first whitespace. ok is false
 // for input that is not a slash command with a name.
