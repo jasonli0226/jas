@@ -151,7 +151,7 @@ Settings use Claude Code's three layers (prefs only — runtime policy stays in
 Precedence: flag > `JAS_*` env var > local > project > global > built-in
 default. Every key `k` has a `JAS_<K>` env var; `JAS_API_KEY` supplies the key
 (use these in CI and containers, where there is no `~/.jas/`). `jas config list`
-and chat `/settings` show each effective value and its source.
+and chat `/settings` (picker or typed) show each effective value and its source.
 
 ```sh
 jas config set model z-ai/glm-5.3                 # → ~/.jas/config.json (default)
@@ -165,10 +165,13 @@ jas config unset --local max_turns
 jas config list                                    # value + source of every key
 ```
 
-In chat, `/settings` lists effective values; `/settings <key> <value>` writes
-to **local** by default (scope with `--local` / `--project` / `--global`).
-`/model` + **Ctrl+S** still stores the default model in the global file.
-Add `.jas/config.local.json` to `.gitignore` so personal overrides stay local.
+In chat, bare `/settings` opens a filterable picker (closed-set keys like
+`approve`, `provider`, `web_tools`, and `farm_bell` get a second value picker;
+free-text keys prefill `/settings <key> `). Typed `/settings <key> <value>`
+still writes to **local** by default (scope with `--local` / `--project` /
+`--global`). `/model` + **Ctrl+S** still stores the default model in the
+global file. Add `.jas/config.local.json` to `.gitignore` so personal
+overrides stay local.
 
 Keys: `provider`, `model`, `base_url`, `approve`, `max_turns`,
 `max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`,

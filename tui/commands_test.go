@@ -636,15 +636,16 @@ func TestChat_SettingsListSetUnset(t *testing.T) {
 	b := newTestBackend(t)
 	b.settings = map[string]SettingLine{
 		"model":   {Key: "model", Value: "m", Source: "global config"},
-		"approve": {Key: "approve", Value: "never", Source: "default"},
+		"approve": {Key: "approve", Value: "never", Source: "default", Options: []string{"never", "shell", "mutating"}},
 	}
 	c := newTestChat(t, b)
 	c.submit("/settings")
-	out := c.printedText()
-	assert.Contains(t, out, "settings (effective)")
-	assert.Contains(t, out, "model")
-	assert.Contains(t, out, "global config")
-	assert.Contains(t, out, "default local")
+	assert.Eq(t, c.m.picker != nil, true)
+	assert.Contains(t, c.view(), "approve")
+	assert.Contains(t, c.view(), "never (default)")
+	c.key("esc")
+	assert.Eq(t, c.m.picker == nil, true)
+
 	c.submit("/settings model")
 	assert.Contains(t, c.printedText(), "global config")
 	c.submit("/settings approve shell")
@@ -657,6 +658,61 @@ func TestChat_SettingsListSetUnset(t *testing.T) {
 	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "unset local approve")
 	c.submit("/settings --global unset model")
 	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "unset global model")
+}
+
+func TestChat_SettingsPickerEnumSet(t *testing.T) {
+	b := newTestBackend(t)
+	b.settings = map[string]SettingLine{
+		"approve": {Key: "approve", Value: "never", Source: "default", Options: []string{"never", "shell", "mutating"}},
+		"model":   {Key: "model", Value: "m", Source: "global config"},
+	}
+	c := newTestChat(t, b)
+	c.submit("/settings")
+	assert.Eq(t, c.m.picker != nil, true)
+	c.typeText("approve")
+	c.key("enter")
+	assert.Eq(t, c.m.picker != nil, true)
+	assert.Contains(t, c.view(), "shell")
+	c.typeText("shell")
+	c.key("enter")
+	assert.Eq(t, c.m.picker == nil, true)
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "local approve=shell")
+	assert.Eq(t, c.m.gate.Level(), core.ShellOnly)
+	assert.Contains(t, c.printedText(), "approve=shell (local config)")
+}
+
+func TestChat_SettingsPickerEscCancels(t *testing.T) {
+	b := newTestBackend(t)
+	b.settings = map[string]SettingLine{
+		"approve": {Key: "approve", Value: "never", Source: "default", Options: []string{"never", "shell", "mutating"}},
+	}
+	c := newTestChat(t, b)
+	c.submit("/settings")
+	c.key("esc")
+	assert.Eq(t, c.m.picker == nil, true)
+	assert.Eq(t, len(b.setCalls), 0)
+
+	c.submit("/settings")
+	c.typeText("approve")
+	c.key("enter")
+	assert.Eq(t, c.m.picker != nil, true)
+	c.key("esc")
+	assert.Eq(t, c.m.picker == nil, true)
+	assert.Eq(t, len(b.setCalls), 0)
+}
+
+func TestChat_SettingsPickerFreeTextPrefills(t *testing.T) {
+	b := newTestBackend(t)
+	b.settings = map[string]SettingLine{
+		"model": {Key: "model", Value: "m", Source: "global config"},
+	}
+	c := newTestChat(t, b)
+	c.submit("/settings")
+	c.typeText("model")
+	c.key("enter")
+	assert.Eq(t, c.m.picker == nil, true)
+	assert.Eq(t, c.m.input.Value(), "/settings model ")
+	assert.Eq(t, len(b.setCalls), 0)
 }
 
 func TestTakeSettingsScope(t *testing.T) {

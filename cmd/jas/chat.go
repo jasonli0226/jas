@@ -390,7 +390,7 @@ func (b *chatBackend) ListSettings() []tui.SettingLine {
 		if raw == "" {
 			raw = "(not set)"
 		}
-		out = append(out, tui.SettingLine{Key: k.Name, Value: raw, Source: string(v.Source)})
+		out = append(out, tui.SettingLine{Key: k.Name, Value: raw, Source: string(v.Source), Options: k.Options})
 	}
 	for _, n := range b.e.layers.ModelNames() {
 		w, src, ok := b.e.layers.ModelSource(n)
@@ -406,13 +406,13 @@ func (b *chatBackend) ListSettings() []tui.SettingLine {
 
 // GetSetting returns one effective setting (plain key or models.*).
 func (b *chatBackend) GetSetting(key string) (tui.SettingLine, error) {
-	if _, plain := settings.LookupKey(key); plain {
+	if spec, plain := settings.LookupKey(key); plain {
 		v := settings.Resolve(b.e.flags, os.Getenv, b.e.layers)[key]
 		raw := v.Raw
 		if raw == "" {
 			raw = "(not set)"
 		}
-		return tui.SettingLine{Key: key, Value: raw, Source: string(v.Source)}, nil
+		return tui.SettingLine{Key: key, Value: raw, Source: string(v.Source), Options: spec.Options}, nil
 	}
 	name, ok := modelKeyName(key)
 	if !ok {

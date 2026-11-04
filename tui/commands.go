@@ -52,7 +52,7 @@ const helpText = `commands
   /resume                continue a recent session in this project (grants and level reset)
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /reload                reload AGENTS.md, skills and project context into this session
-  /settings              list effective settings and sources
+  /settings              open settings picker (enums get a value picker)
   /settings <key> [val]  show or set a setting (default write: local)
   /settings unset <key>  remove a setting from local (or --global/--project)
   /session               session file, tokens used, context use
@@ -164,7 +164,7 @@ var commandDesc = map[string]string{
 	"resume":   "continue a recent session",
 	"compact":  "summarize older messages",
 	"reload":   "reload AGENTS.md and skills",
-	"settings": "view or change settings",
+	"settings": "open settings picker",
 	"farm":     "plan or show a farm",
 }
 
@@ -371,21 +371,15 @@ func (m *Model) onReloadDone(msg reloadDoneMsg) tea.Cmd {
 	return m.notice(msg.notices...)
 }
 
-
-// cmdSettings lists, shows, sets or unsets layered settings. Default write
-// scope is local (<project>/.jas/config.local.json). Scope flags:
-// --global, --project, --local.
+// cmdSettings opens a settings picker, or shows/sets/unsets layered settings.
+// Default write scope is local (<project>/.jas/config.local.json). Scope flags:
+// --global, --project, --local. Bare /settings opens a filterable picker;
+// closed-set keys open a second value picker; free-text keys prefill the input.
 func (m *Model) cmdSettings(arg string) tea.Cmd {
 	scope, rest := takeSettingsScope(arg)
 	if len(rest) == 0 {
-		lines := m.b.ListSettings()
-		out := make([]string, 0, len(lines)+1)
-		out = append(out, "settings (effective)")
-		for _, l := range lines {
-			out = append(out, fmt.Sprintf("  %s  %s  (%s)", l.Key, l.Value, l.Source))
-		}
-		out = append(out, "write with /settings [--local|--project|--global] <key> <value> (default "+m.b.DefaultSettingsScope()+")")
-		return m.notice(out...)
+		m.openSettingsPicker()
+		return nil
 	}
 	if rest[0] == "unset" {
 		if len(rest) != 2 {
@@ -409,7 +403,60 @@ func (m *Model) cmdSettings(arg string) tea.Cmd {
 	if len(rest) != 2 {
 		return m.print(errStyle.Render("usage: /settings [--global|--project|--local] <key> <value>"))
 	}
-	key, value := rest[0], rest[1]
+	return m.applySetting(scope, rest[0], rest[1])
+}
+
+// openSettingsPicker shows every effective setting; choosing a closed-set key
+// opens a value picker, choosing a free-text key prefills /settings <key>.
+func (m *Model) openSettingsPicker() {
+	lines := m.b.ListSettings()
+	items := make([]pickItem, len(lines))
+	for i, l := range lines {
+		desc := fmt.Sprintf("%s (%s)", l.Value, l.Source)
+		if len(l.Options) > 0 {
+			desc += " · " + strings.Join(l.Options, "|")
+		}
+		items[i] = pickItem{label: l.Key, value: l.Key, desc: desc}
+	}
+	m.openPicker("settings", items, m.onSettingKey)
+}
+
+// onSettingKey handles a choice from the settings key picker.
+func (m *Model) onSettingKey(key string) tea.Cmd {
+	line := m.settingLine(key)
+	if len(line.Options) == 0 {
+		m.input.SetValue("/settings " + key + " ")
+		return nil
+	}
+	items := make([]pickItem, len(line.Options))
+	for i, o := range line.Options {
+		desc := ""
+		if o == line.Value {
+			desc = "current"
+		}
+		items[i] = pickItem{label: o, value: o, desc: desc}
+	}
+	m.openPicker(key, items, func(value string) tea.Cmd {
+		return m.applySetting("", key, value)
+	})
+	return nil
+}
+
+// settingLine looks up one setting for the picker (value + options).
+func (m *Model) settingLine(key string) SettingLine {
+	for _, l := range m.b.ListSettings() {
+		if l.Key == key {
+			return l
+		}
+	}
+	if line, err := m.b.GetSetting(key); err == nil {
+		return line
+	}
+	return SettingLine{Key: key}
+}
+
+// applySetting writes key=value and updates live approve when needed.
+func (m *Model) applySetting(scope, key, value string) tea.Cmd {
 	if err := m.b.SetSetting(scope, key, value); err != nil {
 		return m.print(errStyle.Render(m.clean(err.Error())))
 	}

@@ -3,8 +3,10 @@ package tui
 import "github.com/jasonli0226/jas/core"
 
 // SettingLine is one row of /settings (effective value + source).
+// Options is the closed set for the value picker; empty means free-text.
 type SettingLine struct {
 	Key, Value, Source string
+	Options            []string
 }
 
 // ContextFile is one context entry offered to the session; Loaded is the
