@@ -27,6 +27,8 @@ type Run struct {
 	CompactModel    string // "" = the session's model
 	MaxOutputTokens int    // sent as max_tokens on every model request
 	FarmBell        bool   // ring the terminal bell when a chat farm needs the owner
+	WebTools        bool   // enable web_fetch + web_search
+	SearchBaseURL   string // optional SearXNG root for web_search
 }
 
 // providersFile rebuilds the stored provider map from the keys Resolve
@@ -51,7 +53,8 @@ func (e Effective) Build() (Run, error) {
 	}
 	r := Run{
 		Provider: e["provider"].Raw, Model: e["model"].Raw, BaseURL: e["base_url"].Raw,
-		Approve: e["approve"].Raw, CompactModel: e["compact_model"].Raw,
+		Approve: e.SessionApprove(), CompactModel: e["compact_model"].Raw,
+		WebTools: e["web_tools"].Raw == "true", SearchBaseURL: strings.TrimSpace(e["search_base_url"].Raw),
 	}
 	if r.Provider == "" {
 		r.Provider = ProviderCustom
