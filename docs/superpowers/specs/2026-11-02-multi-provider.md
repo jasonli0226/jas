@@ -40,8 +40,10 @@ New optional `providers` map in `~/.jas/config.json`:
   preset `base_url` without configuration; the `provider`/`base_url` flat
   keys keep working as the default provider, spelled as the reserved name
   `default` internally. `jas config get` prints the resolved view.
-- Reserved names: `default`. A provider named like a model id segment is
-  the user's problem; first `/` splits.
+- Reserved names: `default`. The first `/` splits. A provider named like an
+  OpenRouter vendor segment (from the embedded catalog) shadows that vendor
+  when OpenRouter is the default: the run warns on stderr naming both
+  readings and the `openrouter/<vendor>/<model>` form (#96).
 
 ## Model ids and resolution
 

@@ -24,11 +24,12 @@ type Run struct {
 	RedactSkipPaths []string
 	CompactReserve  int
 	CompactKeep     int
-	CompactModel    string // "" = the session's model
-	MaxOutputTokens int    // sent as max_tokens on every model request
-	FarmBell        bool   // ring the terminal bell when a chat farm needs the owner
-	WebTools        bool   // enable web_fetch + web_search
-	SearchBaseURL   string // optional SearXNG root for web_search
+	CompactModel    string   // "" = the session's model
+	MaxOutputTokens int      // sent as max_tokens on every model request
+	FarmBell        bool     // ring the terminal bell when a chat farm needs the owner
+	WebTools        bool     // enable web_fetch + web_search
+	SearchBaseURL   string   // optional SearXNG root for web_search
+	Warnings        []string // resolution notes the caller prints (e.g. a vendor-shadowing provider)
 }
 
 // providersFile rebuilds the stored provider map from the keys Resolve
@@ -61,7 +62,11 @@ func (e Effective) Build() (Run, error) {
 	}
 	r.BaseURL = e["base_url"].Raw
 	var rerr error
-	r.Provider, r.BaseURL, r.Model, rerr = e.providersFile().ResolveModel(r.Model, r.Provider, r.BaseURL)
+	pf := e.providersFile()
+	if w := pf.VendorShadowWarning(r.Model, r.Provider); w != "" {
+		r.Warnings = append(r.Warnings, w)
+	}
+	r.Provider, r.BaseURL, r.Model, rerr = pf.ResolveModel(r.Model, r.Provider, r.BaseURL)
 	if rerr != nil {
 		return r, rerr
 	}
