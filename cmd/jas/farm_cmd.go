@@ -275,8 +275,23 @@ func checkLooksTrivial(check string) bool {
 	return true
 }
 
+// planner is a planner session that owns its event log.
+type planner struct {
+	*farm.Planner
+	log core.EventLog
+}
+
+// Close ends the session and closes its event log.
+func (p *planner) Close(status string, code int) error {
+	err := p.Planner.Close(status, code)
+	if cerr := p.log.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // startPlanner opens the planner session with read-only tools.
-func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerInput, farmID, logPath string) (*farm.Planner, error) {
+func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerInput, farmID, logPath string) (*planner, error) {
 	log, err := core.OpenEventLog(logPath, nil, e.red.Redact)
 	if err != nil {
 		return nil, err
@@ -301,7 +316,7 @@ func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerI
 		log.Close()
 		return nil, err
 	}
-	return pl, nil
+	return &planner{Planner: pl, log: log}, nil
 }
 
 // refuse reports a refusal on stdout, logs it and returns the exit 8 error.

@@ -29,7 +29,7 @@ type chatFarmer struct {
 // chatPlan is a draft under review in the chat.
 type chatPlan struct {
 	e    *env
-	pl   *farm.Planner
+	pl   *planner
 	in   farm.PlannerInput
 	flog core.EventLog
 	dir  string

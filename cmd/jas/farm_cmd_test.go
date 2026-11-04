@@ -601,6 +601,7 @@ func TestFarmSession_UsesWorkerUI(t *testing.T) {
 	ui := &textUI{}
 	log, err := core.OpenEventLog(filepath.Join(t.TempDir(), "events.jsonl"), nil, nil)
 	assert.NoErr(t, err)
+	t.Cleanup(func() { log.Close() })
 	ws := farm.WorkerSession{Part: farm.Part{ID: "a"}, Root: e.root, Log: log, UI: ui,
 		Policy: e.policy, Gate: core.AllowAll{}}
 	s, err := farmSession(e)(ws)

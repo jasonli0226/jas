@@ -168,12 +168,19 @@ func TestSupervisor_DAGOrderAndMaxWorkers(t *testing.T) {
 	}}
 	cfg := testCfg()
 	cfg.Split.MaxWorkers = 2
+	// Each worker holds its first turn until two sessions have been live at
+	// once, so the overlap doesn't depend on how fast worktrees are made.
+	var r *supRig
 	slow := func(part string, _ int) []fake.Turn {
 		t := writeCall(part+"/x.go", "package "+part+"\n")
-		t.OnEmit = func() { time.Sleep(40 * time.Millisecond) }
+		t.OnEmit = func() {
+			for deadline := time.Now().Add(5 * time.Second); r.maxLive.Load() < 2 && time.Now().Before(deadline); {
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
 		return []fake.Turn{t, final(part + " done")}
 	}
-	r := newSup(t, plan, cfg, slow)
+	r = newSup(t, plan, cfg, slow)
 	r.onCreate = func(ws WorkerSession) {
 		if ws.Part.ID == "d" {
 			if st := r.part("a").Status; st != StatusDone {
