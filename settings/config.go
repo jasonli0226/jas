@@ -40,6 +40,7 @@ func Home() string {
 type KeySpec struct {
 	Name     string
 	Default  string
+	Options  []string // closed set for /settings picker; empty = free-text
 	Validate func(string) error
 	Flag     bool // a per-run --<name> flag exists
 }
@@ -52,10 +53,10 @@ func (k KeySpec) EnvName() string {
 // Keys lists every plain setting. models.<name>.context_window is a pattern
 // handled by File.Set.
 var Keys = []KeySpec{
-	{Name: "provider", Validate: oneOf("openrouter", "ollama", "custom"), Flag: true},
+	{Name: "provider", Options: []string{"openrouter", "ollama", "custom"}, Validate: oneOf("openrouter", "ollama", "custom"), Flag: true},
 	{Name: "model", Validate: nonEmpty, Flag: true},
 	{Name: "base_url", Validate: validURL, Flag: true},
-	{Name: "approve", Default: DefaultApprove, Validate: oneOf("never", "shell", "mutating"), Flag: true},
+	{Name: "approve", Default: DefaultApprove, Options: []string{"never", "shell", "mutating"}, Validate: oneOf("never", "shell", "mutating"), Flag: true},
 	{Name: "max_turns", Default: strconv.Itoa(DefaultMaxTurns), Validate: positiveInt, Flag: true},
 	{Name: "max_tool_output", Default: strconv.Itoa(DefaultMaxToolOutput), Validate: positiveInt},
 	{Name: "elide_at", Default: DefaultElideAt, Validate: fractionOpen},
@@ -65,9 +66,9 @@ var Keys = []KeySpec{
 	{Name: "compact_keep_tokens", Default: strconv.Itoa(DefaultCompactKeep), Validate: positiveInt},
 	{Name: "compact_model", Validate: anyValue},                                                                      // "" = the session's model
 	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true}, // 0 = omit max_tokens
-	{Name: "farm_bell", Default: "true", Validate: oneOf("true", "false")},                                           // ring when a chat farm needs the owner
-	{Name: "web_tools", Default: "false", Validate: oneOf("true", "false")},                                          // opt-in web_fetch + web_search (§12.1)
-	{Name: "search_base_url", Validate: emptyOrURL},                                                                   // optional SearXNG root for web_search
+	{Name: "farm_bell", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},       // ring when a chat farm needs the owner
+	{Name: "web_tools", Default: "false", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},      // opt-in web_fetch + web_search (§12.1)
+	{Name: "search_base_url", Validate: emptyOrURL},                                                                  // optional SearXNG root for web_search
 }
 
 // LookupKey finds a plain key spec by name.

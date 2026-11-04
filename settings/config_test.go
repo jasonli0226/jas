@@ -263,6 +263,25 @@ func TestConfig_FarmBellKey(t *testing.T) {
 	if k.Validate("maybe") == nil || k.Validate("false") != nil {
 		t.Fatal("farm_bell must accept true/false only")
 	}
+	assert.Eq(t, len(k.Options), 2)
+}
+
+func TestConfig_ClosedSetOptions(t *testing.T) {
+	for _, name := range []string{"provider", "approve", "farm_bell", "web_tools"} {
+		k, ok := LookupKey(name)
+		if !ok || len(k.Options) == 0 {
+			t.Fatalf("%s should expose Options for /settings picker", name)
+		}
+		for _, o := range k.Options {
+			if err := k.Validate(o); err != nil {
+				t.Fatalf("%s option %q: %v", name, o, err)
+			}
+		}
+	}
+	k, _ := LookupKey("model")
+	if len(k.Options) != 0 {
+		t.Fatal("model is free-text")
+	}
 }
 
 func TestWebTools_DefaultsAndBuild(t *testing.T) {
