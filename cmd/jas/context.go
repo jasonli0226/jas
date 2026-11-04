@@ -46,8 +46,8 @@ type projectContext struct {
 // clash override) user skills only once trusted. Context file content is
 // redacted and capped, and the skill catalog redacted and size-bounded,
 // before either reaches the prompt.
-func loadProjectContext(ctx context.Context, root, home string, project, user []skills.Skill, interactive, flagTrust bool,
-	in *bufio.Reader, out io.Writer, redact func(string) string, warn func(string)) (projectContext, error) {
+func loadProjectContext(root, home string, project, user []skills.Skill, interactive, flagTrust bool,
+	ask func(string) string, redact func(string) string, warn func(string)) (projectContext, error) {
 	path, content, hasFile := core.FindContextFile(root)
 	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: flagTrust}
 	farmCfg := readFarmConfig(root)
@@ -55,7 +55,7 @@ func loadProjectContext(ctx context.Context, root, home string, project, user []
 	if hasFile || len(project) > 0 || farmCfg != nil {
 		store := core.TrustStore{Path: filepath.Join(home, trustFile)}
 		load, err := core.DecideContextFile(trustLabel(path, len(project), farmCfg != nil), root, trustBundle(content, project, farmCfg), store,
-			interactive, flagTrust, func(p string) string { return askLine(ctx, in, out, p) })
+			interactive, flagTrust, ask)
 		if err != nil {
 			return projectContext{}, err
 		}

@@ -34,19 +34,22 @@ func TestBridge_TagsGeneration(t *testing.T) {
 // testBackend is a Backend over a fake provider and temp dirs. It registers
 // the read-only and mutating tools with the policy root set to root.
 type testBackend struct {
-	t           *testing.T
-	root        string
-	sessionsDir string
-	prov        *fake.Provider
-	redact      func(string) string // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
-	window      int                 // context window; 0 is testWindow
-	provider    string              // what ProviderOf reports; "" is unknown, so /model never refuses
-	keep        int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
-	ctxFiles    []ContextFile       // the start banner's [Context] rows; nil hides the section
-	closes      atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
-	opens       atomic.Int32        // sessions handed out as a Live
-	defaults    []string            // models stored as the config default, in order
-	farmer      Farmer              // the farm port; nil: farms unavailable
+	t            *testing.T
+	root         string
+	sessionsDir  string
+	prov         *fake.Provider
+	redact       func(string) string // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
+	window       int                 // context window; 0 is testWindow
+	provider     string              // what ProviderOf reports; "" is unknown, so /model never refuses
+	keep         int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
+	ctxFiles     []ContextFile       // the start banner's [Context] rows; nil hides the section
+	closes       atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
+	opens        atomic.Int32        // sessions handed out as a Live
+	defaults     []string            // models stored as the config default, in order
+	farmer       Farmer              // the farm port; nil: farms unavailable
+	reloadSystem string              // SetSystem text for Reload; empty uses a default
+	reloadAsk    []string            // prompts Reload passed to ask, in order
+	reloadRoots  []string            // SetReadRoots after Reload; nil leaves roots alone
 }
 
 const testWindow = 100000
@@ -192,6 +195,24 @@ func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
 		return "", false
 	}
 	return "SKILL review: " + text, true
+}
+
+// Reload swaps the live session's system prompt (and optional read roots).
+func (b *testBackend) Reload(s *core.Session, ask func(string) string) ([]string, error) {
+	if ask != nil {
+		b.reloadAsk = append(b.reloadAsk, ask("trust /tmp and load AGENTS.md? [y/N/always] "))
+	}
+	system := b.reloadSystem
+	if system == "" {
+		system = "reloaded-system"
+	}
+	if err := s.SetSystem(system, map[string]any{"context_files": []map[string]any{{"path": "AGENTS.md", "loaded": true}}}); err != nil {
+		return nil, err
+	}
+	if b.reloadRoots != nil {
+		s.SetReadRoots(b.reloadRoots)
+	}
+	return []string{"reloaded · AGENTS.md loaded · 0 skills"}, nil
 }
 
 var _ Backend = (*testBackend)(nil)

@@ -169,8 +169,8 @@ func farmVarsCmd(ctx context.Context, args []string) error {
 	red := newRedactor("")
 	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
-	pc, err := loadProjectContext(ctx, root, home, nil, nil, interactive, *trust,
-		bufio.NewReader(os.Stdin), os.Stderr, red.Redact, warn)
+	ask := func(p string) string { return askLine(ctx, bufio.NewReader(os.Stdin), os.Stderr, p) }
+	pc, err := loadProjectContext(root, home, nil, nil, interactive, *trust, ask, red.Redact, warn)
 	if err != nil {
 		return err
 	}
