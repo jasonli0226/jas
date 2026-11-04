@@ -193,6 +193,26 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 `/new`, `/model`, `/name`, `/resume`, `/compact` and `/reload` wait until
 no reply is running.
 
+### Hints
+
+When a command would help, the chat shows a one-line `tip:` in place of the
+status line until your next key press. Each tip shows at most once per chat;
+`/settings hints false` (or `jas config set hints false`) turns them off from
+the next start.
+
+| when | tip |
+|---|---|
+| you press Enter while a reply runs | Ctrl+Q queues for after the run instead of steering |
+| your message has a link and `web_tools` is off | `/settings web_tools true` |
+| queued text comes back into the input | Enter sends it, Ctrl+C clears it |
+| a run hits the turn cap | `/settings max_turns 100` |
+| context passes 80% | `/compact` |
+| the first approval prompt | what `y`, `always` and free text do |
+| three tool calls denied in a row | type why instead of `n` |
+| a shell/grep/ls output is cut on screen | Ctrl+O expands it |
+| the model's context window is a guess | `/settings models.<id>.context_window <n>` |
+| a fresh chat in a project with earlier sessions | `/resume` or `jas --continue` |
+
 ### Approval prompts
 
 `approve <tool>: <call>? [y/N/always]`:
@@ -237,6 +257,7 @@ global > built-in default.
 | `farm_bell` | true | ring the terminal bell when a chat farm needs you |
 | `web_tools` | false | offer `web_fetch` + `web_search`; when on and `approve` is still the default, the level rises to `shell` |
 | `search_base_url` | — | SearXNG root for `web_search`; otherwise DuckDuckGo lite |
+| `hints` | true | one-time chat tips ([Hints](#hints)); `false` turns them off |
 | `models.<name>.context_window` | catalog, else 128000 | context window for a model the catalog does not know |
 | `providers.<name>.base_url` | — | a named provider, addressed as `<name>/<model>` |
 

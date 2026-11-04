@@ -130,9 +130,11 @@ func (m *Model) onEnter() tea.Cmd {
 		return m.steerAgent(text)
 	}
 	m.input.Reset()
+	m.tipURL(text)
 	if m.running() {
 		m.live.Session.Steer(text)
 		m.queued = append(m.queued, text)
+		m.tip(hintSteer, "that steers the reply now · Ctrl+Q queues a message for after the run")
 		return nil
 	}
 	if note := m.farmNote; note != "" {

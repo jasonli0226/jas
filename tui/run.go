@@ -115,6 +115,8 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	blocks := m.tr.Event(msg.typ, msg.data, m.o.Now())
 	if msg.typ == core.EvToolResult {
 		m.noteLastTool()
+		status, _ := msg.data["status"].(string)
+		m.tipToolResult(status)
 	}
 	return m.print(blocks...)
 }
@@ -173,7 +175,8 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	if msg.res.Status == "ok" && msg.err == nil && !m.quitting && len(m.askPending) == 0 {
 		follow, m.followUps = strings.Join(m.followUps, followSep), nil
 	}
-	m.restoreQueued()
+	restored := m.restoreQueued()
+	m.tipRunEnd(msg.res.Code, restored)
 	m.branch = gitBranch(m.o.Root) // the run may have switched branches
 	blocks := m.tr.Flush(m.o.Now())
 	if n := runNotice(msg.res); n != "" {
@@ -194,18 +197,19 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 }
 
 // restoreQueued puts steering that never reached the model, then follow-ups
-// not sent, back in front of the input.
-func (m *Model) restoreQueued() {
+// not sent, back in front of the input. It reports whether any came back.
+func (m *Model) restoreQueued() bool {
 	left := append(m.live.Session.TakeSteering(), m.followUps...)
 	m.followUps = nil
 	if len(left) == 0 {
-		return
+		return false
 	}
 	text := strings.Join(left, "\n")
 	if cur := m.input.Value(); cur != "" {
 		text += "\n" + cur
 	}
 	m.input.SetValue(text)
+	return true
 }
 
 // onCompactDone ends a /compact: it prints the outcome, puts back steering
@@ -256,6 +260,7 @@ func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 	}
 	m.approval = &msg
 	m.stashInput()
+	m.tip(hintApproval, "y allows once · always allows matching calls until jas quits · other text denies and steers")
 	return cmd
 }
 
