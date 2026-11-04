@@ -217,8 +217,8 @@ newer than it reads, rather than misread it.
 
 | type | payload | when |
 |---|---|---|
-| `session_started` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per file, first |
-| `session_resumed` | model, base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per reopen, after replay |
+| `session_started` | model, provider (resolved name), base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per file, first |
+| `session_resumed` | model, provider (resolved name), base_url, approve level, project root, context files loaded, skills listed (name, scope, location) | once per reopen, after replay |
 | `user_message` | content (wire blocks), steer (optional bool) | when user sends a message or steering text |
 | `turn_started` | (empty) | at start of each user message, including a steer delivered after the final answer |
 | `assistant_message` | text, content (wire blocks), final (bool) | after each stream; final on the answer turn; a `tool_use` block whose arguments aren't valid JSON stores them as the string `input_raw` instead of `input` |
@@ -228,7 +228,7 @@ newer than it reads, rather than misread it.
 | `tool_result` | call_id, tool, status (ok\|error\|denied\|cancelled\|interrupted\|not_run), output; optional `diff` after an ok `write` (`path`, `hunks` of `{k,o,n,t,s}`, `truncated`; a `write` over an existing file logs added lines only; an `edit` logs no `diff`: its full diff, like a write's, is screen-only); replay ignores `diff` | after exec |
 | `elided` | count, tokens_before, tokens_after | each elision pass |
 | `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens | at end of each user message; `turns` counts the model requests within it |
-| `model_changed` | model | when SetModel is called |
+| `model_changed` | model (bare id), provider, base_url (the session's endpoint; never a key) | when SetModel is called; replay and resume take provider and base_url from the latest of these three events that carries them |
 | `session_titled` | title (one line, ≤80 runes; "" clears) | when SetTitle is called (`/name`, `jas --name`); the latest wins. `session_started` may also carry `title` (`jas run --name`) |
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage | when history is compacted (chat only) |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash |

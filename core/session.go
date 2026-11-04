@@ -255,7 +255,13 @@ func (s *Session) MessageIDs() []string {
 // switch happens even if logging fails; the log error is returned.
 func (s *Session) SetModel(model string) error {
 	s.model = model
-	if err := s.c.Log.Append(EvModelChanged, map[string]any{"model": model}); err != nil {
+	data := map[string]any{"model": model}
+	for _, k := range []string{"provider", "base_url"} { // a switch stays on the session's endpoint
+		if v, ok := s.c.Meta[k]; ok {
+			data[k] = v
+		}
+	}
+	if err := s.c.Log.Append(EvModelChanged, data); err != nil {
 		return fmt.Errorf("event log: %w", err)
 	}
 	return nil

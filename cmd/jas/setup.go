@@ -94,6 +94,9 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
 	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
+	for _, w := range cfg.Warnings {
+		warn(w)
+	}
 	userHome, _ := os.UserHomeDir()     // no home: user skills are skipped
 	userConfig, _ := os.UserConfigDir() // no config dir: manual skills are skipped
 	if err := syncManualSkills(); err != nil {
@@ -140,7 +143,7 @@ func (e *env) warnUnknownWindow(model string) {
 func (e *env) sessionMeta(model string) map[string]any {
 	window, known := e.window(model)
 	return map[string]any{
-		"base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
+		"provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
 }

@@ -340,3 +340,41 @@ func TestSessionApprove_WebTools(t *testing.T) {
 	e = Resolve(map[string]string{"approve": "never"}, envOf(map[string]string{"JAS_WEB_TOOLS": "true"}), Layers{})
 	assert.Eq(t, e.SessionApprove(), "never")
 }
+
+// A configured provider named like an OpenRouter vendor (qwen) still wins
+// the first "/" split, but never silently: Build warns with both readings
+// and the qualified forms that disambiguate (#96).
+func TestBuild_VendorNamedProviderWarns(t *testing.T) {
+	f := File{
+		Values:    map[string]string{"provider": ProviderOpenRouter},
+		Providers: map[string]ProviderEntry{"qwen": {BaseURL: "http://localhost:8000/v1"}},
+	}
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "qwen/qwen3-coder"}), Layers{Global: f}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, "qwen")
+	assert.Eq(t, r.Model, "qwen3-coder")
+	assert.Eq(t, len(r.Warnings), 1)
+	assert.Contains(t, r.Warnings[0], `providers.qwen`)
+	assert.Contains(t, r.Warnings[0], `openrouter/qwen/qwen3-coder`)
+
+	// The qualified form stays on OpenRouter and does not warn.
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "openrouter/qwen/qwen3-coder"}), Layers{Global: f}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, ProviderOpenRouter)
+	assert.Eq(t, r.Model, "qwen/qwen3-coder")
+	assert.Eq(t, len(r.Warnings), 0)
+
+	// A provider name that is not an OpenRouter vendor is unambiguous.
+	f.Providers = map[string]ProviderEntry{"vllm": {BaseURL: "http://localhost:8000/v1"}}
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "vllm/qwen3"}), Layers{Global: f}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.Provider, "vllm")
+	assert.Eq(t, len(r.Warnings), 0)
+
+	// Off OpenRouter, vendor segments mean nothing: no warning.
+	f.Values = map[string]string{"provider": ProviderCustom, "base_url": "http://x/v1"}
+	f.Providers = map[string]ProviderEntry{"qwen": {BaseURL: "http://localhost:8000/v1"}}
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "qwen/qwen3-coder"}), Layers{Global: f}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, len(r.Warnings), 0)
+}

@@ -52,7 +52,7 @@ func newRig(t *testing.T, turns []fake.Turn, extra ...core.Tool) *rig {
 	return &rig{prov: prov, logPath: logPath, root: root, cfg: core.RunConfig{
 		Provider: prov, Model: "m", Prompt: "do it", System: core.BuildSystem(core.BasePrompt, ""),
 		Exec: ex, Log: log, UI: core.NewQuietUI(), MaxTurns: 10,
-		SessionMeta: map[string]any{"base_url": "http://x", "approve": "never", "root": root, "context_files": []string{}},
+		SessionMeta: map[string]any{"provider": "vllm", "base_url": "http://x", "approve": "never", "root": root, "context_files": []string{}},
 	}}
 }
 

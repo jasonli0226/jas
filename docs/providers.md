@@ -100,6 +100,12 @@ With several providers configured, `--model openrouter/z-ai/glm-5.3` and
 Switching a live chat to a model on *another* provider needs `/new`: the
 provider and its key are wired at session start.
 
+The text before the first `/` picks the provider when it names one, so
+avoid naming a provider after an OpenRouter vendor (`qwen`, `deepseek`, …):
+with OpenRouter as the default, `qwen/qwen3-coder` would then go to
+`providers.qwen`, not OpenRouter. jas warns on stderr when that happens;
+write `openrouter/qwen/qwen3-coder` to stay on OpenRouter.
+
 ### OpenAI
 
 ```sh

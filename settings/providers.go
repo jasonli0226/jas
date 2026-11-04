@@ -49,6 +49,34 @@ func (f File) ProviderNames() []string {
 	return slices.Sorted(maps.Keys(set))
 }
 
+// openRouterVendors is the set of vendor segments in the embedded OpenRouter
+// catalog ("qwen" from "qwen/qwen3-coder"; a leading "~" alias is dropped).
+var openRouterVendors = func() map[string]bool {
+	set := map[string]bool{}
+	for id := range catalog {
+		if v, _, ok := strings.Cut(strings.TrimPrefix(id, "~"), "/"); ok {
+			set[v] = true
+		}
+	}
+	return set
+}()
+
+// VendorShadowWarning explains a model ref whose first segment is both a
+// configured provider and an OpenRouter vendor while the default provider is
+// OpenRouter: the ref goes to that provider, not OpenRouter, so a later
+// providers.<name> entry would otherwise reroute it silently. "" when the
+// ref is unambiguous.
+func (f File) VendorShadowWarning(ref, defaultProvider string) string {
+	if defaultProvider != ProviderOpenRouter {
+		return ""
+	}
+	p, m, ok := SplitModelRef(ref, f.KnownProvider)
+	if !ok || p == ProviderOpenRouter || !openRouterVendors[p] {
+		return ""
+	}
+	return fmt.Sprintf("model %q goes to providers.%s (model %q), not OpenRouter, because %q is also an OpenRouter vendor; use %q to stay on OpenRouter, or rename the provider", ref, p, m, p, ProviderOpenRouter+"/"+ref)
+}
+
 // ResolveModel turns a model reference into (provider, baseURL, model id).
 // A qualified ref whose provider is configured overrides the flat provider
 // and base_url; anything else is a bare model on the default provider

@@ -22,7 +22,9 @@ has the full docs in `README.md` and `docs/`.
 | `jas auth add <provider>` | store a key in `~/.jas/auth.json` (0600) |
 | `jas farm …` | experimental parallel worktree runner (below) |
 
-Shared flags: `--model <ref>` (`provider/model`), `--provider`, `--base-url`,
+Shared flags: `--model <ref>` (`provider/model`; with OpenRouter as the
+default, a provider named like a vendor such as `qwen` takes `qwen/…` refs and
+jas warns, so write `openrouter/qwen/…` to stay on OpenRouter), `--provider`, `--base-url`,
 `--approve <level>`, `--json`, `--trust-project`. `JAS_*` env vars override
 stored config; `JAS_HOME` moves `~/.jas`.
 

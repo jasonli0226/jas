@@ -37,7 +37,8 @@ type ReplayState struct {
 	// first logged tool_result, or "" when replay synthesized every result.
 	MessageIDs []string
 	Model      string   // last session_started/session_resumed/model_changed model
-	BaseURL    string   // base_url of the last session_started/session_resumed
+	BaseURL    string   // base_url of the last session_started/session_resumed/model_changed that has one
+	Provider   string   // provider of the last session_started/session_resumed/model_changed that has one
 	Root       string   // session_started.root
 	Title      string   // last session_titled title, else session_started.title
 	Notices    []string // e.g. "ignored unreadable line 41"
@@ -53,19 +54,20 @@ type InterruptedCall struct{ ID, Tool, Status, Output string }
 
 // replayLine is one event line: the header plus every payload field replay uses.
 type replayLine struct {
-	V       int         `json:"v"`
-	ID      string      `json:"id"`
-	Type    string      `json:"type"`
-	TS      time.Time   `json:"ts"`
-	Model   string      `json:"model"`
-	BaseURL string      `json:"base_url"`
-	Root    string      `json:"root"`
-	Title   string      `json:"title"`
-	Content []wireBlock `json:"content"`
-	CallID  string      `json:"call_id"`
-	Status  string      `json:"status"`
-	Output  string      `json:"output"`
-	Text    string      `json:"text"`
+	V        int         `json:"v"`
+	ID       string      `json:"id"`
+	Type     string      `json:"type"`
+	TS       time.Time   `json:"ts"`
+	Model    string      `json:"model"`
+	BaseURL  string      `json:"base_url"`
+	Provider string      `json:"provider"`
+	Root     string      `json:"root"`
+	Title    string      `json:"title"`
+	Content  []wireBlock `json:"content"`
+	CallID   string      `json:"call_id"`
+	Status   string      `json:"status"`
+	Output   string      `json:"output"`
+	Text     string      `json:"text"`
 	// compaction payload
 	Summary     string `json:"summary"`
 	FirstKeptID string `json:"first_kept_id"`
@@ -194,6 +196,17 @@ func (r *replayer) notef(format string, a ...any) {
 	r.st.Notices = append(r.st.Notices, fmt.Sprintf(format, a...))
 }
 
+// setEndpoint keeps the latest provider and base_url; events logged before
+// they were recorded (a model_changed with only a model) keep the earlier ones.
+func (r *replayer) setEndpoint(ev replayLine) {
+	if ev.BaseURL != "" {
+		r.st.BaseURL = ev.BaseURL
+	}
+	if ev.Provider != "" {
+		r.st.Provider = ev.Provider
+	}
+}
+
 func (r *replayer) apply(line int, ev replayLine) {
 	switch ev.Type {
 	case EvSessionStarted:
@@ -202,12 +215,13 @@ func (r *replayer) apply(line int, ev replayLine) {
 		}
 		r.started = true
 		r.setModel(ev.Model)
-		r.st.BaseURL = ev.BaseURL
+		r.setEndpoint(ev)
 	case EvSessionResumed:
 		r.setModel(ev.Model)
-		r.st.BaseURL = ev.BaseURL
+		r.setEndpoint(ev)
 	case EvModelChanged:
 		r.setModel(ev.Model)
+		r.setEndpoint(ev)
 	case EvSessionTitled:
 		r.st.Title = ev.Title
 	case EvUserMessage:
