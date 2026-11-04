@@ -32,6 +32,7 @@ type env struct {
 	skillList   []skillMeta
 	stdin       *bufio.Reader // shared by the trust prompt and jas run's approver
 	interactive bool
+	trust       bool // --trust-project: reload keeps auto-trusting
 	provider    providers.Provider
 }
 
@@ -101,7 +102,8 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	for _, w := range append(pw, uw...) {
 		warn(w)
 	}
-	pc, err := loadProjectContext(ctx, root, home, projectSkills, userSkills, interactive, trust, stdin, os.Stderr, red.Redact, warn)
+	ask := func(p string) string { return askLine(ctx, stdin, os.Stderr, p) }
+	pc, err := loadProjectContext(root, home, projectSkills, userSkills, interactive, trust, ask, red.Redact, warn)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +111,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	policy.ReadRoots = skillDirs
 	return &env{
 		cfg: cfg, file: file, level: level, key: key, auth: auth, root: root, home: home, red: red,
-		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive,
+		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
 	}, nil
 }

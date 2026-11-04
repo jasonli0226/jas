@@ -36,6 +36,10 @@ type Backend interface {
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
 	// Farmer is the farm port; nil when this chat cannot run farms.
 	Farmer() Farmer
+	// Reload rediscovers skills and rebuilds AGENTS.md / project context into
+	// s under the trust rules. ask is called when trust must be re-confirmed
+	// (nil refuses like a non-interactive skip). Notices describe what loaded.
+	Reload(s *core.Session, ask func(string) string) (notices []string, err error)
 }
 
 // Live is one open session.

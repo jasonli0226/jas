@@ -224,7 +224,42 @@ func TestSession_SetModelLoggedAndUsed(t *testing.T) {
 	assert.Eq(t, strings.Join(changed, ","), "m2")
 }
 
+func TestSession_SetSystemLoggedAndUsed(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "A"}, {Text: "B"}})
+	s := newSession(t, r)
+	ctx := context.Background()
+	send(t, s, ctx, "a")
+	assert.Eq(t, r.prov.Requests[0].System, r.cfg.System)
+	next := "reloaded system prompt UNIQUE-7721"
+	assert.NoErr(t, s.SetSystem(next, map[string]any{"context_files": []string{"AGENTS.md"}}))
+	assert.Eq(t, s.System(), next)
+	send(t, s, ctx, "b")
+	assert.Eq(t, r.prov.Requests[1].System, next)
+	var found bool
+	for _, e := range r.events(t) {
+		if e["type"] == "context_reloaded" {
+			found = true
+			assert.Eq(t, int(e["bytes"].(float64)), len(next))
+			assert.Eq(t, e["context_files"].([]any)[0], "AGENTS.md")
+		}
+	}
+	assert.Eq(t, found, true)
+}
+
+func TestSession_SetSystemReturnsLogError(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "A"}})
+	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"context_reloaded": true}}
+	s := newSession(t, r)
+	err := s.SetSystem("x", nil)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("context_reloaded failure not returned: %v", err)
+	}
+	assert.Contains(t, err.Error(), "event log")
+	assert.Eq(t, s.System(), "x") // takes effect even when logging fails
+}
+
 func TestSession_SetModelReturnsLogError(t *testing.T) {
+
 	r := newRig(t, []fake.Turn{{Text: "A"}})
 	r.cfg.Log = failLog{r.cfg.Log, map[string]bool{"model_changed": true}}
 	s := newSession(t, r)

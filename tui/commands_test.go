@@ -586,3 +586,45 @@ func TestChat_NameOptionTitlesFirstSession(t *testing.T) {
 	assert.Eq(t, c.m.live.Session.Title(), "ci job")
 	assert.Contains(t, c.view(), "· ci job")
 }
+
+func TestChat_ReloadCommand(t *testing.T) {
+	b := newTestBackend(t)
+	b.reloadSystem = "after-reload UNIQUE-88"
+	c := newTestChat(t, b)
+	before := c.m.live.Session.System()
+	c.submit("/reload")
+	c.pumpAsk()
+	assert.Eq(t, c.m.reloading, true)
+	if c.m.ask == nil {
+		t.Fatal("trust ask not open")
+	}
+	c.submit("y")
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(reloadDoneMsg); return ok })
+	assert.Eq(t, c.m.reloading, false)
+	assert.Eq(t, c.m.live.Session.System(), "after-reload UNIQUE-88")
+	if c.m.live.Session.System() == before {
+		t.Fatal("system prompt unchanged after /reload")
+	}
+	assert.Contains(t, c.printedText(), "reloaded · AGENTS.md loaded")
+	assert.Eq(t, len(b.reloadAsk), 1)
+	assert.Contains(t, b.reloadAsk[0], "y")
+}
+
+func TestChat_ReloadRefusedWhileRunning(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Block: true})
+	c := newTestChat(t, b)
+	c.submit("go")
+	c.submit("/reload")
+	assert.Contains(t, c.printedText(), "wait for the reply or press Esc first")
+	assert.Eq(t, c.m.reloading, false)
+}
+
+func TestChat_ReloadListedAndInHelp(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.typeText("/rel")
+	assert.Contains(t, c.view(), "/reload")
+	c.m.input.Reset()
+	c.submit("/help")
+	assert.Contains(t, c.printedText(), "/reload")
+	assert.Contains(t, c.printedText(), "reload AGENTS.md, skills and project context")
+}

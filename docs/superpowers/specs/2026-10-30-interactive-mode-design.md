@@ -51,7 +51,7 @@ jas becomes the daily driver instead of pi when it is:
 - Farm, `/fork`, `/tree` / session branching UI. (The storage format must
   allow them later; see Session storage.)
 - Extensions that run their own code, themes, `/share`, `/export`, `/settings`
-  menu, `/reload`, logging in from the chat (`jas auth` exists).
+  menu, logging in from the chat (`jas auth` exists).
 - A fullscreen (alternate-screen) mode.
 - Persisting `always` grants beyond the session.
 - Image paste, `@file` autocomplete, `!cmd` passthrough. (Builder may add
@@ -188,6 +188,7 @@ jas becomes the daily driver instead of pi when it is:
 | `/model [name]` | Switch model for the session; bare `/model` opens a picker. |
 | `/skill:name [text]` | Run a skill explicitly; typing `/` lists commands and skills. |
 | `/compact [focus]` | Compact now, optionally saying what to keep. |
+| `/reload` | Rebuild system prompt from AGENTS.md / skills (trust may re-ask). |
 | `/resume` | Pick a recent session in this project and continue it. |
 | `/session` | Session file, tokens used, context %. |
 | `/thinking` | Show or hide thinking for this session. |

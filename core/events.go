@@ -33,6 +33,7 @@ const (
 	EvModelChanged     = "model_changed"
 	EvCompaction       = "compaction"
 	EvSessionTitled    = "session_titled"
+	EvContextReloaded  = "context_reloaded"
 	EvInjected         = "injected" // text added to the tool-results message by SessionConfig.Inject
 )
 

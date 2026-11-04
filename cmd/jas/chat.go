@@ -421,3 +421,22 @@ func (b *chatBackend) SkillPrompt(name, text string) (string, bool) {
 	}
 	return b.e.red.Redact(p), true
 }
+
+// Reload rediscovers skills and project context, then swaps the system
+// prompt and skill read roots into the live session. ask is the trust
+// prompt (nil skips untrusted content).
+func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string, error) {
+	notices, roots, err := b.e.reloadContext(ask)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]map[string]any, len(b.e.pc.files))
+	for i, f := range b.e.pc.files {
+		files[i] = map[string]any{"path": f.Path, "loaded": f.Loaded, "sha256": f.SHA256}
+	}
+	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
+		return notices, err
+	}
+	s.SetReadRoots(roots)
+	return notices, nil
+}

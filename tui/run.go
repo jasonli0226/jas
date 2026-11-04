@@ -27,6 +27,12 @@ type compactDoneMsg struct {
 	err error
 }
 
+// reloadDoneMsg reports that a /reload returned.
+type reloadDoneMsg struct {
+	notices []string
+	err     error
+}
+
 // activeRun is a Send or a /compact in progress on its own goroutine.
 type activeRun struct {
 	cancel  context.CancelFunc

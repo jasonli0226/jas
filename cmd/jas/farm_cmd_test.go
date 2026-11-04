@@ -271,8 +271,9 @@ func TestWorkerContext_ProjectSkillsCompared(t *testing.T) {
 
 func loadCtx(t *testing.T, root, home string, interactive, flagTrust bool, input string) projectContext {
 	t.Helper()
-	pc, err := loadProjectContext(context.Background(), root, home, nil, nil, interactive, flagTrust,
-		bufio.NewReader(strings.NewReader(input)), &bytes.Buffer{}, func(s string) string { return s }, func(string) {})
+	in := bufio.NewReader(strings.NewReader(input))
+	ask := func(p string) string { return askLine(context.Background(), in, &bytes.Buffer{}, p) }
+	pc, err := loadProjectContext(root, home, nil, nil, interactive, flagTrust, ask, func(s string) string { return s }, func(string) {})
 	assert.NoErr(t, err)
 	return pc
 }

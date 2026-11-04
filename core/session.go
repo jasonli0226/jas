@@ -54,10 +54,11 @@ type TurnResult struct {
 	Final string
 }
 
-// Session holds a conversation across user messages. Send, SetModel, Messages
-// and Close must not overlap; Steer is safe from any goroutine. The chat (tui)
-// runs Send on its own goroutine and refuses /new, /model and /resume until it
-// returns, so the other calls never run during a Send and need no mutex.
+// Session holds a conversation across user messages. Send, SetModel, SetSystem,
+// Messages and Close must not overlap; Steer is safe from any goroutine. The
+// chat (tui) runs Send on its own goroutine and refuses /new, /model, /resume
+// and /reload until it returns, so the other calls never run during a Send and
+// need no mutex.
 type Session struct {
 	c        SessionConfig
 	model    string
@@ -276,6 +277,35 @@ func (s *Session) SetTitle(title string) error {
 
 // Title is the session's current title, "" when none is set.
 func (s *Session) Title() string { return s.title }
+
+// System is the current system prompt sent with each request.
+func (s *Session) System() string { return s.c.System }
+
+// SetSystem replaces the system prompt for later requests, refreshes the
+// budget overhead from the new text, and logs context_reloaded. meta is
+// merged into the event (for example context_files after /reload). Like
+// SetModel it takes effect even if logging fails; the log error is returned.
+func (s *Session) SetSystem(system string, meta map[string]any) error {
+	s.c.System = system
+	if s.c.Budget != nil && s.c.Exec != nil {
+		s.c.Budget.Overhead = PromptOverhead(system, s.c.Exec.Reg.Specs())
+	}
+	data := map[string]any{"bytes": len(system)}
+	maps.Copy(data, meta)
+	if err := s.c.Log.Append(EvContextReloaded, data); err != nil {
+		return fmt.Errorf("event log: %w", err)
+	}
+	return nil
+}
+
+// SetReadRoots replaces the executor's extra read roots (skill directories
+// after /reload). A nil executor is a no-op.
+func (s *Session) SetReadRoots(roots []string) {
+	if s.c.Exec == nil {
+		return
+	}
+	s.c.Exec.Policy.ReadRoots = slices.Clone(roots)
+}
 
 // NormalizeTitle collapses whitespace to single spaces and cuts the title to
 // maxTitleRunes.

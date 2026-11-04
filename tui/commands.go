@@ -33,14 +33,15 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"copy":     (*Model).cmdCopy,
 	"resume":   (*Model).cmdResume,
 	"compact":  (*Model).startCompact,
+	"reload":   (*Model).cmdReload,
 	"farm":     (*Model).cmdFarm,
 }
 
 // idleOnly commands are refused during a run. That is what keeps
-// Session.SetModel, Session.SetTitle, Session.Messages, Session.Compact and
-// Live.Close off a session while its Send is running, and what keeps the
-// generation steady during a run.
-var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true}
+// Session.SetModel, Session.SetTitle, Session.SetSystem, Session.Messages,
+// Session.Compact and Live.Close off a session while its Send is running, and
+// what keeps the generation steady during a run.
+var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true, "reload": true}
 
 const helpText = `commands
   /help                  this list
@@ -49,6 +50,7 @@ const helpText = `commands
   /name [title]          name this session (shown in /resume); bare /name shows it
   /resume                continue a recent session in this project (grants and level reset)
   /compact [focus]       summarize older messages to free context; focus steers the summary
+  /reload                reload AGENTS.md, skills and project context into this session
   /session               session file, tokens used, context use
   /thinking              show or hide thinking
   /approve [level]       approval level: never | shell | mutating
@@ -157,6 +159,7 @@ var commandDesc = map[string]string{
 	"copy":     "copy the last reply",
 	"resume":   "continue a recent session",
 	"compact":  "summarize older messages",
+	"reload":   "reload AGENTS.md and skills",
 }
 
 // slashMenu is the / menu for the input: open while the input is a / name
@@ -223,7 +226,7 @@ func (m *Model) command(text string) tea.Cmd {
 	if !ok {
 		return m.unknownCommand(name)
 	}
-	if idleOnly[name] && m.running() {
+	if idleOnly[name] && (m.running() || m.reloading) {
 		return m.notice(waitNotice)
 	}
 	m.input.Reset()
@@ -322,7 +325,48 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// cmdReload rebuilds the system prompt from disk (AGENTS.md, skills) and
+// swaps it into the live session. Trust prompts reuse the farm ask UI. The
+// work runs on a goroutine (not spawn): spawn would mark the chat running
+// and block the ask UI from opening.
+func (m *Model) cmdReload(string) tea.Cmd {
+	if m.reloading {
+		return m.notice("reload already in progress")
+	}
+	if m.live == nil {
+		return nil
+	}
+	m.reloading = true
+	send, live, b := m.send, m.live, m.b
+	go func() {
+		ask := func(prompt string) string {
+			ch := make(chan string, 1)
+			send(farmAskMsg{prompt: prompt, reply: ch})
+			ans, ok := <-ch
+			if !ok {
+				return ""
+			}
+			return ans
+		}
+		notices, err := b.Reload(live.Session, ask)
+		send(reloadDoneMsg{notices: notices, err: err})
+	}()
+	return nil
+}
+
+func (m *Model) onReloadDone(msg reloadDoneMsg) tea.Cmd {
+	m.reloading = false
+	if msg.err != nil {
+		return m.print(errStyle.Render("reload: " + m.clean(msg.err.Error())))
+	}
+	if len(msg.notices) == 0 {
+		return m.notice("reloaded")
+	}
+	return m.notice(msg.notices...)
+}
+
 func (m *Model) cmdHelp(string) tea.Cmd {
+
 	return m.notice(strings.Split(helpText, "\n")...)
 }
 

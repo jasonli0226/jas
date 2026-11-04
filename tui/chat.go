@@ -48,22 +48,23 @@ type Model struct {
 	input textarea.Model
 	width int
 
-	live     *Live
-	closer   *sessionCloser // closes live
-	opening  *pendingOpen   // the session being opened, until sessionMsg
-	gen      int            // generation of live; output tagged otherwise is dropped
-	lastGen  int            // the newest generation handed out
-	model    string         // used by /new; follows /model and /resume
-	window   int
-	branch   string // git branch of the root, refreshed per session and run
-	usage    usage
-	run      *activeRun
-	frame    int          // loader frame while a run is active
-	tickPend bool         // a loader tick timer is armed
-	queued   []string     // steering sent during the current run
-	approval *approvalMsg // the open approval prompt
-	picker   *picker      // the open picker, shown in place of the input
-	onPick   func(value string) tea.Cmd
+	live      *Live
+	closer    *sessionCloser // closes live
+	opening   *pendingOpen   // the session being opened, until sessionMsg
+	gen       int            // generation of live; output tagged otherwise is dropped
+	lastGen   int            // the newest generation handed out
+	model     string         // used by /new; follows /model and /resume
+	window    int
+	branch    string // git branch of the root, refreshed per session and run
+	usage     usage
+	run       *activeRun
+	reloading bool         // /reload in progress (trust ask may be open)
+	frame     int          // loader frame while a run is active
+	tickPend  bool         // a loader tick timer is armed
+	queued    []string     // steering sent during the current run
+	approval  *approvalMsg // the open approval prompt
+	picker    *picker      // the open picker, shown in place of the input
+	onPick    func(value string) tea.Cmd
 	// onPickCancel runs when the open picker is cancelled (Esc); nil: nothing.
 	onPickCancel func() tea.Cmd
 
@@ -215,6 +216,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == m.gen {
 			return m, m.onCompactDone(msg)
 		}
+	case reloadDoneMsg:
+		return m, m.onReloadDone(msg)
 	case tickMsg:
 		return m, m.onTick()
 	case approvalMsg:

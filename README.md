@@ -125,6 +125,10 @@ dim spinner line above the input shows the run in progress (`working…`, or
   decision are marked `not loaded`). Resuming — `--continue` or `/resume` —
   does not show it. **Ctrl-L** clears the screen and reprints the banner
   without starting a new session.
+- **`/reload`** rebuilds the system prompt from disk mid-session: rediscovers
+  skills and re-reads `AGENTS.md` / `CLAUDE.md` under the same trust rules
+  (a hash change may ask again). The next turn uses the new context; it does
+  not undo filesystem edits.
 - **`/name <title>`** (or `jas --name`) names the session. The `/resume`
   picker lists it by that title instead of its first message, and the status
   line shows it.
