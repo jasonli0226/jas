@@ -218,3 +218,50 @@ func TestCLI_JasHomeInsideRootIsDenied(t *testing.T) {
 		assert.NotContains(t, string(b), key)
 	}
 }
+
+func TestCLI_ConfigScopes(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	env := []string{"JAS_HOME=" + home}
+	_, _, code := runJasIn(t, repo, env, "config", "set", "--global", "model", "g")
+	assert.Eq(t, code, 0)
+	_, _, code = runJasIn(t, repo, env, "config", "set", "--project", "approve", "shell")
+	assert.Eq(t, code, 0)
+	_, _, code = runJasIn(t, repo, env, "config", "set", "--local", "max_turns", "7")
+	assert.Eq(t, code, 0)
+	// Default write is global.
+	_, _, code = runJasIn(t, repo, env, "config", "set", "provider", "custom")
+	assert.Eq(t, code, 0)
+
+	b, err := os.ReadFile(filepath.Join(home, "config.json"))
+	assert.NoErr(t, err)
+	assert.Contains(t, string(b), `"model": "g"`)
+	assert.Contains(t, string(b), `"provider": "custom"`)
+	b, err = os.ReadFile(filepath.Join(repo, ".jas", "config.json"))
+	assert.NoErr(t, err)
+	assert.Contains(t, string(b), `"approve": "shell"`)
+	b, err = os.ReadFile(filepath.Join(repo, ".jas", "config.local.json"))
+	assert.NoErr(t, err)
+	assert.Contains(t, string(b), `"max_turns": "7"`)
+
+	out, _, code := runJasIn(t, repo, env, "config", "list")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "model  g  (global config)")
+	assert.Contains(t, out, "approve  shell  (project config)")
+	assert.Contains(t, out, "max_turns  7  (local config)")
+
+	out, _, code = runJasIn(t, repo, env, "config", "get", "--project", "approve")
+	assert.Eq(t, code, 0)
+	assert.Eq(t, strings.TrimSpace(out), "shell")
+	_, _, code = runJasIn(t, repo, env, "config", "unset", "--local", "max_turns")
+	assert.Eq(t, code, 0)
+	out, _, code = runJasIn(t, repo, env, "config", "list")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "max_turns  50  (default)")
+	// Local overrides project.
+	_, _, code = runJasIn(t, repo, env, "config", "set", "--local", "approve", "mutating")
+	assert.Eq(t, code, 0)
+	out, _, code = runJasIn(t, repo, env, "config", "get", "approve")
+	assert.Eq(t, code, 0)
+	assert.Eq(t, strings.TrimSpace(out), "mutating")
+}

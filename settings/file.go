@@ -35,7 +35,7 @@ type ProviderEntry struct {
 	BaseURL string `json:"base_url,omitempty"`
 }
 
-// File is the stored global config (config.json).
+// File is one config layer (global, project, or local JSON).
 type File struct {
 	Values    map[string]string        // plain settings
 	Models    map[string]ModelOverride // models.<name>.*

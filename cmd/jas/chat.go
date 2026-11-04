@@ -143,7 +143,7 @@ var _ tui.Backend = (*chatBackend)(nil)
 // endpoint) and the bare model id. A qualified ref ("vllm/qwen3") picks the
 // named provider; a bare id stays on the default one from settings.
 func (b *chatBackend) providerFor(model string) (name, baseURL, bare string, err error) {
-	name, baseURL, bare, err = b.e.file.ResolveModel(model, b.e.cfg.Provider, b.e.cfg.BaseURL)
+	name, baseURL, bare, err = b.e.layers.Merged().ResolveModel(model, b.e.cfg.Provider, b.e.cfg.BaseURL)
 	return name, baseURL, bare, err
 }
 
@@ -310,7 +310,7 @@ func (b *chatBackend) Sessions(exclude string) ([]core.SessionInfo, error) {
 // and every other configured provider's current model.
 func (b *chatBackend) Models() []string {
 	var names []string
-	for _, m := range append(b.e.file.ModelNames(), b.e.cfg.Model) {
+	for _, m := range append(b.e.layers.ModelNames(), b.e.cfg.Model) {
 		names = append(names, b.qualified(m))
 	}
 	if b.e.cfg.Provider == settings.ProviderOpenRouter {
@@ -325,7 +325,7 @@ func (b *chatBackend) Models() []string {
 // qualified prefixes model with its provider unless it already names one.
 // The legacy custom default is left bare: "custom/…" names no endpoint.
 func (b *chatBackend) qualified(model string) string {
-	if _, _, ok := settings.SplitModelRef(model, b.e.file.KnownProvider); ok {
+	if _, _, ok := settings.SplitModelRef(model, b.e.layers.Merged().KnownProvider); ok {
 		return model
 	}
 	if b.e.cfg.Provider != "" && b.e.cfg.Provider != settings.ProviderCustom {
@@ -362,18 +362,147 @@ func (b *chatBackend) Window(model string) int {
 	return w
 }
 
-// SetDefaultModel stores model as the default in config.json, so a new jas
-// starts on it. The picked reference is stored verbatim: a qualified one
-// ("vllm/qwen3") keeps naming its provider, a bare id stays on the default.
+// SetDefaultModel stores model as the default in the global config.json, so a
+// new jas starts on it. The picked reference is stored verbatim: a qualified
+// one ("vllm/qwen3") keeps naming its provider, a bare id stays on the default.
+// /settings defaults to local scope; Ctrl+S keeps writing global for compat.
 func (b *chatBackend) SetDefaultModel(model string) error {
-	next, err := b.e.file.Set("model", model)
+	if err := b.writeSetting(settings.ScopeGlobal, "model", model); err != nil {
+		return err
+	}
+	// Keep the reference the user picked (e.g. "openrouter/gpt-5.2"), not the
+	// bare id Build resolves for the wire.
+	b.e.cfg.Model = model
+	return nil
+}
+
+// DefaultSettingsScope is the write scope /settings uses when none is given.
+func (b *chatBackend) DefaultSettingsScope() string { return string(settings.ScopeLocal) }
+
+// ListSettings returns every plain key's effective value and source, then
+// model overrides, for /settings.
+func (b *chatBackend) ListSettings() []tui.SettingLine {
+	eff := settings.Resolve(b.e.flags, os.Getenv, b.e.layers)
+	var out []tui.SettingLine
+	for _, k := range settings.Keys {
+		v := eff[k.Name]
+		raw := v.Raw
+		if raw == "" {
+			raw = "(not set)"
+		}
+		out = append(out, tui.SettingLine{Key: k.Name, Value: raw, Source: string(v.Source)})
+	}
+	for _, n := range b.e.layers.ModelNames() {
+		w, src, ok := b.e.layers.ModelSource(n)
+		if !ok {
+			continue
+		}
+		out = append(out, tui.SettingLine{
+			Key: "models." + n + ".context_window", Value: fmt.Sprintf("%d", w), Source: string(src),
+		})
+	}
+	return out
+}
+
+// GetSetting returns one effective setting (plain key or models.*).
+func (b *chatBackend) GetSetting(key string) (tui.SettingLine, error) {
+	if _, plain := settings.LookupKey(key); plain {
+		v := settings.Resolve(b.e.flags, os.Getenv, b.e.layers)[key]
+		raw := v.Raw
+		if raw == "" {
+			raw = "(not set)"
+		}
+		return tui.SettingLine{Key: key, Value: raw, Source: string(v.Source)}, nil
+	}
+	name, ok := modelKeyName(key)
+	if !ok {
+		return tui.SettingLine{}, fmt.Errorf("unknown setting %q", key)
+	}
+	w, src, found := b.e.layers.ModelSource(name)
+	if !found {
+		return tui.SettingLine{}, fmt.Errorf("%s is not set", key)
+	}
+	return tui.SettingLine{Key: key, Value: fmt.Sprintf("%d", w), Source: string(src)}, nil
+}
+
+func modelKeyName(key string) (string, bool) {
+	const prefix, suffix = "models.", ".context_window"
+	if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+		return "", false
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(key, prefix), suffix)
+	return name, name != ""
+}
+
+// SetSetting writes key=value to scope (global|project|local) and refreshes
+// the effective Run config. Empty scope uses DefaultSettingsScope.
+func (b *chatBackend) SetSetting(scope, key, value string) error {
+	s, err := parseWriteScope(scope, b.DefaultSettingsScope())
 	if err != nil {
 		return err
 	}
-	if err := next.Save(filepath.Join(b.e.home, configFile)); err != nil {
+	return b.writeSetting(s, key, value)
+}
+
+// UnsetSetting removes key from scope and refreshes the effective Run config.
+func (b *chatBackend) UnsetSetting(scope, key string) error {
+	s, err := parseWriteScope(scope, b.DefaultSettingsScope())
+	if err != nil {
 		return err
 	}
-	b.e.file, b.e.cfg.Model = next, model
+	return b.unsetSetting(s, key)
+}
+
+func parseWriteScope(scope, def string) (settings.Scope, error) {
+	if scope == "" {
+		scope = def
+	}
+	return settings.ParseScope(scope)
+}
+
+func (b *chatBackend) writeSetting(scope settings.Scope, key, value string) error {
+	path, err := scope.Path(b.e.home, b.e.root)
+	if err != nil {
+		return err
+	}
+	next, err := b.e.layers.File(scope).Set(key, value)
+	if err != nil {
+		return err
+	}
+	if err := next.Save(path); err != nil {
+		return err
+	}
+	b.e.layers = b.e.layers.WithFile(scope, next)
+	return b.reconfigure()
+}
+
+func (b *chatBackend) unsetSetting(scope settings.Scope, key string) error {
+	path, err := scope.Path(b.e.home, b.e.root)
+	if err != nil {
+		return err
+	}
+	next, err := b.e.layers.File(scope).Unset(key)
+	if err != nil {
+		return err
+	}
+	if err := next.Save(path); err != nil {
+		return err
+	}
+	b.e.layers = b.e.layers.WithFile(scope, next)
+	return b.reconfigure()
+}
+
+// reconfigure rebuilds e.cfg from flags + env + layers after a settings write.
+func (b *chatBackend) reconfigure() error {
+	cfg, err := settings.Resolve(b.e.flags, os.Getenv, b.e.layers).Build()
+	if err != nil {
+		return err
+	}
+	level, err := core.ParseLevel(cfg.Approve)
+	if err != nil {
+		return err
+	}
+	b.e.cfg, b.e.level = cfg, level
 	return nil
 }
 

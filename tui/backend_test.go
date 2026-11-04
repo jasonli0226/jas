@@ -50,6 +50,8 @@ type testBackend struct {
 	reloadSystem string              // SetSystem text for Reload; empty uses a default
 	reloadAsk    []string            // prompts Reload passed to ask, in order
 	reloadRoots  []string            // SetReadRoots after Reload; nil leaves roots alone
+	settings     map[string]SettingLine // effective settings for /settings tests
+	setCalls     []string            // "scope key=value" or "unset scope key"
 }
 
 const testWindow = 100000
@@ -195,6 +197,60 @@ func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
 		return "", false
 	}
 	return "SKILL review: " + text, true
+}
+
+
+func (b *testBackend) DefaultSettingsScope() string { return "local" }
+
+func (b *testBackend) ListSettings() []SettingLine {
+	if b.settings == nil {
+		return []SettingLine{{Key: "model", Value: "m", Source: "default"}}
+	}
+	keys := make([]string, 0, len(b.settings))
+	for k := range b.settings {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	out := make([]SettingLine, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, b.settings[k])
+	}
+	return out
+}
+
+func (b *testBackend) GetSetting(key string) (SettingLine, error) {
+	if b.settings != nil {
+		if v, ok := b.settings[key]; ok {
+			return v, nil
+		}
+	}
+	if key == "model" {
+		return SettingLine{Key: "model", Value: "m", Source: "default"}, nil
+	}
+	return SettingLine{}, errors.New(key + " is not set")
+}
+
+func (b *testBackend) SetSetting(scope, key, value string) error {
+	if scope == "" {
+		scope = b.DefaultSettingsScope()
+	}
+	b.setCalls = append(b.setCalls, scope+" "+key+"="+value)
+	if b.settings == nil {
+		b.settings = map[string]SettingLine{}
+	}
+	b.settings[key] = SettingLine{Key: key, Value: value, Source: scope + " config"}
+	return nil
+}
+
+func (b *testBackend) UnsetSetting(scope, key string) error {
+	if scope == "" {
+		scope = b.DefaultSettingsScope()
+	}
+	b.setCalls = append(b.setCalls, "unset "+scope+" "+key)
+	if b.settings != nil {
+		delete(b.settings, key)
+	}
+	return nil
 }
 
 // Reload swaps the live session's system prompt (and optional read roots).

@@ -17,13 +17,13 @@ func TestResolve_Precedence(t *testing.T) {
 	env := envOf(map[string]string{"JAS_MODEL": "from-env"})
 	flags := map[string]string{"model": "from-flag"}
 
-	got := Resolve(flags, env, file)["model"]
+	got := Resolve(flags, env, Layers{Global: file})["model"]
 	assert.Eq(t, got, Value{"from-flag", SourceFlag})
-	got = Resolve(nil, env, file)["model"]
+	got = Resolve(nil, env, Layers{Global: file})["model"]
 	assert.Eq(t, got, Value{"from-env", Source("env JAS_MODEL")})
-	got = Resolve(nil, envOf(nil), file)["model"]
+	got = Resolve(nil, envOf(nil), Layers{Global: file})["model"]
 	assert.Eq(t, got, Value{"from-file", SourceFile})
-	got = Resolve(nil, envOf(nil), File{})["max_turns"]
+	got = Resolve(nil, envOf(nil), Layers{})["max_turns"]
 	assert.Eq(t, got, Value{"50", SourceDefault})
 }
 
@@ -76,25 +76,25 @@ func TestConfig_ValidatesAllKeys(t *testing.T) {
 }
 
 func TestBuild(t *testing.T) {
-	_, err := Resolve(nil, envOf(nil), File{}).Build()
+	_, err := Resolve(nil, envOf(nil), Layers{}).Build()
 	if err == nil {
 		t.Fatal("missing model should fail")
 	}
 	assert.Contains(t, err.Error(), "jas config set model")
 
 	env := envOf(map[string]string{"JAS_MODEL": "m", "JAS_PROVIDER": "ollama", "JAS_REDACT_SKIP_PATHS": "a, b/c"})
-	r, err := Resolve(nil, env, File{}).Build()
+	r, err := Resolve(nil, env, Layers{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.BaseURL, Presets["ollama"])
 	assert.Eq(t, len(r.RedactSkipPaths), 2)
 
-	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m"}), File{}).Build()
+	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m"}), Layers{}).Build()
 	if err == nil {
 		t.Fatal("custom without base_url should fail")
 	}
 	assert.Contains(t, err.Error(), "jas config set base_url")
 
-	_, err = Resolve(nil, envOf(map[string]string{"JAS_APPROVE": "bogus"}), File{}).Build()
+	_, err = Resolve(nil, envOf(map[string]string{"JAS_APPROVE": "bogus"}), Layers{}).Build()
 	if err == nil {
 		t.Fatal("bad env value should fail")
 	}
@@ -116,7 +116,7 @@ func TestConfig_RejectsNaNAndCredentialURLs(t *testing.T) {
 
 func TestKeys_CompactDefaults(t *testing.T) {
 	env := envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"})
-	r, err := Resolve(nil, env, File{}).Build()
+	r, err := Resolve(nil, env, Layers{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.CompactReserve, 16384)
 	assert.Eq(t, r.CompactKeep, 20000)
@@ -124,7 +124,7 @@ func TestKeys_CompactDefaults(t *testing.T) {
 
 	env = envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1",
 		"JAS_COMPACT_RESERVE_TOKENS": "8000", "JAS_COMPACT_KEEP_TOKENS": "4000", "JAS_COMPACT_MODEL": "z-ai/glm-x"})
-	r, err = Resolve(nil, env, File{}).Build()
+	r, err = Resolve(nil, env, Layers{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.CompactReserve, 8000)
 	assert.Eq(t, r.CompactKeep, 4000)
@@ -133,7 +133,7 @@ func TestKeys_CompactDefaults(t *testing.T) {
 	if _, err := (File{}).Set("compact_keep_tokens", "0"); err == nil {
 		t.Fatal("compact_keep_tokens=0 should be rejected")
 	}
-	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1", "JAS_COMPACT_KEEP_TOKENS": "0"}), File{}).Build()
+	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1", "JAS_COMPACT_KEEP_TOKENS": "0"}), Layers{}).Build()
 	if err == nil {
 		t.Fatal("compact_keep_tokens=0 should be rejected")
 	}
@@ -146,7 +146,7 @@ func TestKeys_CompactDefaults(t *testing.T) {
 }
 
 func TestConfig_MaxOutputTokensDefault(t *testing.T) {
-	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), File{}).Build()
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), Layers{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.MaxOutputTokens, 16000)
 	// 0 omits max_tokens, for endpoints that reject it (OpenAI o-series).
@@ -198,7 +198,7 @@ func TestBuild_QualifiedModel(t *testing.T) {
 	}}
 
 	// A named provider's URL and its bare model id.
-	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "vllm/qwen3"}), f).Build()
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "vllm/qwen3"}), Layers{Global: f}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.Provider, "vllm")
 	assert.Eq(t, r.BaseURL, "http://localhost:8000/v1")
@@ -206,20 +206,20 @@ func TestBuild_QualifiedModel(t *testing.T) {
 
 	// A preset provider is addressable without configuration; slash ids
 	// after the first segment survive.
-	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "openrouter/z-ai/glm-5.3"}), File{}).Build()
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "openrouter/z-ai/glm-5.3"}), Layers{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.Provider, "openrouter")
 	assert.Eq(t, r.BaseURL, Presets["openrouter"])
 	assert.Eq(t, r.Model, "z-ai/glm-5.3")
 
 	// An unknown first segment stays a bare model id on the default provider.
-	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "z-ai/glm-5.3", "JAS_BASE_URL": "http://x/v1"}), File{}).Build()
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "z-ai/glm-5.3", "JAS_BASE_URL": "http://x/v1"}), Layers{}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.Provider, "custom")
 	assert.Eq(t, r.Model, "z-ai/glm-5.3")
 
 	// A bare model keeps the flat provider and base_url.
-	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "qwen3", "JAS_BASE_URL": "http://x/v1"}), f).Build()
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "qwen3", "JAS_BASE_URL": "http://x/v1"}), Layers{Global: f}).Build()
 	assert.NoErr(t, err)
 	assert.Eq(t, r.Provider, "custom")
 	assert.Eq(t, r.BaseURL, "http://x/v1")
@@ -227,7 +227,7 @@ func TestBuild_QualifiedModel(t *testing.T) {
 	// A named provider whose stored entry has no URL fails loudly, naming
 	// the fix (possible via a hand-edited config.json).
 	f2 := File{Providers: map[string]ProviderEntry{"nope": {}}}
-	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "nope/m"}), f2).Build()
+	_, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "nope/m"}), Layers{Global: f2}).Build()
 	if err == nil {
 		t.Fatal("provider without base_url should fail")
 	}

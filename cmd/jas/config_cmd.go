@@ -9,15 +9,21 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/settings"
 )
 
 const configUsage = `usage:
-  jas config set <key> <value>
-  jas config get <key>
-  jas config unset <key>
+  jas config set [--global|--project|--local] <key> <value>
+  jas config get [--global|--project|--local] <key>
+  jas config unset [--global|--project|--local] <key>
   jas config list
-  jas config init`
+  jas config init
+
+Scopes (Claude-style): global=~/.jas/config.json (default for set/unset),
+project=<root>/.jas/config.json (shared), local=<root>/.jas/config.local.json
+(personal). get without a scope prints the effective value. list always shows
+effective values with sources. auth.json and trust.json stay global-only.`
 
 func configCmd(args []string) error {
 	if len(args) == 0 {
@@ -27,65 +33,141 @@ func configCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(home, configFile)
-	file, err := settings.LoadFile(path)
+	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	rest := args[1:]
-	switch args[0] {
-	case "set":
-		if len(rest) != 2 {
-			return usageErr("usage: jas config set <key> <value>")
-		}
-		next, err := file.Set(rest[0], rest[1])
-		if err != nil {
-			return usageErr("%v", err)
-		}
-		return next.Save(path)
-	case "unset":
-		if len(rest) != 1 {
-			return usageErr("usage: jas config unset <key>")
-		}
-		next, err := file.Unset(rest[0])
-		if err != nil {
-			return usageErr("%v", err)
-		}
-		return next.Save(path)
-	case "get":
-		if len(rest) != 1 {
-			return usageErr("usage: jas config get <key>")
-		}
-		return configGet(file, rest[0])
-	case "list":
-		configList(file)
-		return nil
-	case "init":
-		return configInit(path, home, file)
+	root := core.FindRoot(cwd)
+	layers, err := settings.LoadLayers(home, root)
+	if err != nil {
+		return err
 	}
-	return usageErr("unknown config command %q\n%s", args[0], configUsage)
-}
-
-// configGet prints the effective value of a plain key, or the stored
-// override of a models.* key.
-func configGet(file settings.File, key string) error {
-	v, found, err := file.Stored(key)
+	cmd := args[0]
+	scope, rest, err := takeConfigScope(args[1:], cmd == "set" || cmd == "unset")
 	if err != nil {
 		return usageErr("%v", err)
 	}
-	if _, plain := settings.LookupKey(key); plain {
-		eff := settings.Resolve(nil, os.Getenv, file)[key]
-		v, found = eff.Raw, eff.Raw != ""
+	switch cmd {
+	case "set":
+		if len(rest) != 2 {
+			return usageErr("usage: jas config set [--global|--project|--local] <key> <value>")
+		}
+		return configWrite(home, root, layers, scope, rest[0], rest[1], false)
+	case "unset":
+		if len(rest) != 1 {
+			return usageErr("usage: jas config unset [--global|--project|--local] <key>")
+		}
+		return configWrite(home, root, layers, scope, rest[0], "", true)
+	case "get":
+		if len(rest) != 1 {
+			return usageErr("usage: jas config get [--global|--project|--local] <key>")
+		}
+		return configGet(layers, scope, rest[0], scope != "")
+	case "list":
+		if len(rest) != 0 || scope != "" {
+			return usageErr("usage: jas config list")
+		}
+		configList(layers)
+		return nil
+	case "init":
+		if len(rest) != 0 || scope != "" {
+			return usageErr("usage: jas config init")
+		}
+		return configInit(settings.GlobalConfigPath(home), home, layers.Global)
 	}
-	if !found {
-		return fmt.Errorf("%s is not set", key)
-	}
-	fmt.Println(v)
-	return nil
+	return usageErr("unknown config command %q\n%s", cmd, configUsage)
 }
 
-func configList(file settings.File) {
-	eff := settings.Resolve(nil, os.Getenv, file)
+// takeConfigScope pulls --global|--project|--local out of args. When
+// defaultGlobal is set and no flag appears, the write scope is global.
+func takeConfigScope(args []string, defaultGlobal bool) (settings.Scope, []string, error) {
+	var scope settings.Scope
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "--global", "--project", "--local":
+			if scope != "" {
+				return "", nil, fmt.Errorf("multiple scope flags")
+			}
+			s, err := settings.ParseScope(strings.TrimPrefix(a, "--"))
+			if err != nil {
+				return "", nil, err
+			}
+			scope = s
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if scope == "" && defaultGlobal {
+		scope = settings.ScopeGlobal
+	}
+	return scope, rest, nil
+}
+
+// configWrite sets or unsets key in the chosen scope and saves that file.
+func configWrite(home, root string, layers settings.Layers, scope settings.Scope, key, value string, unset bool) error {
+	path, err := scope.Path(home, root)
+	if err != nil {
+		return usageErr("%v", err)
+	}
+	file := layers.File(scope)
+	var next settings.File
+	if unset {
+		next, err = file.Unset(key)
+	} else {
+		next, err = file.Set(key, value)
+	}
+	if err != nil {
+		return usageErr("%v", err)
+	}
+	return next.Save(path)
+}
+
+// configGet prints the effective value, or the value stored in scope when
+// scoped is true.
+func configGet(layers settings.Layers, scope settings.Scope, key string, scoped bool) error {
+	if scoped {
+		v, found, err := layers.File(scope).Stored(key)
+		if err != nil {
+			return usageErr("%v", err)
+		}
+		if !found {
+			return fmt.Errorf("%s is not set in %s config", key, scope)
+		}
+		fmt.Println(v)
+		return nil
+	}
+	if _, plain := settings.LookupKey(key); plain {
+		eff := settings.Resolve(nil, os.Getenv, layers)[key]
+		if eff.Raw == "" && eff.Source == settings.SourceDefault {
+			// defaults with empty raw (e.g. model) count as unset for get
+			if eff.Raw == "" {
+				return fmt.Errorf("%s is not set", key)
+			}
+		}
+		if eff.Raw == "" {
+			return fmt.Errorf("%s is not set", key)
+		}
+		fmt.Println(eff.Raw)
+		return nil
+	}
+	// models.* / providers.*: prefer local > project > global stored value
+	for _, s := range []settings.Scope{settings.ScopeLocal, settings.ScopeProject, settings.ScopeGlobal} {
+		v, found, err := layers.File(s).Stored(key)
+		if err != nil {
+			return usageErr("%v", err)
+		}
+		if found {
+			fmt.Println(v)
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is not set", key)
+}
+
+func configList(layers settings.Layers) {
+	eff := settings.Resolve(nil, os.Getenv, layers)
 	for _, k := range settings.Keys {
 		v := eff[k.Name]
 		if v.Raw == "" {
@@ -94,8 +176,29 @@ func configList(file settings.File) {
 		}
 		fmt.Printf("%s  %s  (%s)\n", k.Name, v.Raw, v.Source)
 	}
-	for _, n := range file.ModelNames() {
-		fmt.Printf("models.%s.context_window  %d  (%s)\n", n, file.Models[n].ContextWindow, settings.SourceFile)
+	for _, n := range layers.ModelNames() {
+		w, src, ok := layers.ModelSource(n)
+		if !ok {
+			continue
+		}
+		fmt.Printf("models.%s.context_window  %d  (%s)\n", n, w, src)
+	}
+	merged := layers.Merged()
+	for _, n := range merged.ProviderNames() {
+		if n == settings.ProviderOpenRouter || n == settings.ProviderOllama || n == settings.ProviderCustom {
+			continue // presets without a stored entry
+		}
+		p, ok := merged.Providers[n]
+		if !ok {
+			continue
+		}
+		src := settings.SourceFile
+		if _, ok := layers.Local.Providers[n]; ok {
+			src = settings.SourceLocal
+		} else if _, ok := layers.Project.Providers[n]; ok {
+			src = settings.SourceProject
+		}
+		fmt.Printf("providers.%s.base_url  %s  (%s)\n", n, p.BaseURL, src)
 	}
 }
 

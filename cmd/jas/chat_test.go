@@ -188,10 +188,53 @@ func TestChatBackend_SkillFilesMapsLocationToName(t *testing.T) {
 
 func TestChatBackend_ModelsUnion(t *testing.T) {
 	e := testEnv(t)
-	e.file = settings.File{Models: map[string]settings.ModelOverride{"zz": {ContextWindow: 1000}, "m": {ContextWindow: 2000}}}
+	e.layers = settings.Layers{Global: settings.File{Models: map[string]settings.ModelOverride{"zz": {ContextWindow: 1000}, "m": {ContextWindow: 2000}}}}
 	b := &chatBackend{e: e}
 	assert.Eq(t, strings.Join(b.Models(), ","), "m,zz")
 	assert.Eq(t, b.Window("zz"), 1000)
+}
+
+func TestChatBackend_SettingsScopes(t *testing.T) {
+	e := testEnv(t)
+	e.layers = settings.Layers{}
+	e.flags = map[string]string{}
+	// Need a buildable config after writes.
+	g, err := settings.File{}.Set("model", "m")
+	assert.NoErr(t, err)
+	g, err = g.Set("provider", "custom")
+	assert.NoErr(t, err)
+	g, err = g.Set("base_url", "http://x/v1")
+	assert.NoErr(t, err)
+	assert.NoErr(t, g.Save(settings.GlobalConfigPath(e.home)))
+	e.layers.Global = g
+	b := &chatBackend{e: e}
+	assert.Eq(t, b.DefaultSettingsScope(), "local")
+	assert.NoErr(t, b.SetSetting("", "approve", "shell"))
+	raw, err := os.ReadFile(settings.LocalConfigPath(e.root))
+	assert.NoErr(t, err)
+	assert.Contains(t, string(raw), `"approve": "shell"`)
+	assert.Eq(t, e.cfg.Approve, "shell")
+	assert.NoErr(t, b.SetSetting("project", "max_turns", "9"))
+	raw, err = os.ReadFile(settings.ProjectConfigPath(e.root))
+	assert.NoErr(t, err)
+	assert.Contains(t, string(raw), `"max_turns": "9"`)
+	line, err := b.GetSetting("approve")
+	assert.NoErr(t, err)
+	assert.Eq(t, line.Source, "local config")
+	assert.NoErr(t, b.UnsetSetting("local", "approve"))
+	line, err = b.GetSetting("approve")
+	assert.NoErr(t, err)
+	assert.Eq(t, line.Source, "default")
+	lines := b.ListSettings()
+	found := false
+	for _, l := range lines {
+		if l.Key == "max_turns" {
+			assert.Eq(t, l.Value, "9")
+			assert.Eq(t, l.Source, "project config")
+			found = true
+		}
+	}
+	assert.Eq(t, found, true)
 }
 
 // BareModel strips a known provider prefix and leaves OpenRouter-style ids

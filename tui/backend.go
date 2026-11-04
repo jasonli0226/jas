@@ -2,6 +2,11 @@ package tui
 
 import "github.com/jasonli0226/jas/core"
 
+// SettingLine is one row of /settings (effective value + source).
+type SettingLine struct {
+	Key, Value, Source string
+}
+
 // ContextFile is one context entry offered to the session; Loaded is the
 // trust decision on it.
 type ContextFile struct {
@@ -36,6 +41,18 @@ type Backend interface {
 	SkillPrompt(name, text string) (string, bool) // redacted user message; false if unknown
 	// Farmer is the farm port; nil when this chat cannot run farms.
 	Farmer() Farmer
+	// DefaultSettingsScope is the write scope /settings uses when none is given
+	// (local).
+	DefaultSettingsScope() string
+	// ListSettings returns effective settings with sources for /settings.
+	ListSettings() []SettingLine
+	// GetSetting returns one effective setting.
+	GetSetting(key string) (SettingLine, error)
+	// SetSetting writes key=value to scope (global|project|local); empty scope
+	// uses DefaultSettingsScope.
+	SetSetting(scope, key, value string) error
+	// UnsetSetting removes key from scope.
+	UnsetSetting(scope, key string) error
 	// Reload rediscovers skills and rebuilds AGENTS.md / project context into
 	// s under the trust rules. ask is called when trust must be re-confirmed
 	// (nil refuses like a non-interactive skip). Notices describe what loaded.
