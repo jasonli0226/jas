@@ -84,6 +84,12 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+c":
 		return m.onCtrlC()
+	case "ctrl+q":
+		return m.onFollowUp()
+	case "alt+up":
+		if m.popQueued() {
+			return nil
+		}
 	case "up", "down":
 		if m.toolExpand && m.scrollToolExpand(k) {
 			return nil
@@ -135,6 +141,34 @@ func (m *Model) onEnter() tea.Cmd {
 		return m.startRun(note+"\n\n"+text, shown)
 	}
 	return m.startRun(text, m.tr.User(text))
+}
+
+// onFollowUp queues the input as a follow-up while a run is active: unlike a
+// steer it never enters the running loop, and goes out as the next message
+// once the run ends ok. Anywhere else (idle, a prompt or command, an agent
+// view) it acts like Enter.
+func (m *Model) onFollowUp() tea.Cmd {
+	text := strings.TrimSpace(m.input.Value())
+	if !m.running() || m.viewing != "" || m.approval != nil || m.ask != nil || m.farmReplan != nil ||
+		text == "" || strings.HasPrefix(text, "/") {
+		return m.onEnter()
+	}
+	m.hist.add(text)
+	m.input.Reset()
+	m.followUps = append(m.followUps, text)
+	return nil
+}
+
+// popQueued moves every queued steer and follow-up back into the input, in
+// front of the draft, so the owner can edit or drop them. false when there
+// was nothing to pop.
+func (m *Model) popQueued() bool {
+	if m.viewing != "" || m.live == nil || (len(m.queued) == 0 && len(m.followUps) == 0) {
+		return false
+	}
+	m.queued = nil
+	m.restoreQueued()
+	return true
 }
 
 // onHistoryKey recalls submitted input: Up from the first line of the

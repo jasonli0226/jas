@@ -464,8 +464,10 @@ per-task containers ship in v3).
       shipped for the chat as `jas --continue` and `/resume`
 - [ ] **Blind secret access** (§9 layer 3)
 - [x] **Web access (partial)**: in-tree `web_fetch` + `web_search` behind `web_tools=true` (§12.1); `git_clone` still deferred
-- [ ] **Steering & follow-up queues**: user messages enter after the current
-      turn or after the run ends; one-at-a-time/all
+- [x] **Steering & follow-up queues**: Enter during a run steers (next
+      step), Ctrl+Q queues a follow-up (sent after the run ends ok), Alt+Up
+      pops the queue back into the input. Queued texts go out together;
+      pi's one-at-a-time mode is not built
 - [ ] **Evals**: fixed-task eval harness with fixtures — with/without scenario
       lift reports (pi's vitest-evals idea, simplified)
 

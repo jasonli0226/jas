@@ -30,7 +30,9 @@ stored config; `JAS_HOME` moves `~/.jas`.
 
 ## Chat
 
-Keys: Enter sends (typing while a reply runs steers it), Esc stops the run,
+Keys: Enter sends (typing while a reply runs steers it), Ctrl+Q while a reply
+runs queues a follow-up sent only after the run ends ok, Alt+Up pulls queued
+messages back into the input, Esc stops the run,
 Ctrl-L clears the screen (keeps the session), Ctrl-C clears the input (twice
 on an empty box quits), Alt/Shift+Enter or Ctrl+J is a newline (native
 Windows also probes Shift so Shift+Enter works when the terminal drops the

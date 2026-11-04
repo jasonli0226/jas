@@ -107,7 +107,11 @@ dim spinner line above the input shows the run in progress (`working…`, or
   newline. On native Windows, Shift+Enter still works when the terminal
   collapses it to Enter (same GetAsyncKeyState probe as pi; not available
   under WSL/SSH). Typing while a reply runs steers it: the text reaches the
-  model at its next step. **Esc** stops the run; **Ctrl-L** clears the
+  model at its next step. **Ctrl+Q** instead queues a follow-up: it waits
+  until the run ends ok and then goes out as the next message (several are
+  sent together); if the run stops early it comes back into the input.
+  **Alt+Up** pulls every queued message back into the input to edit.
+  **Esc** stops the run; **Ctrl-L** clears the
   screen (keeps the session); **Ctrl-C** clears the input, and twice on an
   empty box quits.
 - **`/`** opens a command menu, filtered as you type, with every command and
