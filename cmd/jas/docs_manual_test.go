@@ -73,7 +73,11 @@ func TestManual_CoversEverything(t *testing.T) {
 func TestUsage_ListsEverySubcommand(t *testing.T) {
 	src := readFile(t, "main.go")
 	body := src[strings.Index(src, "func dispatch("):]
-	body = body[:strings.Index(body, "\n}\n")]
+	end := strings.Index(body, "\n}\n")
+	if end < 0 {
+		t.Fatal("end of dispatch not found in main.go")
+	}
+	body = body[:end]
 	caseRE := regexp.MustCompile(`case "(\w+)":`)
 	n := 0
 	for _, m := range caseRE.FindAllStringSubmatch(body, -1) {
@@ -104,5 +108,6 @@ func readFile(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	// Windows checkouts may convert line endings to CRLF.
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
