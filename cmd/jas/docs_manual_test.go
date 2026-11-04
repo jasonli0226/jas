@@ -68,6 +68,28 @@ func TestManual_CoversEverything(t *testing.T) {
 	}
 }
 
+// TestUsage_ListsEverySubcommand fails when a subcommand dispatch routes is
+// missing from the top-level usage text.
+func TestUsage_ListsEverySubcommand(t *testing.T) {
+	src := readFile(t, "main.go")
+	body := src[strings.Index(src, "func dispatch("):]
+	body = body[:strings.Index(body, "\n}\n")]
+	caseRE := regexp.MustCompile(`case "(\w+)":`)
+	n := 0
+	for _, m := range caseRE.FindAllStringSubmatch(body, -1) {
+		if m[1] == "version" {
+			continue // jas --version is listed
+		}
+		n++
+		if !strings.Contains(usage, "jas "+m[1]) {
+			t.Errorf("usage is missing `jas %s`", m[1])
+		}
+	}
+	if n < 5 {
+		t.Fatalf("found only %d subcommands; update the pattern in this test", n)
+	}
+}
+
 // The built-in jas skill ships the manual so the model can answer from it in
 // any project; the copy must match docs/manual.md.
 func TestManual_SkillCopyMatches(t *testing.T) {
