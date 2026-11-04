@@ -38,20 +38,22 @@ type testBackend struct {
 	root         string
 	sessionsDir  string
 	prov         *fake.Provider
-	redact       func(string) string // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
-	window       int                 // context window; 0 is testWindow
-	provider     string              // what ProviderOf reports; "" is unknown, so /model never refuses
-	keep         int                 // compaction keep tokens; 0 is core.DefaultCompactKeep
-	ctxFiles     []ContextFile       // the start banner's [Context] rows; nil hides the section
-	closes       atomic.Int32        // calls to Live.Close, across all sessions; Close runs from tea commands
-	opens        atomic.Int32        // sessions handed out as a Live
-	defaults     []string            // models stored as the config default, in order
-	farmer       Farmer              // the farm port; nil: farms unavailable
-	reloadSystem string              // SetSystem text for Reload; empty uses a default
-	reloadAsk    []string            // prompts Reload passed to ask, in order
-	reloadRoots  []string            // SetReadRoots after Reload; nil leaves roots alone
+	redact       func(string) string    // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
+	window       int                    // context window; 0 is testWindow
+	windowGuess  bool                   // Window reports the window as unknown
+	maxTurns     int                    // per-message turn cap; 0 = default
+	provider     string                 // what ProviderOf reports; "" is unknown, so /model never refuses
+	keep         int                    // compaction keep tokens; 0 is core.DefaultCompactKeep
+	ctxFiles     []ContextFile          // the start banner's [Context] rows; nil hides the section
+	closes       atomic.Int32           // calls to Live.Close, across all sessions; Close runs from tea commands
+	opens        atomic.Int32           // sessions handed out as a Live
+	defaults     []string               // models stored as the config default, in order
+	farmer       Farmer                 // the farm port; nil: farms unavailable
+	reloadSystem string                 // SetSystem text for Reload; empty uses a default
+	reloadAsk    []string               // prompts Reload passed to ask, in order
+	reloadRoots  []string               // SetReadRoots after Reload; nil leaves roots alone
 	settings     map[string]SettingLine // effective settings for /settings tests
-	setCalls     []string            // "scope key=value" or "unset scope key"
+	setCalls     []string               // "scope key=value" or "unset scope key"
 }
 
 const testWindow = 100000
@@ -82,14 +84,15 @@ func (b *testBackend) config(path, model string, log core.EventLog, ui core.UI, 
 	log = core.NewUILog(log, ui)
 	reg := core.NewRegistry(append(tools.ReadOnly(), tools.Mutating()...)...)
 	ex := &core.Executor{Reg: reg, Policy: core.ExecPolicy{Root: b.root}, Gate: gate, Log: log}
-	bud := &core.Budget{Window: b.Window(model)}
+	w, _ := b.Window(model)
+	bud := &core.Budget{Window: w}
 	keep := b.keep
 	if keep == 0 {
 		keep = core.DefaultCompactKeep
 	}
 	return core.SessionConfig{
 		Provider: b.prov, Model: model, System: core.BuildSystem(core.BasePrompt, ""),
-		Exec: ex, Log: log, UI: ui, Budget: bud,
+		Exec: ex, Log: log, UI: ui, Budget: bud, MaxTurns: b.maxTurns,
 		Compact: &core.CompactConfig{Reserve: core.DefaultCompactReserve, Keep: keep},
 		Meta:    map[string]any{"base_url": "http://x", "approve": "never", "root": b.root, "context_files": []string{}},
 	}, bud
@@ -183,11 +186,11 @@ func (b *testBackend) SkillFiles() map[string]string {
 	return map[string]string{"/skills/review/SKILL.md": "review"}
 }
 
-func (b *testBackend) Window(string) int {
+func (b *testBackend) Window(string) (int, bool) {
 	if b.window > 0 {
-		return b.window
+		return b.window, !b.windowGuess
 	}
-	return testWindow
+	return testWindow, !b.windowGuess
 }
 
 func (b *testBackend) Farmer() Farmer { return b.farmer }
@@ -198,7 +201,6 @@ func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
 	}
 	return "SKILL review: " + text, true
 }
-
 
 func (b *testBackend) DefaultSettingsScope() string { return "local" }
 

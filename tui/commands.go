@@ -555,11 +555,12 @@ func (m *Model) setModel(name string) tea.Cmd {
 	}
 	bare := m.b.BareModel(name) // requests carry the bare id, never the provider prefix
 	m.model, m.live.Model = name, bare
-	if w := m.b.Window(bare); w > 0 { // a zero window would make every request too big
+	if w, known := m.b.Window(bare); w > 0 { // a zero window would make every request too big
 		m.window = w
 		if m.live.Budget != nil {
 			m.live.Budget.Window = w
 		}
+		m.tipWindow(bare, known)
 	}
 	live := m.live
 	return tea.Batch(

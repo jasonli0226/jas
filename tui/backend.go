@@ -22,7 +22,7 @@ type Backend interface {
 	Resume(path string, ui core.UI, gate core.Gate) (*Live, []string, error) // notices
 	Sessions(exclude string) ([]core.SessionInfo, error)                     // this project, newest first
 	Models() []string
-	Window(model string) int
+	Window(model string) (window int, known bool) // known=false: a default guess
 	// SetDefaultModel stores model as the config default, so a new jas
 	// starts on it. The chat calls it from the /model picker's Ctrl+S.
 	SetDefaultModel(model string) error

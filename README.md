@@ -103,7 +103,9 @@ dim spinner line above the input shows the run in progress (`working…`, or
   `/compact` frees context, `/reload` picks up edited `AGENTS.md` and skills.
 - Edits and writes show a diff in the approval prompt and under the tool row.
 
-All keys and commands: [manual → Chat](docs/manual.md#chat).
+One-line `tip:` hints teach a command the first time it would help
+(`hints=false` turns them off). All keys and commands:
+[manual → Chat](docs/manual.md#chat).
 
 ## Configuration
 

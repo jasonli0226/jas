@@ -68,7 +68,8 @@ var Keys = []KeySpec{
 	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true}, // 0 = omit max_tokens
 	{Name: "farm_bell", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},       // ring when a chat farm needs the owner
 	{Name: "web_tools", Default: "false", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},      // opt-in web_fetch + web_search (§12.1)
-	{Name: "search_base_url", Validate: emptyOrURL},                                                                  // optional SearXNG root for web_search
+	{Name: "search_base_url", Validate: emptyOrURL},
+	{Name: "hints", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")}, // one-time chat tips                                                                  // optional SearXNG root for web_search
 }
 
 // LookupKey finds a plain key spec by name.

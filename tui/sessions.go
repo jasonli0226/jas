@@ -140,11 +140,13 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 		blocks = append(blocks, errStyle.Render("event log error: "+m.clean(msg.closeErr.Error())))
 	}
 	m.live, m.closer, m.gen, m.model = msg.live, &sessionCloser{live: msg.live}, msg.gen, msg.live.Model
-	m.window = m.b.Window(msg.live.Model)
+	var known bool
+	m.window, known = m.b.Window(msg.live.Model)
 	m.branch = gitBranch(m.o.Root)
 	if msg.live.Budget != nil && msg.live.Budget.Window > 0 {
 		m.window = msg.live.Budget.Window
 	}
+	m.tipWindow(msg.live.Model, known)
 	m.usage = usage{}
 	for _, n := range msg.notices {
 		blocks = append(blocks, dimStyle.Render(m.clean(n)))
@@ -159,11 +161,13 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 		blocks = append(blocks, m.tr.Notice(dimStyle.Render(fmt.Sprintf("resumed %s · %d messages",
 			m.clean(msg.live.ID), len(msgs))))...)
 	}
-	var closeCmd tea.Cmd
+	var closeCmd, hintCmd tea.Cmd
 	if m.quitting { // quit began while the session was opening
 		closeCmd = m.closeSession() // before print, so flush waits for the close
+	} else if !msg.resumed {
+		hintCmd = m.tipResume(msg.live.Path)
 	}
-	return tea.Batch(closeCmd, m.print(blocks...))
+	return tea.Batch(closeCmd, m.print(blocks...), hintCmd)
 }
 
 // onOpenFailed reports a failed open. Without a session to fall back to the

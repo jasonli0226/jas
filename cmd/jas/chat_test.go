@@ -222,7 +222,11 @@ func TestChatBackend_ModelsUnion(t *testing.T) {
 	e.layers = settings.Layers{Global: settings.File{Models: map[string]settings.ModelOverride{"zz": {ContextWindow: 1000}, "m": {ContextWindow: 2000}}}}
 	b := &chatBackend{e: e}
 	assert.Eq(t, strings.Join(b.Models(), ","), "m,zz")
-	assert.Eq(t, b.Window("zz"), 1000)
+	w, known := b.Window("zz")
+	assert.Eq(t, w, 1000)
+	assert.Eq(t, known, true)
+	_, known = b.Window("not-in-catalog")
+	assert.Eq(t, known, false)
 }
 
 func TestChatBackend_SettingsScopes(t *testing.T) {

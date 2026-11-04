@@ -34,6 +34,8 @@ type Options struct {
 	Now      func() time.Time
 	Redact   func(string) string // masks secrets in text the chat prints; nil is identity
 	FarmBell bool                // ring the terminal bell when a farm needs the owner
+	Hints    bool                // show one-time tips that teach a command when it would help
+	WebTools bool                // web_fetch/web_search are on (no link hint)
 }
 
 // Model is the inline chat: a transcript printed into scrollback above a live
@@ -58,13 +60,15 @@ type Model struct {
 	branch    string // git branch of the root, refreshed per session and run
 	usage     usage
 	run       *activeRun
-	reloading bool         // /reload in progress (trust ask may be open)
-	frame     int          // loader frame while a run is active
-	tickPend  bool         // a loader tick timer is armed
-	queued    []string     // steering sent during the current run
-	followUps []string     // Ctrl+Q texts sent as the next message once the run ends ok
-	approval  *approvalMsg // the open approval prompt
-	picker    *picker      // the open picker, shown in place of the input
+	reloading bool            // /reload in progress (trust ask may be open)
+	frame     int             // loader frame while a run is active
+	tickPend  bool            // a loader tick timer is armed
+	queued    []string        // steering sent during the current run
+	followUps []string        // Ctrl+Q texts sent as the next message once the run ends ok
+	hinted    map[string]bool // hints already shown this chat
+	denials   int             // tool calls denied in a row, for the reason hint
+	approval  *approvalMsg    // the open approval prompt
+	picker    *picker         // the open picker, shown in place of the input
 	onPick    func(value string) tea.Cmd
 	// onPickCancel runs when the open picker is cancelled (Esc); nil: nothing.
 	onPickCancel func() tea.Cmd
@@ -197,6 +201,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
 		}
+	case hintMsg:
+		m.tip(msg.id, msg.text)
+		return m, nil
 	case sessionMsg:
 		return m, m.onSession(msg)
 	case textMsg:
