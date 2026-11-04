@@ -103,10 +103,13 @@ model, approval level, context use and token counts. While a reply runs, a
 dim spinner line above the input shows the run in progress (`working…`, or
 `thinking…` while the model reasons).
 
-- **Enter** sends; **Alt+Enter** or **Shift+Enter** adds a newline. Typing
-  while a reply runs steers it: the text reaches the model at its next step.
-  **Esc** stops the run; **Ctrl-L** clears the screen (keeps the session);
-  **Ctrl-C** clears the input, and twice on an empty box quits.
+- **Enter** sends; **Alt+Enter**, **Shift+Enter**, or **Ctrl+J** adds a
+  newline. On native Windows, Shift+Enter still works when the terminal
+  collapses it to Enter (same GetAsyncKeyState probe as pi; not available
+  under WSL/SSH). Typing while a reply runs steers it: the text reaches the
+  model at its next step. **Esc** stops the run; **Ctrl-L** clears the
+  screen (keeps the session); **Ctrl-C** clears the input, and twice on an
+  empty box quits.
 - **`/`** opens a command menu, filtered as you type, with every command and
   `/skill:<name>`; Up/Down move, Tab or Enter completes. `/help` lists every
   command and key.

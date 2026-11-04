@@ -158,6 +158,10 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "alt+enter":
 		msg = tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
+	case "shift+enter":
+		msg = tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}
+	case "ctrl+j":
+		msg = tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl}
 	case "esc":
 		msg = tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "up":
@@ -314,6 +318,62 @@ func TestChat_AltEnterInsertsNewline(t *testing.T) {
 	c.typeText("b")
 	assert.Eq(t, c.m.input.Value(), "a\nb")
 	assert.Eq(t, c.m.running(), false)
+}
+
+func TestChat_ShiftEnterInsertsNewline(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.typeText("a")
+	c.key("shift+enter")
+	c.typeText("b")
+	assert.Eq(t, c.m.input.Value(), "a\nb")
+	assert.Eq(t, c.m.running(), false)
+	assert.Eq(t, len(b.prov.Requests), 0)
+}
+
+func TestChat_CtrlJInsertsNewline(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.typeText("a")
+	c.key("ctrl+j")
+	c.typeText("b")
+	assert.Eq(t, c.m.input.Value(), "a\nb")
+	assert.Eq(t, c.m.running(), false)
+	assert.Eq(t, len(b.prov.Requests), 0)
+}
+
+// Native Windows terminals collapse Shift+Enter to plain Enter; onKey
+// rewrites it when physicalShift reports the key is held (GetAsyncKeyState
+// on windows; stubbed here).
+func TestChat_WindowsShiftEnterFallback(t *testing.T) {
+	old := physicalShift
+	physicalShift = func() bool { return true }
+	t.Cleanup(func() { physicalShift = old })
+
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.typeText("a")
+	c.key("enter") // arrives as plain enter; Shift is "held"
+	c.typeText("b")
+	assert.Eq(t, c.m.input.Value(), "a\nb")
+	assert.Eq(t, c.m.running(), false)
+	assert.Eq(t, len(b.prov.Requests), 0)
+}
+
+func TestChat_EnterStillSendsWithoutShift(t *testing.T) {
+	old := physicalShift
+	physicalShift = func() bool { return false }
+	t.Cleanup(func() { physicalShift = old })
+
+	b := newTestBackend(t, fake.Turn{Text: "ok"})
+	c := newTestChat(t, b)
+	c.typeText("hi")
+	c.key("enter")
+	assert.Eq(t, c.m.input.Value(), "")
+	assert.Eq(t, c.m.running(), true)
+	c.pump()
+	assert.Eq(t, c.m.running(), false)
+	assert.Eq(t, len(b.prov.Requests), 1)
 }
 
 func TestChat_EmptyAndSlashInputDoNotRun(t *testing.T) {

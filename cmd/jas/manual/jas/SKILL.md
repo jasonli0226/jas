@@ -30,8 +30,9 @@ stored config; `JAS_HOME` moves `~/.jas`.
 
 Keys: Enter sends (typing while a reply runs steers it), Esc stops the run,
 Ctrl-L clears the screen (keeps the session), Ctrl-C clears the input (twice
-on an empty box quits), Alt/Shift+Enter is a newline, Up/Down recalls input,
-`/` opens the command menu (Tab completes).
+on an empty box quits), Alt/Shift+Enter or Ctrl+J is a newline (native
+Windows also probes Shift so Shift+Enter works when the terminal drops the
+modifier), Up/Down recalls input, `/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in
 progress (`working…`, or `thinking…` while the model reasons).
 A start banner (version, key hints, loaded context files and skills; a
