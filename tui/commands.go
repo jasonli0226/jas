@@ -75,6 +75,8 @@ keys
   Enter send or steer · Alt+Enter, Shift+Enter or Ctrl+J newline · Esc stop the run
   Up/Down recall earlier input (from the first or last line of the input)
   Ctrl-L clear the screen (keep session)
+  Ctrl-Q while a reply runs: queue a follow-up, sent when the run ends
+  Alt-Up pull queued messages back into the input
   Ctrl-O expand or collapse the latest tool output
   Ctrl+1..9 / Alt+1..9 show farm agent N · Ctrl+0 / Alt+0 back to the main chat
   Ctrl-C clear the input; twice on an empty box quits

@@ -13,6 +13,9 @@ import (
 	"github.com/jasonli0226/jas/core"
 )
 
+// followSep joins follow-ups queued during one run into the next message.
+const followSep = "\n\n"
+
 // runDoneMsg reports that a Send returned.
 type runDoneMsg struct {
 	gen int
@@ -166,7 +169,11 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	if msg.res.Final != "" {
 		m.reply = msg.res.Final
 	}
-	m.restoreSteering()
+	var follow string
+	if msg.res.Status == "ok" && msg.err == nil && !m.quitting && len(m.askPending) == 0 {
+		follow, m.followUps = strings.Join(m.followUps, followSep), nil
+	}
+	m.restoreQueued()
 	m.branch = gitBranch(m.o.Root) // the run may have switched branches
 	blocks := m.tr.Flush(m.o.Now())
 	if n := runNotice(msg.res); n != "" {
@@ -179,19 +186,26 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	if m.quitting {
 		closeCmd = m.closeSession() // before print, so flush waits for the close
 	}
-	return tea.Batch(closeCmd, m.print(blocks...), m.openFarmAsk())
+	printCmd := m.print(blocks...)
+	if follow != "" { // printed after the run's blocks: the outbox keeps order
+		return tea.Batch(printCmd, m.startRun(follow, m.tr.User(follow)))
+	}
+	return tea.Batch(closeCmd, printCmd, m.openFarmAsk())
 }
 
-// restoreSteering puts steering that never reached the model back in front
-// of the input.
-func (m *Model) restoreSteering() {
-	if left := m.live.Session.TakeSteering(); len(left) > 0 {
-		text := strings.Join(left, "\n")
-		if cur := m.input.Value(); cur != "" {
-			text += "\n" + cur
-		}
-		m.input.SetValue(text)
+// restoreQueued puts steering that never reached the model, then follow-ups
+// not sent, back in front of the input.
+func (m *Model) restoreQueued() {
+	left := append(m.live.Session.TakeSteering(), m.followUps...)
+	m.followUps = nil
+	if len(left) == 0 {
+		return
 	}
+	text := strings.Join(left, "\n")
+	if cur := m.input.Value(); cur != "" {
+		text += "\n" + cur
+	}
+	m.input.SetValue(text)
 }
 
 // onCompactDone ends a /compact: it prints the outcome, puts back steering
@@ -200,7 +214,7 @@ func (m *Model) onCompactDone(msg compactDoneMsg) tea.Cmd {
 	m.run.cancel()
 	m.run = nil
 	m.queued = nil
-	m.restoreSteering()
+	m.restoreQueued()
 	var line string
 	switch {
 	case msg.err == nil:

@@ -176,6 +176,10 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl}
 	case "ctrl+o":
 		msg = tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}
+	case "ctrl+q":
+		msg = tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl}
+	case "alt+up":
+		msg = tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}
 	default:
 		c.t.Fatalf("unknown key %q", k)
 	}
@@ -250,6 +254,82 @@ func TestChat_SteerWhileRunning(t *testing.T) {
 	c.pump()
 	assert.Eq(t, len(b.prov.Requests), 2)
 	assert.Contains(t, requestText(b.prov.Requests[1]), "also")
+}
+
+// Ctrl+Q while a run is active queues a follow-up: it never reaches the
+// running loop and is sent as the next message once the run ends ok.
+func TestChat_FollowUpWaitsForRunEnd(t *testing.T) {
+	release := make(chan struct{})
+	b := newTestBackend(t,
+		fake.Turn{Calls: []fake.Call{{Name: "ls", Args: `{}`}}, OnEmit: func() { <-release }},
+		fake.Turn{Text: "done"},
+		fake.Turn{Text: "second"})
+	c := newTestChat(t, b)
+	c.submit("hi")
+	c.typeText("next")
+	c.key("ctrl+q")
+	assert.Eq(t, c.m.input.Value(), "")
+	assert.Contains(t, c.view(), "↳ after run: next")
+	assert.Contains(t, c.view(), "1 queued")
+	close(release)
+	c.pump() // the first run
+	c.pump() // the follow-up's run
+	assert.Eq(t, len(b.prov.Requests), 3)
+	assert.NotContains(t, requestText(b.prov.Requests[1]), "next")
+	assert.Contains(t, requestText(b.prov.Requests[2]), "next")
+	assert.NotContains(t, c.view(), "↳")
+	got := plain(c.printedNoBanner())
+	assert.Contains(t, strings.Join(got, "\n"), "● done\n\n› next")
+}
+
+// While idle, Ctrl+Q sends like Enter.
+func TestChat_FollowUpKeyIdleSends(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "ok"})
+	c := newTestChat(t, b)
+	c.typeText("hi")
+	c.key("ctrl+q")
+	c.pump()
+	assert.Eq(t, len(b.prov.Requests), 1)
+	assert.Contains(t, requestText(b.prov.Requests[0]), "hi")
+}
+
+// A run that does not end ok (Esc) puts follow-ups back in the input after
+// any undelivered steering, instead of sending them.
+func TestChat_EscRestoresFollowUps(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Block: true})
+	c := newTestChat(t, b)
+	c.submit("go")
+	c.submit("x")
+	c.typeText("y")
+	c.key("ctrl+q")
+	c.key("esc")
+	c.pump()
+	assert.Eq(t, c.m.input.Value(), "x\ny")
+	assert.Eq(t, len(b.prov.Requests), 1)
+	assert.NotContains(t, c.view(), "↳")
+}
+
+// Alt+Up pulls every queued steer and follow-up back into the input for
+// editing; none of them is delivered.
+func TestChat_AltUpPopsQueue(t *testing.T) {
+	release := make(chan struct{})
+	b := newTestBackend(t,
+		fake.Turn{Calls: []fake.Call{{Name: "ls", Args: `{}`}}, OnEmit: func() { <-release }},
+		fake.Turn{Text: "done"})
+	c := newTestChat(t, b)
+	c.submit("go")
+	c.submit("x")
+	c.typeText("y")
+	c.key("ctrl+q")
+	c.typeText("draft")
+	c.key("alt+up")
+	assert.Eq(t, c.m.input.Value(), "x\ny\ndraft")
+	assert.NotContains(t, c.view(), "↳")
+	assert.NotContains(t, c.view(), "queued")
+	close(release)
+	c.pump()
+	assert.Eq(t, len(b.prov.Requests), 2)
+	assert.NotContains(t, requestText(b.prov.Requests[1]), "x\n")
 }
 
 func TestChat_SteerPrintsUserBlock(t *testing.T) {

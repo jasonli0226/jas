@@ -62,6 +62,7 @@ type Model struct {
 	frame     int          // loader frame while a run is active
 	tickPend  bool         // a loader tick timer is armed
 	queued    []string     // steering sent during the current run
+	followUps []string     // Ctrl+Q texts sent as the next message once the run ends ok
 	approval  *approvalMsg // the open approval prompt
 	picker    *picker      // the open picker, shown in place of the input
 	onPick    func(value string) tea.Cmd
@@ -286,6 +287,12 @@ func (m *Model) View() tea.View {
 		line := prefix + strings.Join(strings.Fields(q), " ")
 		parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
 	}
+	if m.viewing == "" {
+		for _, q := range m.followUps {
+			line := "↳ after run: " + strings.Join(strings.Fields(q), " ")
+			parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
+		}
+	}
 	if l := m.loader(); l != "" {
 		parts = append(parts, l)
 	}
@@ -335,7 +342,7 @@ func (m *Model) statusLine() string {
 	return statusInfo{
 		Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
 		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch, Title: m.title(),
-		Queued: len(m.queued), ShowThinking: m.tr.ShowThinking,
+		Queued: len(m.queued) + len(m.followUps), ShowThinking: m.tr.ShowThinking,
 	}.Render(m.width)
 }
 
