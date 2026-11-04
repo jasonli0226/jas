@@ -99,11 +99,42 @@ func TestChatBackend_NewSessionMetaMatchesRun(t *testing.T) {
 	ev := testutil.ReadEvents(t, saved.Path)[0]
 	assert.Eq(t, ev["type"].(string), core.EvSessionStarted)
 	assert.Eq(t, ev["base_url"].(string), "http://x/v1")
+	assert.Eq(t, ev["provider"].(string), settings.ProviderCustom)
 	assert.Eq(t, ev["approve"].(string), "never")
 	assert.Eq(t, ev["root"].(string), b.e.root)
 	assert.Eq(t, ev["context_window"].(float64), float64(settings.DefaultContextWindow))
 	assert.Eq(t, ev["window_known"].(bool), false)
 	assert.Eq(t, saved.Path, filepath.Join(b.e.home, sessionsDir, saved.ID, eventsFile))
+}
+
+// A qualified model's session logs the provider it resolved to, and a /model
+// switch logs the same provider and base_url next to the bare model (#97).
+func TestChatBackend_QualifiedModelLogsProvider(t *testing.T) {
+	e := testEnv(t)
+	e.layers.Global = settings.File{Providers: map[string]settings.ProviderEntry{"vllm": {BaseURL: "http://vllm/v1"}}}
+	b := &chatBackend{e: e}
+	live, err := b.NewSession("vllm/qwen3", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	assert.NoErr(t, live.Session.SetModel("qwen3-coder"))
+	assert.NoErr(t, live.Close("ok", 0))
+	var started, changed map[string]any
+	for _, ev := range testutil.ReadEvents(t, live.Path) {
+		switch ev["type"] {
+		case core.EvSessionStarted:
+			started = ev
+		case core.EvModelChanged:
+			changed = ev
+		}
+	}
+	assert.Eq(t, started["provider"].(string), "vllm")
+	assert.Eq(t, started["base_url"].(string), "http://vllm/v1")
+	assert.Eq(t, started["model"].(string), "qwen3")
+	assert.Eq(t, changed["provider"].(string), "vllm")
+	assert.Eq(t, changed["base_url"].(string), "http://vllm/v1")
+	assert.Eq(t, changed["model"].(string), "qwen3-coder")
+	st, err := core.Replay(live.Path)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.Provider, "vllm")
 }
 
 func TestChatBackend_SetDefaultModelPersists(t *testing.T) {

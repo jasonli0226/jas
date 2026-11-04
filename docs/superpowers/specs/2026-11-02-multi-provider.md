@@ -96,6 +96,8 @@ Two stages:
 - [ ] Bare model ids and the flat `provider`/`base_url` keys keep working
       (existing tests stay green).
 - [ ] Cross-provider mid-session switch refuses loudly; same-provider
-      switch still works (`model_changed` logged).
+      switch still works (`model_changed` logged with the session's
+      `provider` and `base_url`; `session_started` / `session_resumed`
+      carry the resolved `provider` too, #97).
 - [ ] Docs: `docs/providers.md` rewritten around named providers;
       `"custom"` documented as a legacy alias for the default provider.

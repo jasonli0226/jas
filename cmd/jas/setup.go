@@ -143,7 +143,7 @@ func (e *env) warnUnknownWindow(model string) {
 func (e *env) sessionMeta(model string) map[string]any {
 	window, known := e.window(model)
 	return map[string]any{
-		"base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
+		"provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
 }

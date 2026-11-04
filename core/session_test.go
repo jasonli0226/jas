@@ -467,3 +467,20 @@ func TestSession_MaxOutputClampedToWindowRoom(t *testing.T) {
 		t.Fatalf("MaxTokens = %d, want clamped into (0, 4000)", got)
 	}
 }
+
+// model_changed names where the new model's requests go: the session's
+// provider and base_url, never a key (#97).
+func TestSession_SetModelLogsProviderAndBaseURL(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "A"}})
+	s := newSession(t, r)
+	assert.NoErr(t, s.SetModel("m2"))
+	var got map[string]any
+	for _, e := range r.events(t) {
+		if e["type"] == "model_changed" {
+			got = e
+		}
+	}
+	assert.Eq(t, got["model"], "m2")
+	assert.Eq(t, got["provider"], "vllm")
+	assert.Eq(t, got["base_url"], "http://x")
+}

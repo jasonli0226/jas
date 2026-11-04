@@ -236,7 +236,7 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
 	}
 	meta := e.sessionMeta(model)
-	meta["base_url"] = baseURL
+	meta["provider"], meta["base_url"] = provName, baseURL
 	return core.SessionConfig{
 		Provider: prov, Model: model, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,

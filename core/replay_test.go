@@ -657,3 +657,30 @@ func TestListSessions_TitleSetAfterFirstMessage(t *testing.T) {
 	assert.Eq(t, got[0].Title, "named")
 	assert.Eq(t, got[0].FirstMessage, "hello")
 }
+
+// Replay takes provider and base_url from the latest session_started,
+// session_resumed or model_changed that carries them (#97).
+func TestReplay_ProviderFromLatestEvent(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root, "provider": "openrouter", "base_url": "http://or"}))
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.Provider, "openrouter")
+	assert.Eq(t, st.BaseURL, "http://or")
+
+	assert.NoErr(t, log.Append(core.EvModelChanged, map[string]any{"model": "q", "provider": "vllm", "base_url": "http://vllm"}))
+	st, err = core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.Model, "q")
+	assert.Eq(t, st.Provider, "vllm")
+	assert.Eq(t, st.BaseURL, "http://vllm")
+
+	// An older model_changed with only a model keeps the earlier endpoint.
+	assert.NoErr(t, log.Append(core.EvModelChanged, map[string]any{"model": "q2"}))
+	st, err = core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, st.Model, "q2")
+	assert.Eq(t, st.Provider, "vllm")
+	assert.Eq(t, st.BaseURL, "http://vllm")
+}
