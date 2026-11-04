@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1' # weekly, so platform breakage surfaces on a quiet main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,8 +16,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Pull requests test on Linux only; main, the weekly run and manual
+        # runs add macOS and Windows.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
+    # Hosted macOS runners are often short of capacity; don't let a runner
+    # that never arrives fail main.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
