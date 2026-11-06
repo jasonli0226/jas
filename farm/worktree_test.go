@@ -246,6 +246,25 @@ func TestDirty(t *testing.T) {
 	}
 }
 
+// jas rewrites its session records every turn; a repo that tracks them by
+// mistake must still count as clean.
+func TestDirty_IgnoresSessionRecords(t *testing.T) {
+	w, _ := newRepo(t)
+	ctx := context.Background()
+	rec := filepath.Join(w.Main, ".jas", "sessions", "s1.json")
+	writeFile(t, rec, "{}")
+	mustGit(t, w.Git, w.Main, "add", "-f", rec)
+	mustGit(t, w.Git, w.Main, "commit", "-q", "-m", "track a record")
+	writeFile(t, rec, `{"v":2}`)
+	if d, err := Dirty(ctx, w.Git, w.Main); err != nil || d {
+		t.Fatal(d, err)
+	}
+	writeFile(t, filepath.Join(w.Main, ".jas", "farm.yaml"), "check: x\n")
+	if d, err := Dirty(ctx, w.Git, w.Main); err != nil || !d {
+		t.Fatal(d, err)
+	}
+}
+
 func TestWorktrees_CopyRefusesEscapes(t *testing.T) {
 	w, base := newRepo(t)
 	p, _, _ := w.Create(context.Background(), "core", base, nil)
