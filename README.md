@@ -328,8 +328,9 @@ Full design:
 
 **In the chat:** the agent may suggest a farm for big, splittable work (its
 `suggest_farm` tool; where a farm cannot run, it tells the agent why): it
-pre-fills your input with `/farm "<task>"` for you to edit, send or clear, and
-never starts one itself. `/farm "<task>"` plans a farm from the conversation; the plan
+shows the drafted task and asks `plan this farm? [yes/no/edit]` (yes plans it,
+edit puts `/farm "<task>"` in your input, no or Enter drops it), and never
+starts one itself. `/farm "<task>"` plans a farm from the conversation; the plan
 summary opens a picker (approve, edit in `$EDITOR`, replan with feedback, or
 quit). Once approved, one live row per agent sits under the input (status,
 last activity, tokens) with a totals line, and finished events print into the

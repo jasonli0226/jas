@@ -12,10 +12,19 @@ const farmNeedsYou = "farm needs you · ctrl+0"
 
 // farmAskMsg is a farm question for the owner (a failure's retry/drop/abort,
 // the final merge/keep/discard, or a typed confirm when choices is nil).
+// The answer goes to reply, or to then for a question the chat itself asks.
 type farmAskMsg struct {
 	prompt  string
 	choices []string
 	reply   chan<- string // buffered; exactly one answer
+	then    func(ans string) tea.Cmd
+}
+
+// cancel ends the question with no answer.
+func (q farmAskMsg) cancel() {
+	if q.reply != nil {
+		close(q.reply)
+	}
 }
 
 // inputStash is the input box (and any picker) set aside while a prompt
@@ -129,6 +138,10 @@ func (m *Model) answerFarmAsk() tea.Cmd {
 	}
 	m.input.Reset()
 	m.ask = nil
+	if q.then != nil {
+		m.restoreInput()
+		return tea.Batch(q.then(ans), m.openFarmAsk())
+	}
 	q.reply <- ans
 	m.restoreInput()
 	return m.openFarmAsk()
@@ -155,11 +168,11 @@ func matchChoice(ans string, choices []string) (string, bool) {
 // cancelFarmAsks answers every farm question with no answer (on quit).
 func (m *Model) cancelFarmAsks() {
 	if m.ask != nil {
-		close(m.ask.reply)
+		m.ask.cancel()
 		m.ask = nil
 	}
 	for _, q := range m.askPending {
-		close(q.reply)
+		q.cancel()
 	}
 	m.askPending = nil
 }
@@ -230,13 +243,13 @@ func (m *Model) dropFarmPrompts(part string) tea.Cmd {
 	}
 	if part == "" {
 		if m.ask != nil { // the input holds an answer in progress: drop it
-			close(m.ask.reply)
+			m.ask.cancel()
 			m.ask = nil
 			m.input.Reset()
 			m.restoreInput()
 		}
 		for _, q := range m.askPending {
-			close(q.reply)
+			q.cancel()
 		}
 		m.askPending = nil
 	}

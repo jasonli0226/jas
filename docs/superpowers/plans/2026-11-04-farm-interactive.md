@@ -367,6 +367,5 @@ which deletes branches. Tighten (e.g. whole word for discard) before merge?
 - /farm stop ends without a final choice (matches CLI interrupted path)
 - Available() does config file I/O in Update
 - unquoted /farm tasks starting with a subcommand word run the subcommand
-- suggest_farm %q escapes newlines/quotes in the pre-filled task
 - "farm needs you · ctrl+0" on the totals line in the main chat while a turn runs
 - planning can't be cancelled; quit during review leaves the planner open
