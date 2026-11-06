@@ -134,8 +134,12 @@ checkout are denied there); `worktree.dir` moves them. Without `--json`, progres
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
 and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
 
-In the chat: the agent's `suggest_farm` tool (trusted project with a `check`
-only) pre-fills `/farm "<task>"` in the input; it never starts a farm.
+In the chat: never run `jas farm` through the `shell` tool (it has no
+terminal for the plan picker and approvals). Call `suggest_farm`: it pre-fills
+`/farm "<task>"` in the input and never starts a farm; where a farm cannot run
+(untrusted project, no `check`) it returns why, so tell the owner. A project
+with no `AGENTS.md`, project skills or `.jas/farm.yaml` is only trusted with
+`jas --trust-project`.
 `/farm "<task>"` plans a farm (picker: approve, edit, replan, quit); while it runs, live rows under the input show each agent; `/farm`
 prints the dashboard; `/farm run <plan.yaml>` starts an approved plan. One
 farm per window; needs a trusted project, a `check` and a clean tree.

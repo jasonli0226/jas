@@ -325,7 +325,7 @@ Docker recipes.
 | `edit` | replace text in a file (atomic) | `mutating` |
 | `shell` | run a command (`sh -c`; `cmd` on Windows), allowlisted env | `shell` |
 | `web_fetch`, `web_search` | fetch a page / search the web (only with `web_tools=true`) | — |
-| `suggest_farm` | chat only: pre-fill `/farm "<task>"` for you to send | — |
+| `suggest_farm` | chat only: pre-fill `/farm "<task>"` for you to send; where a farm cannot run (untrusted project, no `check`) it tells the agent why | — |
 
 File tools are confined to the project and a deny floor (secrets, `~/.jas`,
 session files). Read-only calls in a row run in parallel; each mutating call
@@ -357,6 +357,10 @@ Experimental. Farm splits one big task into parts that run in parallel git
 worktrees, merges them, and runs `check` as the verdict. It needs a `check`
 command and a clean tree. Configuration layers: built-in defaults,
 `~/.jas/farm.yaml`, then `<root>/.jas/farm.yaml` (trusted projects only).
+A project with no `AGENTS.md`, project skills or `.jas/farm.yaml` never shows
+the trust prompt, so it stays untrusted: start jas with `--trust-project` to
+farm there. In the chat, start a farm with `/farm`, not `jas farm` in the
+`shell` tool (no terminal for the plan picker and approvals).
 
 | key | default | does |
 |---|---|---|

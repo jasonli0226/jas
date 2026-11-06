@@ -50,7 +50,7 @@ func (b *chatBackend) Farmer() tui.Farmer {
 func (f *chatFarmer) Available() (bool, string) {
 	e := f.b.e
 	if !e.pc.trusted {
-		return false, "project not trusted: farm config and roles need a trusted project"
+		return false, "project not trusted: farm config and roles need a trusted project (restart with jas --trust-project)"
 	}
 	cfg, _, err := farm.LoadConfig(e.root, e.home, true)
 	if err != nil {

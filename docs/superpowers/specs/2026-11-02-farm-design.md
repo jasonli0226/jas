@@ -964,9 +964,13 @@ alt-screen, no fullscreen dashboard.
 - **Launch:** `/farm "<task>"`, `/farm --spec spec.md`, or `/farm run plan.yaml`
   from the chat. The chat agent may *suggest* a farm (a `suggest_farm` tool)
   when a task looks big and splittable; it never starts one itself.
-  - `suggest_farm` is registered only when a farm could run here: the project
-    is trusted and a `check` resolves. Otherwise its schema would ride along
-    on every chat request for nothing.
+  - `suggest_farm` is registered in every chat and checks at call time that
+    a farm could run here (the project is trusted and a `check` resolves);
+    otherwise it returns the reason for the agent to pass on. Its schema
+    rides along on every chat request, but without it an agent that wants a
+    farm runs `jas farm` through `shell`, where the plan picker and approvals
+    have no terminal (owner, 2026-11-07; first shipped as registered only
+    when a farm could run).
   - Its argument is a **task description the chat agent drafts** from the
     conversation. jas pre-fills the input box with `/farm "<description>"`;
     the owner edits or deletes it before sending.

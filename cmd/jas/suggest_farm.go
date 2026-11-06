@@ -17,11 +17,17 @@ const suggestFarmName = "suggest_farm"
 const suggestFarmDescription = "Suggest splitting a large task into a farm of parallel agents. " +
 	"Use only for big, decomposable work (several packages or layers); the owner decides. " +
 	"Draft a self-contained task description; it pre-fills the owner's input as /farm \"<task>\". " +
-	"Never use for small or single-package changes."
+	"Never use for small or single-package changes. In the chat this is the only way to start a farm: " +
+	"never run jas farm through shell (it has no terminal for the owner's approvals)."
 
 // suggestFarm lets the chat agent propose a farm: it pre-fills the owner's
-// input through the session's UI and starts nothing.
-type suggestFarm struct{ ui core.UI }
+// input through the session's UI and starts nothing. It is registered in every
+// chat; available is asked at each call, so a check added mid-chat counts and
+// the agent learns why a farm cannot run instead of reaching for shell.
+type suggestFarm struct {
+	ui        core.UI
+	available func() (bool, string)
+}
 
 func (suggestFarm) Name() string        { return suggestFarmName }
 func (suggestFarm) Description() string { return suggestFarmDescription }
@@ -39,6 +45,9 @@ func (t suggestFarm) Call(_ context.Context, _ core.ExecPolicy, args json.RawMes
 	task := strings.TrimSpace(a.Task)
 	if task == "" {
 		return core.Result{}, errors.New("task is empty")
+	}
+	if ok, why := t.available(); !ok {
+		return core.Result{}, fmt.Errorf("a farm cannot run here: %s. Tell the owner; do not run jas farm through shell", why)
 	}
 	t.ui.Event(tui.EvSuggestFarm, map[string]any{"task": task})
 	return core.Result{Output: fmt.Sprintf("suggested to the owner: /farm %q (they decide whether to run it)", task)}, nil
