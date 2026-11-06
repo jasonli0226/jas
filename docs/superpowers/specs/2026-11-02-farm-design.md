@@ -129,9 +129,10 @@ needed: drafting the plan, doing a part, fixing merge seams.
 ### What success looks like
 
 - The three acceptance scenarios below work end to end.
-- The benchmark gate (below) shows farm beating plain `jas run` on wall-clock
+- ~~The benchmark gate (below) shows farm beating plain `jas run` on wall-clock
   for decomposable fixtures at equal or better `check` pass rate, with its
-  token multiplier measured and reported (not gated; see Validation).
+  token multiplier measured and reported (not gated; see Validation).~~
+  Cancelled by the owner, 2026-11-07.
 - Nothing merges into the owner's branch without the owner saying so.
 - A farm run can be **audited** from its files, and an interrupted farm can be
   **resumed** with at-most-once side effects. (LLM output is not replayable;
@@ -206,7 +207,8 @@ spec-driven-flow spec is approved and built. Prerequisites 1, 2, 4 and 6
 (event-log schema, provider fidelity, OS sandbox, and session-awareness
 steps 2–3) remain bet-order work that farm benefits from; MVP does not wait
 for them, but the
-README marks farm experimental until they and the benchmark gate land.
+README marks farm experimental until they land (the benchmark gate was
+cancelled, 2026-11-07).
 **(owner-approved, 2026-11-02 review; blast-radius + fuzz owner-requested
 2026-11-03; order, reviewer placement and `--spec` hold confirmed in the
 2026-11-04 grilling)**
@@ -269,7 +271,9 @@ Farm is built **after** these land, in bet order (design §5 / §13):
    on a given session log in the current directory, honouring the session
    lock. Today only `--continue` / `/resume` exist.
 
-**Benchmark gate.** Before farm is promoted in the README (beyond
+**Benchmark gate — cancelled (owner, 2026-11-07).** Not being built; farm
+stays experimental and defaults are tuned from use. The original text follows
+for the record. Before farm is promoted in the README (beyond
 "experimental"), a farm-vs-solo harness runs the acceptance scenarios on jas
 fixtures, CooperBench-style: same task, same model, `jas farm run` vs
 `jas run`, reporting `check` pass rate, wall-clock, tokens, merge conflicts and
@@ -1023,7 +1027,7 @@ alt-screen, no fullscreen dashboard.
 
 ## Worked scenario: web app from zero
 
-Expectations, not measurements — the benchmark gate decides.
+Expectations, not measurements (the benchmark gate was cancelled, 2026-11-07).
 
 1. **Spec.** `jas spec spec.md`: grill-me interview → approved spec (stack:
    Go API + TypeScript web; data model; OpenAPI contract; pages; features
@@ -1139,8 +1143,7 @@ are recorded the same way with `by: "policy:…"`.
   `${fuzz_command}` over improvising).
 - Status-line and live-row format (blast-radius column optional).
 - How detection walks a monorepo.
-- The small-change threshold for `small_change` refusals (tune with the
-  benchmark gate).
+- The small-change threshold for `small_change` refusals (tune from use).
 - Whether well-known sensitive path globs emit a soft warning when every
   part is tagged `low` (prompt-only vs code warn).
 - Exact UX copy for medium/high merge confirms and whether `--accept-medium-blast`
@@ -1149,5 +1152,4 @@ are recorded the same way with `by: "policy:…"`.
 ## Docs to update when this ships
 
 - `docs/design.md` §3 exit-code table (6, 7, 8), §5, §9 farm threat model.
-- `docs/use-cases.md` §4/§5, `README.md` farm example (marked experimental
-  until the benchmark gate passes).
+- `docs/use-cases.md` §4/§5, `README.md` farm example (marked experimental).

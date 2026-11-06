@@ -20,7 +20,7 @@ in-chat approvals and prompts, `suggest_farm`): spec
 `docs/superpowers/specs/2026-11-04-farm-interactive-design.md`, plan
 `docs/superpowers/plans/2026-11-04-farm-interactive.md`. Every farm call from
 the chat runs in a `tea.Cmd` or goroutine, never in `Update` (farm hooks call
-`Program.Send`). Next for farm: the farm-vs-`jas run` benchmark gate.
+`Program.Send`).
 Status (2026-11-04): merged to main after build and review; next is the
 owner's acceptance run
 (`docs/farm-acceptance-run.md`), then a PR. Rulings, deferred minors and one
@@ -29,7 +29,7 @@ open question are in the plan's Build record.
 **Next work (first-class together):** chat polish that stays inline; template /
 scenario / `jas bootstrap` / `jas spec` quality (design §8 +
 `docs/superpowers/specs/2026-11-02-spec-driven-flow.md`); farm post-MVP in
-spec order — farm-vs-`jas run` benchmark gate, then `farm resume` + take-over,
+spec order — `farm resume` + take-over,
 `researcher`/`reviewer`/`fuzz` roles, blast-radius merge policy, `--spec`
 planning, `farm init`, interactive `/farm`.
 
@@ -37,7 +37,7 @@ planning, `farm init`, interactive `/farm`.
 
 - Stay **inline** (Bubble Tea `Println` scrollback). **No** alt-screen / fullscreen TUI, no theme arms race.
 - Do **not** break `jas run`, `--json`, or exit codes; approval ladder and redaction unchanged.
-- Farm (`docs/superpowers/specs/2026-11-02-farm-design.md`): MVP shipped on `feat/farm-mvp` (see Current focus); experimental until the farm-vs-`jas run` benchmark gate lands. Post-MVP order in the spec's MVP cut. Proposed, core loop (not farm): session awareness (`docs/superpowers/specs/2026-11-02-session-awareness.md`) and spec-driven flow / `jas spec` (`docs/superpowers/specs/2026-11-02-spec-driven-flow.md`). Farm interactive mode is inline only (in the farm spec); attach from another terminal, any dashboard and scenario pipelines wait for their own design.
+- Farm (`docs/superpowers/specs/2026-11-02-farm-design.md`): MVP shipped on `feat/farm-mvp` (see Current focus); experimental (the farm-vs-`jas run` benchmark gate was cancelled by the owner, 2026-11-07). Post-MVP order in the spec's MVP cut. Proposed, core loop (not farm): session awareness (`docs/superpowers/specs/2026-11-02-session-awareness.md`) and spec-driven flow / `jas spec` (`docs/superpowers/specs/2026-11-02-spec-driven-flow.md`). Farm interactive mode is inline only (in the farm spec); attach from another terminal, any dashboard and scenario pipelines wait for their own design.
 - Never append to the session log synchronously from `Update`: the log
   (`core.NewUILog`) forwards every event to the chat's bridge, whose
   `tea.Program.Send` blocks on an unbuffered channel the event loop — busy

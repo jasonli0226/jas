@@ -249,8 +249,7 @@ UI, docs), a batch of small issues grouped by the files they touch. Poor
 fits: debugging one bug, tightly coupled refactors, small tasks.
 
 **Done when:** the integrated branch passes the supervisor's `check` and the
-owner's decision is recorded — nothing merges without one — and farm beats
-plain `jas run` on wall-clock in the farm-vs-solo benchmark. Full design:
+owner's decision is recorded — nothing merges without one. Full design:
 [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
 
 ## 6. Spec-driven work, alone or with farm (proposed)
@@ -286,7 +285,7 @@ Fourteen step-by-step walkthroughs (commands, what jas shows, events, exit
 codes) are in the spec-driven-flow spec's
 [User stories & scenarios](superpowers/specs/2026-11-02-spec-driven-flow.md#user-stories--scenarios).
 Speed-ups there (e.g. ~2–3× wall-clock for a web app's first cut with farm)
-are expectations until the farm benchmark gate measures them; total tokens
+are expectations, not measurements; total tokens
 are higher with farm than with one agent.
 
 **Done when:** a spec-driven `--section` run and a spec-driven farm both end
