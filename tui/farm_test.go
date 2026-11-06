@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/providers/fake"
@@ -201,4 +203,64 @@ func TestSuggestFarm_EditKeepsADraft(t *testing.T) {
 	c.submit("edit")
 	assert.Eq(t, c.m.input.Value(), "my draft") // a draft is never overwritten
 	assert.Contains(t, strings.Join(c.printedNoBanner(), "\n"), `suggested: /farm "migrate logging"`)
+}
+
+func TestSuggestFarm_BlockWaitsForTheTurnToEnd(t *testing.T) {
+	c, _ := farmChatTurns(t, fake.Turn{Text: "here is my reply"})
+	c.submit("go")
+	assert.Eq(t, c.m.running(), true)
+	suggestFarmEvent(c, "migrate logging") // the tool call, mid-turn
+	assert.Eq(t, strings.Contains(strings.Join(c.m.Printed(), "\n"), "the agent suggests a farm"), false)
+	c.pump()
+	out := strings.Join(c.m.Printed(), "\n")
+	reply, block := strings.Index(out, "here is my reply"), strings.Index(out, "the agent suggests a farm")
+	if reply < 0 || block < reply {
+		t.Fatalf("block not after the reply (%d, %d):\n%s", reply, block, out)
+	}
+	assert.Eq(t, c.m.ask != nil, true)
+}
+
+func TestSuggestFarm_OutcomeAttachedToNextMessage(t *testing.T) {
+	c, f := farmChatTurns(t, fake.Turn{Text: "ok"})
+	f.planErr = errors.New("working tree has uncommitted changes")
+	suggestFarmEvent(c, "migrate logging")
+	c.submit("y")
+	c.submit("?")
+	c.pump()
+	got := requestText(c.b.prov.Requests[0])
+	assert.Contains(t, got, "farm planning failed: working tree has uncommitted changes")
+	assert.Contains(t, got, "?")
+	assert.Contains(t, strings.Join(c.m.Printed(), "\n"), "(farm update attached)")
+}
+
+func TestSuggestFarm_DismissalAttachedToNextMessage(t *testing.T) {
+	c, _ := farmChatTurns(t, fake.Turn{Text: "ok"})
+	suggestFarmEvent(c, "migrate logging")
+	c.submit("no")
+	c.submit("hi")
+	c.pump()
+	assert.Contains(t, requestText(c.b.prov.Requests[0]), "the owner dismissed the farm suggestion")
+}
+
+func TestFarm_PlanningNoticeShowsTheTaskHead(t *testing.T) {
+	planning := func(c *testChat) string {
+		for _, b := range c.printedNoBanner() {
+			if strings.Contains(b, "farm: planning") {
+				return ansi.Strip(b)
+			}
+		}
+		t.Fatal("no planning notice")
+		return ""
+	}
+	c, _ := farmChat(t)
+	suggestFarmEvent(c, suggestFarmTask)
+	c.submit("y")
+	assert.Contains(t, planning(c), "farm: planning migrate logging: …")
+	assert.Eq(t, strings.Contains(planning(c), "core/ to slog"), false)
+
+	c, _ = farmChat(t)
+	c.submit(`/farm "` + strings.Repeat("word ", 40) + `"`)
+	if n := len([]rune(strings.TrimSpace(planning(c)))); n > len("farm: planning ")+farmTaskHeadMax+len(" …") {
+		t.Fatalf("planning line not cut (%d): %q", n, planning(c))
+	}
 }

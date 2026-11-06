@@ -18,6 +18,7 @@ type farmAskMsg struct {
 	choices []string
 	reply   chan<- string // buffered; exactly one answer
 	then    func(ans string) tea.Cmd
+	onOpen  func() tea.Cmd // runs as the question takes the input
 }
 
 // cancel ends the question with no answer.
@@ -117,6 +118,9 @@ func (m *Model) openFarmAsk() tea.Cmd {
 	m.askPending = m.askPending[1:]
 	m.ask = &q
 	m.stashInput()
+	if q.onOpen != nil {
+		return tea.Batch(q.onOpen(), m.ring())
+	}
 	return m.ring()
 }
 

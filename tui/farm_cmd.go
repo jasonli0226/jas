@@ -59,17 +59,23 @@ func unquote(s string) string {
 // farmer returns the farm port when a new farm may start here, else a notice.
 func (m *Model) farmer() (Farmer, tea.Cmd) {
 	f := m.b.Farmer()
-	if f == nil {
-		return nil, m.notice("farms are not available in this chat")
+	why := ""
+	switch {
+	case f == nil:
+		why = "farms are not available in this chat"
+	case m.farm.running():
+		why = "a farm is already running in this window (one at a time); /farm shows it"
+	case m.farmReview != nil || m.farmReplan != nil:
+		why = "a farm plan is already under review"
 	}
-	if ok, why := f.Available(); !ok {
-		return nil, m.notice("farm: " + why)
+	if f != nil && why == "" {
+		if ok, reason := f.Available(); !ok {
+			why = "farm: " + reason
+		}
 	}
-	if m.farm.running() {
-		return nil, m.notice("a farm is already running in this window (one at a time); /farm shows it")
-	}
-	if m.farmReview != nil || m.farmReplan != nil {
-		return nil, m.notice("a farm plan is already under review")
+	if why != "" {
+		m.tellAgent("farm not started: " + why)
+		return nil, m.notice(why)
 	}
 	return f, nil
 }
@@ -85,7 +91,7 @@ func (m *Model) farmPlan(task string) tea.Cmd {
 	}
 	model := m.model
 	m.farmReview = &FarmPlan{Task: task} // holds the slot while the planner works
-	return tea.Batch(m.notice("farm: planning "+task+" …"), func() tea.Msg {
+	return tea.Batch(m.notice("farm: planning "+taskHead(task)+" …"), func() tea.Msg {
 		p, err := f.Plan(context.Background(), task, model)
 		return farmPlannedMsg{plan: p, err: err}
 	})
@@ -95,10 +101,12 @@ func (m *Model) farmPlan(task string) tea.Cmd {
 func (m *Model) onFarmPlanned(msg farmPlannedMsg) tea.Cmd {
 	m.farmReview = nil
 	if msg.err != nil {
+		m.tellAgent("farm planning failed: " + msg.err.Error())
 		return m.answer(errStyle.Render("farm: " + m.clean(msg.err.Error())))
 	}
 	p := msg.plan
 	if p.Refusal != "" {
+		m.tellAgent("farm planner refused: " + p.Refusal + "; it suggests: " + p.Suggest)
 		if m.draft() == "" {
 			m.setDraft(p.Task)
 			return m.notice("farm: planner refused: "+p.Refusal, "try: "+p.Suggest, "the task is back in the input to run here")
@@ -147,6 +155,7 @@ func (m *Model) onFarmReview(choice string) tea.Cmd {
 	}
 	m.farmReview = nil
 	plan := *p
+	m.tellAgent("the owner quit the farm plan review; nothing started")
 	return tea.Batch(m.notice("farm: nothing started"), func() tea.Msg { f.Discard(plan); return nil })
 }
 
@@ -250,6 +259,7 @@ func (m *Model) farmFeedback(text string) tea.Cmd {
 // onFarmStarted shows the rows and waits for the farm's end.
 func (m *Model) onFarmStarted(msg farmStartedMsg) tea.Cmd {
 	if msg.err != nil {
+		m.tellAgent("farm failed to start: " + msg.err.Error())
 		return m.answer(errStyle.Render("farm: " + m.clean(msg.err.Error())))
 	}
 	if msg.gen != m.farmGen {
@@ -259,6 +269,7 @@ func (m *Model) onFarmStarted(msg farmStartedMsg) tea.Cmd {
 	m.farm.width, m.farm.gen = m.width, msg.gen
 	run, send, gen := msg.run, m.send, msg.gen
 	go func() { send(farmMsg{gen: gen, msg: farmDoneMsg{res: run.Wait()}}) }() // a farm outlives any one command
+	m.tellAgent(fmt.Sprintf("farm %s started; its summary comes when it ends", run.FarmID()))
 	cmds := []tea.Cmd{m.notice(fmt.Sprintf("farm %s started · %s · /farm for the dashboard", run.FarmID(), farmKeysHint))}
 	early := m.farmEarly
 	m.farmEarly = nil
@@ -334,8 +345,10 @@ func (m *Model) suggestFarm(data map[string]any) tea.Cmd {
 		prompt:  "plan this farm?",
 		choices: []string{suggestYes, suggestNo, suggestEdit},
 		then:    func(ans string) tea.Cmd { return m.answerSuggestion(task, ans) },
+		// Shown as the question opens, after the turn that made the call.
+		onOpen: func() tea.Cmd { return m.print(m.tr.Notice(m.suggestionBlock(task))...) },
 	}
-	return tea.Batch(m.print(m.tr.Notice(m.suggestionBlock(task))...), m.onFarmAsk(ask))
+	return m.onFarmAsk(ask)
 }
 
 // suggestionBlock renders the suggested task, wrapped and marked off.
@@ -364,5 +377,36 @@ func (m *Model) answerSuggestion(task, ans string) tea.Cmd {
 		}
 		return m.notice("suggested: " + line)
 	}
+	m.tellAgent("the owner dismissed the farm suggestion; nothing started")
 	return m.notice("farm suggestion dismissed")
+}
+
+// farmTaskHeadMax caps the task shown in the planning notice, in runes.
+const farmTaskHeadMax = 60
+
+// taskHead is a task's first line, cut to farmTaskHeadMax runes.
+func taskHead(task string) string {
+	head, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
+	if r := []rune(strings.TrimSpace(head)); len(r) > farmTaskHeadMax {
+		return string(r[:farmTaskHeadMax-1]) + "…"
+	}
+	return strings.TrimSpace(head)
+}
+
+// tellAgent queues a farm outcome for the agent's next message, so it never
+// has to guess what became of a farm the owner started or dropped.
+func (m *Model) tellAgent(line string) {
+	m.farmUpdates = append(m.farmUpdates, m.o.Redact(line))
+}
+
+// takeFarmNotes returns what the next message carries about farms (updates,
+// then any end summary) and its label, and clears both.
+func (m *Model) takeFarmNotes() (note, label string) {
+	parts := append([]string{}, m.farmUpdates...)
+	label = "farm update"
+	if m.farmNote != "" {
+		parts, label = append(parts, m.farmNote), "farm summary"
+	}
+	m.farmUpdates, m.farmNote = nil, ""
+	return strings.Join(parts, "\n"), label
 }
