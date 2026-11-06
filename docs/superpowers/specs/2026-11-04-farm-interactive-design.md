@@ -76,8 +76,10 @@ The text mockups below are the reference.
 ### Starting
 
 - `/farm "<task>"` in the chat, or the main agent's `suggest_farm` tool
-  (farm spec: registered only when a trusted project resolves a `check`; the
-  agent drafts a task; jas pre-fills the input with `/farm "<task>"` for the
+  (registered in every chat and checked at call time, so a `check` added
+  mid-chat counts and an unavailable farm returns its reason instead of the
+  agent running `jas farm` through `shell` (owner, 2026-11-07; was: registered
+  only when a trusted project resolves a `check`); the agent drafts a task; jas pre-fills the input with `/farm "<task>"` for the
   owner to edit and send). `/farm run plan.yaml` runs an approved plan.
 - The planner runs; its plan summary prints into the chat with
   `[a]pprove [e]dit [r]eplan [q]uit`, as in the CLI. A refusal prints its

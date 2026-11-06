@@ -327,7 +327,7 @@ Full design:
 [docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
 
 **In the chat:** the agent may suggest a farm for big, splittable work (its
-`suggest_farm` tool, offered only in a trusted project with a `check`): it
+`suggest_farm` tool; where a farm cannot run, it tells the agent why): it
 pre-fills your input with `/farm "<task>"` for you to edit, send or clear, and
 never starts one itself. `/farm "<task>"` plans a farm from the conversation; the plan
 summary opens a picker (approve, edit in `$EDITOR`, replan with feedback, or
