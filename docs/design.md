@@ -438,7 +438,7 @@ per-task containers ship in v3).
 - [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
       optional read-only part with a clean context, possibly a different
       model, reviewing the integrated diff; after farm
-- [ ] `jas attach <task>` (after farm) — connects to the farm's Unix socket
+- [ ] **Next.** `jas attach <task>` (after farm) — connects to the farm's Unix socket
       (`~/.jas/run/<farm-id>.sock`, 0600) and speaks the RPC protocol. Attach
       waits for the task's current turn to finish (no mid-stream handoff), then
       routes the human's messages in through the steering queue. Live
