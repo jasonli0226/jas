@@ -20,6 +20,14 @@ const suggestFarmDescription = "Suggest splitting a large task into a farm of pa
 	"Never use for small or single-package changes. In the chat this is the only way to start a farm: " +
 	"never run jas farm through shell (it has no terminal for the owner's approvals)."
 
+// farmUnavailableHint follows the reason a farm cannot run: the agent must not
+// route around it (shell, or doing the task itself) without the owner.
+const farmUnavailableHint = "Stop and ask the owner before doing anything else: " +
+	"do not run jas farm through shell, and do not do the task yourself unless they say so. " +
+	"If the only problem is a missing check, offer to set up a check first " +
+	"(a test or build command, set as check: in .jas/farm.yaml, committed so the tree is clean), " +
+	"then call suggest_farm again."
+
 // suggestFarm lets the chat agent propose a farm: it pre-fills the owner's
 // input through the session's UI and starts nothing. It is registered in every
 // chat; available is asked at each call, so a check added mid-chat counts and
@@ -47,7 +55,7 @@ func (t suggestFarm) Call(_ context.Context, _ core.ExecPolicy, args json.RawMes
 		return core.Result{}, errors.New("task is empty")
 	}
 	if ok, why := t.available(); !ok {
-		return core.Result{}, fmt.Errorf("a farm cannot run here: %s. Tell the owner; do not run jas farm through shell", why)
+		return core.Result{}, fmt.Errorf("a farm cannot run here: %s. %s", why, farmUnavailableHint)
 	}
 	t.ui.Event(tui.EvSuggestFarm, map[string]any{"task": task})
 	return core.Result{Output: fmt.Sprintf("suggested to the owner: /farm %q (they decide whether to run it)", task)}, nil

@@ -161,6 +161,7 @@ func TestSuggestFarm_UnavailableSaysWhyAndPostsNothing(t *testing.T) {
 	}
 	assert.Contains(t, err.Error(), "--trust-project")
 	assert.Contains(t, err.Error(), "do not run jas farm through shell")
+	assert.Contains(t, err.Error(), "Stop and ask the owner")
 	assert.Eq(t, ui.typ, "")
 }
 
@@ -173,6 +174,7 @@ func TestSuggestFarm_CheckAddedMidChat(t *testing.T) {
 	if err == nil {
 		t.Fatal("suggested a farm without a check")
 	}
+	assert.Contains(t, err.Error(), "offer to set up a check")
 	assert.NoErr(t, os.WriteFile(filepath.Join(b.e.home, "farm.yaml"), []byte("check: go test ./...\n"), 0o644))
 	_, err = tool.Call(context.Background(), core.ExecPolicy{}, []byte(`{"task":"x"}`))
 	assert.NoErr(t, err)
