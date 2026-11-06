@@ -26,7 +26,12 @@ owner's acceptance run
 (`docs/farm-acceptance-run.md`), then a PR. Rulings, deferred minors and one
 open question are in the plan's Build record.
 
-**Next work (first-class together):** chat polish that stays inline; template /
+**Next feature (owner, 2026-11-07):** `jas attach` — reach a running farm's
+agents from another terminal over a Unix socket (`docs/design.md` §5). Phase
+1 read-only (stream dashboard and agent output), phase 2 control (steering,
+pause/resume/drop, approval inbox). Needs its own design (brainstorming) first.
+
+**Other work (first-class together):** chat polish that stays inline; template /
 scenario / `jas bootstrap` / `jas spec` quality (design §8 +
 `docs/superpowers/specs/2026-11-02-spec-driven-flow.md`); farm post-MVP in
 spec order — `farm resume` + take-over,
