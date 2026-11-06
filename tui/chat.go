@@ -84,6 +84,7 @@ type Model struct {
 	askPending   []farmAskMsg // farm questions waiting for the main chat
 	bells        int          // bells rung (test hook)
 	farmNote     string       // farm summary for the next message to the main session
+	farmUpdates  []string     // farm outcomes the agent has not heard, for the next message
 	farmGen      int          // generation of the newest farm started (farmMsg)
 	farmEarly    []tea.Msg    // that farm's messages that beat farmStartedMsg
 	printedFrom  int          // where the current session's transcript starts in printed

@@ -137,9 +137,8 @@ func (m *Model) onEnter() tea.Cmd {
 		m.tip(hintSteer, "that steers the reply now · Ctrl+Q queues a message for after the run")
 		return nil
 	}
-	if note := m.farmNote; note != "" {
-		m.farmNote = ""
-		shown := append(m.tr.User(text), m.tr.Notice(dimStyle.Render("(farm summary attached)"))...)
+	if note, label := m.takeFarmNotes(); note != "" {
+		shown := append(m.tr.User(text), m.tr.Notice(dimStyle.Render("("+label+" attached)"))...)
 		return m.startRun(note+"\n\n"+text, shown)
 	}
 	return m.startRun(text, m.tr.User(text))
