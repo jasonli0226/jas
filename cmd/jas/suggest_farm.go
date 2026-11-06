@@ -16,7 +16,7 @@ const suggestFarmName = "suggest_farm"
 // suggestFarmDescription is the tool's description (spec copy).
 const suggestFarmDescription = "Suggest splitting a large task into a farm of parallel agents. " +
 	"Use only for big, decomposable work (several packages or layers); the owner decides. " +
-	"Draft a self-contained task description; it pre-fills the owner's input as /farm \"<task>\". " +
+	"Draft a self-contained task description; the owner sees it and answers plan this farm? yes/no/edit. " +
 	"Never use for small or single-package changes. In the chat this is the only way to start a farm: " +
 	"never run jas farm through shell (it has no terminal for the owner's approvals)."
 
@@ -28,8 +28,8 @@ const farmUnavailableHint = "Stop and ask the owner before doing anything else: 
 	"(a test or build command, set as check: in .jas/farm.yaml, committed so the tree is clean), " +
 	"then call suggest_farm again."
 
-// suggestFarm lets the chat agent propose a farm: it pre-fills the owner's
-// input through the session's UI and starts nothing. It is registered in every
+// suggestFarm lets the chat agent propose a farm: the session's UI shows the
+// task and asks the owner whether to plan it; the tool starts nothing. It is registered in every
 // chat; available is asked at each call, so a check added mid-chat counts and
 // the agent learns why a farm cannot run instead of reaching for shell.
 type suggestFarm struct {

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/farm"
 )
@@ -41,8 +43,13 @@ func (m *Model) cmdFarm(arg string) tea.Cmd {
 // farmSubcommands act on the running farm.
 var farmSubcommands = map[string]func(*Model, string) tea.Cmd{}
 
+// unquote strips the quotes around a /farm task; a double-quoted task is
+// unescaped as Go would, so a suggestion's %q round-trips.
 func unquote(s string) string {
 	s = strings.TrimSpace(s)
+	if u, err := strconv.Unquote(s); err == nil && strings.HasPrefix(s, `"`) {
+		return strings.TrimSpace(u)
+	}
 	if len(s) >= 2 && (s[0] == '"' && s[len(s)-1] == '"' || s[0] == '\'' && s[len(s)-1] == '\'') {
 		return strings.TrimSpace(s[1 : len(s)-1])
 	}
@@ -309,17 +316,53 @@ func (m *Model) farmHooks(gen int) FarmHooks {
 	}
 }
 
-// suggestFarm pre-fills the input with the agent's /farm suggestion; a draft
-// is never overwritten (the suggestion is printed instead).
+// Suggestion answers.
+const (
+	suggestYes  = "yes"
+	suggestNo   = "no"
+	suggestEdit = "edit"
+)
+
+// suggestFarm shows the agent's drafted task as a readable block and asks the
+// owner whether to plan it; nothing starts before they answer.
 func (m *Model) suggestFarm(data map[string]any) tea.Cmd {
 	task, _ := data["task"].(string)
 	if task = strings.TrimSpace(task); task == "" {
 		return nil
 	}
-	line := fmt.Sprintf("/farm %q", task)
-	if m.input.Value() == "" && m.stash == nil {
-		m.input.SetValue(line)
-		return m.notice("the agent suggests a farm: the input holds it; edit or send it, or clear it")
+	ask := farmAskMsg{
+		prompt:  "plan this farm?",
+		choices: []string{suggestYes, suggestNo, suggestEdit},
+		then:    func(ans string) tea.Cmd { return m.answerSuggestion(task, ans) },
 	}
-	return m.notice("suggested: " + line)
+	return tea.Batch(m.print(m.tr.Notice(m.suggestionBlock(task))...), m.onFarmAsk(ask))
+}
+
+// suggestionBlock renders the suggested task, wrapped and marked off.
+func (m *Model) suggestionBlock(task string) string {
+	width := max(m.width-2, 20)
+	lines := []string{boldStyle.Render("the agent suggests a farm")}
+	for _, para := range strings.Split(task, "\n") {
+		for _, l := range strings.Split(ansi.Wrap(m.clean(para), width, ""), "\n") {
+			lines = append(lines, "│ "+l)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// answerSuggestion acts on the owner's answer: plan the task as drafted, put
+// it in the input to edit (never over a draft), or drop it ("" is no).
+func (m *Model) answerSuggestion(task, ans string) tea.Cmd {
+	switch ans {
+	case suggestYes:
+		return m.farmPlan(task)
+	case suggestEdit:
+		line := fmt.Sprintf("/farm %q", task)
+		if m.draft() == "" {
+			m.setDraft(line)
+			return nil
+		}
+		return m.notice("suggested: " + line)
+	}
+	return m.notice("farm suggestion dismissed")
 }

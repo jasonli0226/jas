@@ -29,6 +29,7 @@ type fakeFarmer struct {
 	discarded bool
 	feedback  []string
 	early     []farmEventMsg // played through the hooks inside Start
+	tasks     []string       // tasks given to Plan
 }
 
 func newFakeFarmer() *fakeFarmer {
@@ -37,7 +38,10 @@ func newFakeFarmer() *fakeFarmer {
 }
 
 func (f *fakeFarmer) Available() (bool, string) { return f.available, f.why }
-func (f *fakeFarmer) Plan(context.Context, string, string) (FarmPlan, error) {
+func (f *fakeFarmer) Plan(_ context.Context, task, _ string) (FarmPlan, error) {
+	f.mu.Lock()
+	f.tasks = append(f.tasks, task)
+	f.mu.Unlock()
 	return f.plan, f.planErr
 }
 func (f *fakeFarmer) Replan(_ context.Context, p FarmPlan, fb string) (FarmPlan, error) {

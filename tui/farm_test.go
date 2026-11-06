@@ -145,13 +145,60 @@ func TestFarmEnd_SurvivesNewSession(t *testing.T) {
 	assert.Contains(t, requestText(c.b.prov.Requests[0]), "farm f1 ended")
 }
 
-func TestSuggestFarm_PrefillsInput(t *testing.T) {
+// suggestFarmTask is a multi-line task as an agent drafts one.
+const suggestFarmTask = "migrate logging:\n- core/ to slog\n- \"tui\" too"
+
+func suggestFarmEvent(c *testChat, task string) {
+	c.update(eventMsg{gen: c.m.gen, typ: EvSuggestFarm, data: map[string]any{"task": task}})
+}
+
+func TestSuggestFarm_ShowsTaskAndAsks(t *testing.T) {
 	c, _ := farmChat(t)
-	c.update(eventMsg{gen: c.m.gen, typ: EvSuggestFarm, data: map[string]any{"task": "migrate logging"}})
-	assert.Eq(t, c.m.input.Value(), `/farm "migrate logging"`)
-	assert.Eq(t, c.m.farm == nil, true)
-	c.typeText(" x")
-	c.update(eventMsg{gen: c.m.gen, typ: EvSuggestFarm, data: map[string]any{"task": "other"}})
-	assert.Contains(t, c.m.input.Value(), "migrate logging") // a draft is never overwritten
-	assert.Contains(t, strings.Join(c.m.Printed(), "\n"), `suggested: /farm "other"`)
+	suggestFarmEvent(c, suggestFarmTask)
+	out := strings.Join(c.printedNoBanner(), "\n")
+	for _, want := range []string{"the agent suggests a farm", "│ migrate logging:", "│ - core/ to slog", `│ - "tui" too`} {
+		assert.Contains(t, out, want)
+	}
+	assert.Eq(t, c.m.ask != nil, true)
+	assert.Contains(t, c.view(), "plan this farm? [yes/no/edit]")
+	assert.Eq(t, c.m.farmReview == nil, true) // nothing starts before the owner answers
+}
+
+func TestSuggestFarm_YesPlansTheRawTask(t *testing.T) {
+	c, f := farmChat(t)
+	suggestFarmEvent(c, suggestFarmTask)
+	c.submit("y")
+	assert.Eq(t, len(f.tasks), 1)
+	assert.Eq(t, f.tasks[0], suggestFarmTask)
+	assert.Eq(t, c.m.picker != nil, true) // the plan review picker
+}
+
+func TestSuggestFarm_NoDismisses(t *testing.T) {
+	c, f := farmChat(t)
+	c.typeText("my draft")
+	suggestFarmEvent(c, "migrate logging")
+	c.submit("")
+	assert.Eq(t, len(f.tasks), 0)
+	assert.Eq(t, c.m.ask == nil, true)
+	assert.Eq(t, c.m.input.Value(), "my draft") // the draft comes back
+	assert.Contains(t, strings.Join(c.printedNoBanner(), "\n"), "farm suggestion dismissed")
+}
+
+func TestSuggestFarm_EditPrefillsInput(t *testing.T) {
+	c, f := farmChat(t)
+	suggestFarmEvent(c, suggestFarmTask)
+	c.submit("edit")
+	assert.Eq(t, len(f.tasks), 0)
+	c.submit("") // sent unchanged, the planner gets the raw task
+	assert.Eq(t, len(f.tasks), 1)
+	assert.Eq(t, f.tasks[0], suggestFarmTask)
+}
+
+func TestSuggestFarm_EditKeepsADraft(t *testing.T) {
+	c, _ := farmChat(t)
+	c.typeText("my draft")
+	suggestFarmEvent(c, "migrate logging")
+	c.submit("edit")
+	assert.Eq(t, c.m.input.Value(), "my draft") // a draft is never overwritten
+	assert.Contains(t, strings.Join(c.printedNoBanner(), "\n"), `suggested: /farm "migrate logging"`)
 }

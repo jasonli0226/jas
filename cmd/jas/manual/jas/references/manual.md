@@ -325,7 +325,7 @@ Docker recipes.
 | `edit` | replace text in a file (atomic) | `mutating` |
 | `shell` | run a command (`sh -c`; `cmd` on Windows), allowlisted env | `shell` |
 | `web_fetch`, `web_search` | fetch a page / search the web (only with `web_tools=true`) | — |
-| `suggest_farm` | chat only: pre-fill `/farm "<task>"` for you to send; where a farm cannot run (untrusted project, no `check`) it tells the agent why and to ask you first | — |
+| `suggest_farm` | chat only: show the drafted task and ask `plan this farm? [yes/no/edit]` (edit puts `/farm "<task>"` in the input); where a farm cannot run (untrusted project, no `check`) it tells the agent why and to ask you first | — |
 
 File tools are confined to the project and a deny floor (secrets, `~/.jas`,
 session files). Read-only calls in a row run in parallel; each mutating call
