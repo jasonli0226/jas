@@ -295,13 +295,26 @@ func (w *Worktrees) Remove(ctx context.Context, part string) error {
 	return err
 }
 
-// Dirty reports whether main has uncommitted changes (untracked files count).
+// sessionRecords is where jas keeps its session records in main; they are
+// rewritten every turn, so a repo that tracks them by mistake stays clean.
+const sessionRecords = ".jas/sessions/"
+
+// Dirty reports whether main has uncommitted changes (untracked files count),
+// leaving out jas's own session records.
 func Dirty(ctx context.Context, git GitRunner, main string) (bool, error) {
 	out, err := git.Run(ctx, main, "status", "--porcelain")
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(out) != "", nil
+	for _, l := range strings.Split(out, "\n") {
+		if len(l) < 4 {
+			continue
+		}
+		if path := strings.TrimPrefix(l[3:], `"`); !strings.HasPrefix(path, sessionRecords) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Prune drops metadata of worktrees whose directories are gone.

@@ -52,8 +52,12 @@ func TestRegister_AtomicAndListed(t *testing.T) {
 	assert.Eq(t, len(got), 1)
 	assert.Eq(t, got[0].State, "active")
 	assert.Eq(t, got[0].PID, os.Getpid())
-	entries, _ := os.ReadDir(dir)
-	assert.Eq(t, len(entries), 1)
+	entries, _ := os.ReadDir(dir) // no temp file left behind
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	assert.Eq(t, strings.Join(names, " "), ".gitignore s1.json")
 	raw, _ := os.ReadFile(filepath.Join(dir, "s1.json"))
 	assert.Contains(t, string(raw), `"session_id": "s1"`)
 }
@@ -138,6 +142,21 @@ func TestDir_NoGit(t *testing.T) {
 	d, err := sessions.Dir(root)
 	assert.NoErr(t, err)
 	assert.Eq(t, d, filepath.Join(root, ".jas", "sessions"))
+}
+
+// A chat may start before the project is a git repo; a later git init and
+// git add -A must not pick up the session records.
+func TestRegister_HidesRecordsFromALaterRepo(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))
+	d, err := sessions.Dir(root)
+	assert.NoErr(t, err)
+	register(t, d, "s1")
+	git(t, root, "init", "-q")
+	git(t, root, "add", "-A")
+	out, err := exec.Command("git", "-C", root, "status", "--porcelain").Output()
+	assert.NoErr(t, err)
+	assert.Eq(t, string(out), "")
 }
 
 func TestHandle_HeartbeatAdvances(t *testing.T) {

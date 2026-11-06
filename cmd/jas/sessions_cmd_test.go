@@ -20,7 +20,7 @@ func TestCLI_RunRegistersSessionRecord(t *testing.T) {
 	assert.Contains(t, out, `"record_path":`)
 	entries, err := os.ReadDir(filepath.Join(dir, ".jas", "sessions"))
 	assert.NoErr(t, err)
-	assert.Eq(t, len(entries), 1)
+	assert.Eq(t, len(entries), 2) // the record and the .gitignore that hides it
 
 	list, _, code := runJasIn(t, dir, env, "sessions")
 	assert.Eq(t, code, 0)

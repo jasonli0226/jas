@@ -34,6 +34,22 @@ func Dir(root string) (string, error) {
 	return filepath.Join(main, ".jas", "sessions"), nil
 }
 
+// ignoreFile ignores everything in the records directory, itself included,
+// so a repository created after the chat started never picks the records up.
+const (
+	ignoreFile    = ".gitignore"
+	ignoreContent = "*\n"
+)
+
+// ensureIgnored writes dir's ignoreFile unless one is there.
+func ensureIgnored(dir string) error {
+	p := filepath.Join(dir, ignoreFile)
+	if _, err := os.Stat(p); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(p, []byte(ignoreContent), 0o644)
+}
+
 // gitCommonDir is the repository's shared git dir, or false outside git.
 func gitCommonDir(root string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)

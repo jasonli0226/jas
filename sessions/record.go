@@ -81,6 +81,9 @@ func Register(dir string, r Record) (*Handle, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
+	if err := ensureIgnored(dir); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	r.V, r.PID, r.State = recordVersion, os.Getpid(), StateActive
 	r.Host, _ = os.Hostname()
