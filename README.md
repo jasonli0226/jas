@@ -319,8 +319,8 @@ for one fix round. A clean merge whose `check` fails goes to the integrator.
 Worktrees live in the repo under `.jas/worktrees/<farm-id>/<part>`
 (git-excluded, hidden from your chat's file tools); set `worktree.dir` to an
 absolute path to put them elsewhere. Without `--json`, the run prints a line per part event and
-worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental** until the benchmark gate
-(farm vs plain `jas run` on wall-clock) lands. Not yet: `farm resume`,
+worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental.**
+Not yet: `farm resume`,
 `researcher`/`reviewer` roles, `--spec` planning, `farm init`, attach from
 another terminal ([#12](https://github.com/jasonli0226/jas/issues/12)).
 Full design:

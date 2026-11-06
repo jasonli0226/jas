@@ -433,8 +433,7 @@ per-task containers ship in v3).
       verdict. Pinned CI contract (exit codes 6/7/8, `--json`, manifest; no
       TTY = keep). Replaces the earlier best-of-N `--n` design. **Waits for
       its prerequisites:** event-log spec, provider fidelity, run token/time
-      caps, opt-in sandbox, supervisor-run success check + benches, then a
-      farm-vs-`jas run` benchmark gate. Spec:
+      caps, opt-in sandbox, supervisor-run success check + benches. Spec:
       [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md)
 - [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
       optional read-only part with a clean context, possibly a different
