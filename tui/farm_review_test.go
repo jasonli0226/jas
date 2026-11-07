@@ -223,3 +223,13 @@ func TestPartCheckDeferredMarksRow(t *testing.T) {
 	assert.Eq(t, c.m.farm.agent("a").check, "deferred")
 	assert.Contains(t, strings.Join(c.m.Printed(), "\n"), "part_check deferred to the merged check: needs b")
 }
+
+func TestFarmGeneratedEventsShown(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	f.event(farm.EvGeneratedRegenerated, map[string]any{"path": "package-lock.json", "exit_code": 0, "changed": true})
+	f.event(farm.EvGeneratedRestored, map[string]any{"part": "a", "paths": []any{"package-lock.json"}})
+	c.drain()
+	out := strings.Join(c.m.Printed(), "\n")
+	assert.Contains(t, out, "regenerated package-lock.json")
+	assert.Contains(t, out, "undid generated package-lock.json")
+}

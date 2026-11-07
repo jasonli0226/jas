@@ -129,7 +129,9 @@ Roles: `coder` writes its part, `tester` adds tests. A part is done only when
 worktree; a failure gets one fix round, in which the worker may answer
 `BLOCKED: <reason>` when the check needs other parts (the merged `check`
 then decides). Writes outside `owns`, shell ones too, also go back for that
-round. A clean merge whose `check` fails is
+round. Root lockfiles (`generated`, detected by default) are undone in
+part worktrees without a fix round and regenerated once on the merged tree
+before `check`. A clean merge whose `check` fails is
 handed to the integrator. At the failure prompt, answer `retry`, `drop` or
 `abort` (or a prefix); anything else is asked again. Part worktrees live in
 `.jas/worktrees/<farm-id>/part-<part>` (git-excluded; file tools in the main
