@@ -44,8 +44,8 @@ Start the chat: `./bin/jas` (pass
 | # | Do | Expect |
 |---|---|---|
 | 1 | `/approve shell` | status line shows `shell`; the farm's workers inherit it, so their shell calls ask. |
-| 2 | Ask: *"Fix issues #32 and #33 in parallel — they're independent."* | Ideally the agent calls `suggest_farm`: a notice says it suggests a farm and the input holds `/farm "…"`. If not, type `/farm "fix issues #32 and #33"`. |
-| 3 | Send the `/farm` line | `farm: planning …`, then the plan summary and a picker: approve · edit · replan · quit. |
+| 2 | Ask: *"Fix issues #32 and #33 in parallel — they're independent."* | Ideally the agent calls `suggest_farm`: a block shows the task and asks `plan this farm? [yes/no/change]`. Answer `change`, ask for one change, and check the agent suggests a revised task; then answer `yes`. If it never suggests, type `/farm "fix issues #32 and #33"`. |
+| 3 | Answer `yes` (or send the `/farm` line) | `farm: planning …`, then the plan summary and a picker: approve · edit · replan · quit. |
 | 4 | Choose **approve** | `farm <id> started · ctrl+1..9 flip · ctrl+0 back`; one row per agent under the input (`1 <part> ● running …`) and a totals line `farm … tok / 5.0M · … · check pending`. |
 | 5 | **Ctrl+1** | Screen clears; header `── <part> · coder · .jas/worktrees/<farm>/<part> ──`; that agent's transcript streams live; the input prompt reads `<part> ›`; a strip at the bottom lists agents. |
 | 6 | Type a short steer, e.g. `keep the change minimal`, Enter | Shown as `↳ queued for <part>: …` until the agent reads it, then as a user block in its transcript. |

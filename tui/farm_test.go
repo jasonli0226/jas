@@ -162,7 +162,7 @@ func TestSuggestFarm_ShowsTaskAndAsks(t *testing.T) {
 		assert.Contains(t, out, want)
 	}
 	assert.Eq(t, c.m.ask != nil, true)
-	assert.Contains(t, c.view(), "plan this farm? [yes/no/edit]")
+	assert.Contains(t, c.view(), "plan this farm? [yes/no/change]")
 	assert.Eq(t, c.m.farmReview == nil, true) // nothing starts before the owner answers
 }
 
@@ -186,23 +186,30 @@ func TestSuggestFarm_NoDismisses(t *testing.T) {
 	assert.Contains(t, strings.Join(c.printedNoBanner(), "\n"), "farm suggestion dismissed")
 }
 
-func TestSuggestFarm_EditPrefillsInput(t *testing.T) {
-	c, f := farmChat(t)
+func TestSuggestFarm_ChangeSendsTheOwnersWordsToTheAgent(t *testing.T) {
+	c, f := farmChatTurns(t, fake.Turn{Text: "revised"})
+	c.typeText("my draft")
 	suggestFarmEvent(c, suggestFarmTask)
-	c.submit("edit")
-	assert.Eq(t, len(f.tasks), 0)
-	c.submit("") // sent unchanged, the planner gets the raw task
-	assert.Eq(t, len(f.tasks), 1)
-	assert.Eq(t, f.tasks[0], suggestFarmTask)
+	c.submit("change")
+	assert.Contains(t, c.view(), "what should change?")
+	c.submit("drop the tui part")
+	c.pump()
+	assert.Eq(t, len(f.tasks), 0) // nothing is planned before the agent revises
+	got := requestText(c.b.prov.Requests[0])
+	assert.Contains(t, got, "drop the tui part")
+	assert.Contains(t, got, "call suggest_farm again")
+	assert.Eq(t, c.m.input.Value(), "my draft") // the draft comes back
 }
 
-func TestSuggestFarm_EditKeepsADraft(t *testing.T) {
-	c, _ := farmChat(t)
-	c.typeText("my draft")
-	suggestFarmEvent(c, "migrate logging")
-	c.submit("edit")
-	assert.Eq(t, c.m.input.Value(), "my draft") // a draft is never overwritten
-	assert.Contains(t, strings.Join(c.printedNoBanner(), "\n"), `suggested: /farm "migrate logging"`)
+func TestSuggestFarm_EmptyChangeAsksAgain(t *testing.T) {
+	c, f := farmChat(t)
+	suggestFarmEvent(c, suggestFarmTask)
+	c.submit("change")
+	c.submit("")
+	assert.Contains(t, c.view(), "plan this farm? [yes/no/change]")
+	c.submit("y")
+	assert.Eq(t, len(f.tasks), 1)
+	assert.Eq(t, f.tasks[0], suggestFarmTask)
 }
 
 func TestSuggestFarm_BlockWaitsForTheTurnToEnd(t *testing.T) {

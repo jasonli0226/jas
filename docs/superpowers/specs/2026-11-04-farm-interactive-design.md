@@ -268,7 +268,7 @@ cancels the main agent's turn)**.
 
 A live, chat-started farm on a real two-part task (like dogfood run 3:
 #48 + #51 style) in one window, using every feature once: start from chat
-(including a `suggest_farm` pre-fill), flip to each agent and back, steer
+(including a `suggest_farm` suggestion, changed once through the agent), flip to each agent and back, steer
 one mid-run, open `/farm`, answer an approval while flipped elsewhere,
 answer the final keep prompt, then ask the main agent about the result.
 Findings are appended to `docs/research/farm-dogfood-2026-11.md`.
