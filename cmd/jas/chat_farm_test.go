@@ -180,6 +180,34 @@ func TestSuggestFarm_CheckAddedMidChat(t *testing.T) {
 	assert.NoErr(t, err)
 }
 
+// A dirty tree or a repository with no commit cannot be planned: the agent
+// hears why before the owner is asked, so it can offer to commit first.
+func TestSuggestFarm_TreeMustBeCommitted(t *testing.T) {
+	b := farmChat(t, "go test ./...", true)
+	ui, f := &eventUI{}, b.Farmer()
+	tool := suggestFarm{ui: ui, available: f.Available, tree: b.farmer.TreeReady}
+	_, err := tool.Call(context.Background(), core.ExecPolicy{}, []byte(`{"task":"x"}`))
+	assert.NoErr(t, err)
+
+	assert.NoErr(t, os.WriteFile(filepath.Join(b.e.root, "new.sh"), []byte("echo\n"), 0o644))
+	ui.typ = ""
+	_, err = tool.Call(context.Background(), core.ExecPolicy{}, []byte(`{"task":"x"}`))
+	if err == nil {
+		t.Fatal("suggested a farm on a dirty tree")
+	}
+	assert.Contains(t, err.Error(), "uncommitted changes")
+	assert.Contains(t, err.Error(), "offer to commit")
+	assert.Eq(t, ui.typ, "")
+
+	assert.NoErr(t, os.RemoveAll(filepath.Join(b.e.root, ".git")))
+	gitIn(t, b.e.root, "init", "-q")
+	_, err = tool.Call(context.Background(), core.ExecPolicy{}, []byte(`{"task":"x"}`))
+	if err == nil {
+		t.Fatal("suggested a farm in a repository with no commit")
+	}
+	assert.Contains(t, err.Error(), "no commit yet")
+}
+
 type eventUI struct {
 	typ  string
 	data map[string]any
