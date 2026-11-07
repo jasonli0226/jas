@@ -141,7 +141,8 @@ and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
 
 In the chat: never run `jas farm` through the `shell` tool (it has no
 terminal for the plan picker and approvals). Call `suggest_farm`: it shows the task
-and asks the owner `plan this farm? [yes/no/edit]`, and never starts a farm; where a farm cannot run
+and asks the owner `plan this farm? [yes/no/change]`, and never starts a farm; on change the
+owner's next message says what to change: revise the task and call `suggest_farm` again; where a farm cannot run
 (untrusted project, no `check`) it returns why: stop and ask the owner
 instead of doing the task yourself. In a new or empty project, offer to set
 up a `check` first (`check:` in `.jas/farm.yaml`, committed), then suggest

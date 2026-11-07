@@ -333,10 +333,15 @@ func (m *Model) farmHooks(gen int) FarmHooks {
 
 // Suggestion answers.
 const (
-	suggestYes  = "yes"
-	suggestNo   = "no"
-	suggestEdit = "edit"
+	suggestYes    = "yes"
+	suggestNo     = "no"
+	suggestChange = "change"
 )
+
+// suggestChangeNote opens the message that carries the owner's requested
+// change back to the agent.
+const suggestChangeNote = "The owner wants the farm suggestion changed before planning; " +
+	"revise the task as they ask and call suggest_farm again:\n\n"
 
 // suggestFarm shows the agent's drafted task as a readable block and asks the
 // owner whether to plan it; nothing starts before they answer.
@@ -345,14 +350,19 @@ func (m *Model) suggestFarm(data map[string]any) tea.Cmd {
 	if task = strings.TrimSpace(task); task == "" {
 		return nil
 	}
-	ask := farmAskMsg{
+	// Shown as the question opens, after the turn that made the call.
+	return m.askSuggestion(task, func() tea.Cmd { return m.print(m.tr.Notice(m.suggestionBlock(task))...) })
+}
+
+// askSuggestion asks whether to plan task; onOpen, if set, runs as the
+// question takes the input.
+func (m *Model) askSuggestion(task string, onOpen func() tea.Cmd) tea.Cmd {
+	return m.onFarmAsk(farmAskMsg{
 		prompt:  "plan this farm?",
-		choices: []string{suggestYes, suggestNo, suggestEdit},
+		choices: []string{suggestYes, suggestNo, suggestChange},
 		then:    func(ans string) tea.Cmd { return m.answerSuggestion(task, ans) },
-		// Shown as the question opens, after the turn that made the call.
-		onOpen: func() tea.Cmd { return m.print(m.tr.Notice(m.suggestionBlock(task))...) },
-	}
-	return m.onFarmAsk(ask)
+		onOpen:  onOpen,
+	})
 }
 
 // suggestionBlock renders the suggested task, wrapped and marked off.
@@ -367,22 +377,35 @@ func (m *Model) suggestionBlock(task string) string {
 	return strings.Join(lines, "\n")
 }
 
-// answerSuggestion acts on the owner's answer: plan the task as drafted, put
-// it in the input to edit (never over a draft), or drop it ("" is no).
+// answerSuggestion acts on the owner's answer: plan the task as drafted, ask
+// what should change, or drop it ("" is no).
 func (m *Model) answerSuggestion(task, ans string) tea.Cmd {
 	switch ans {
 	case suggestYes:
 		return m.farmPlan(task)
-	case suggestEdit:
-		line := fmt.Sprintf("/farm %q", task)
-		if m.draft() == "" {
-			m.setDraft(line)
-			return nil
-		}
-		return m.notice("suggested: " + line)
+	case suggestChange:
+		return m.onFarmAsk(farmAskMsg{
+			prompt: "what should change? (empty asks again)",
+			then:   func(change string) tea.Cmd { return m.changeSuggestion(task, change) },
+		})
 	}
 	m.tellAgent("the owner dismissed the farm suggestion; nothing started")
 	return m.notice("farm suggestion dismissed")
+}
+
+// changeSuggestion sends the owner's change to the agent, which revises the
+// task and suggests it again; an empty change asks about task again.
+func (m *Model) changeSuggestion(task, change string) tea.Cmd {
+	if change == "" || m.live == nil {
+		return m.askSuggestion(task, nil)
+	}
+	shown := m.tr.User(change)
+	text := suggestChangeNote + change
+	if note, label := m.takeFarmNotes(); note != "" {
+		shown = append(shown, m.tr.Notice(dimStyle.Render("("+label+" attached)"))...)
+		text = note + "\n\n" + text
+	}
+	return m.startRun(text, shown)
 }
 
 // farmTaskHeadMax caps the task shown in the planning notice, in runes.

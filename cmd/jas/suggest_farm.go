@@ -16,7 +16,8 @@ const suggestFarmName = "suggest_farm"
 // suggestFarmDescription is the tool's description (spec copy).
 const suggestFarmDescription = "Suggest splitting a large task into a farm of parallel agents. " +
 	"Use only for big, decomposable work (several packages or layers); the owner decides. " +
-	"Draft a self-contained task description; the owner sees it and answers plan this farm? yes/no/edit. " +
+	"Draft a self-contained task description; the owner sees it and answers plan this farm? yes/no/change. " +
+	"On change, their next message says what to change: revise the task and call suggest_farm again. " +
 	"Never use for small or single-package changes. In the chat this is the only way to start a farm: " +
 	"never run jas farm through shell (it has no terminal for the owner's approvals)."
 
