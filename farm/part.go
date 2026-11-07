@@ -120,15 +120,20 @@ func (s *Supervisor) reviewTurn(ctx context.Context, w *worker, round int, final
 		end := failed(id, ReasonError, core.ExitFailure, err.Error())
 		return turnReview{fail: &end}
 	}
+	checkFailed := chk != nil && (chk.ExitCode != 0 || chk.TimedOut)
 	if len(viol) > 0 {
 		end := failed(id, ReasonWriteLimit, core.ExitFailure, "wrote outside its limit: "+strings.Join(viol, ", "))
-		return turnReview{fix: writeFixMessage(viol, w.part.Owns), fail: &end}
+		fix := writeFixMessage(viol, w.part.Owns)
+		if checkFailed { // one message, so the one fix round can settle both
+			fix += "\n\n" + checkFixMessage(s.Cfg.PartCheck, *chk)
+		}
+		return turnReview{fix: fix, fail: &end, checkFailed: checkFailed}
 	}
 	if blocked && s.Cfg.PartCheck != "" {
 		s.event(EvPartCheckDeferred, map[string]any{"part": id, "round": round, "reason": reason})
 		return turnReview{}
 	}
-	if chk == nil || (chk.ExitCode == 0 && !chk.TimedOut) {
+	if !checkFailed {
 		return turnReview{}
 	}
 	end := failed(id, ReasonCheck, core.ExitUnmet, fmt.Sprintf("part_check failed (exit %d)", chk.ExitCode))
@@ -163,7 +168,7 @@ func (s *Supervisor) blamedViolations(ctx context.Context, w *worker) ([]string,
 // w.made and undone.
 func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.CheckResult {
 	before, beforeErr := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
-	started := time.Now().Add(-time.Second) // mtime granularity
+	started := time.Now()
 	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.PartCheck, w.path), tools.RunShell)
 	s.event(EvPartCheck, map[string]any{"part": w.part.ID, "round": round, "exit_code": res.ExitCode,
 		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})

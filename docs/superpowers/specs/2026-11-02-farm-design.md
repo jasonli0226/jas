@@ -691,7 +691,8 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   the verdict, and `part_check_deferred{part, round, reason}` is logged.
   Every final answer also gets the write-limit diff check, after
   `part_check`; writes outside `owns` (shell commands included) go back in
-  the same fix round. Paths outside `owns` that `part_check` itself writes
+  the same fix round, in one message with a failed `part_check` when both
+  happen. Paths outside `owns` that `part_check` itself writes
   (e.g. `npm install --prefix other/` making `other/package-lock.json`) are
   undone by the supervisor and never blamed on the worker, also when the
   worker reruns the check. `BLOCKED:` may start any line of the answer. **(owner-approved, 2026-11-07, after a run where both
