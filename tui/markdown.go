@@ -106,16 +106,21 @@ func (m *mdStream) Flush() (string, bool) {
 	return s, strings.TrimSpace(s) != ""
 }
 
-// renderBlock styles one raw block.
-func renderBlock(raw string) string {
+// renderBlock styles one raw block; width (0 = no limit) bounds its tables.
+func renderBlock(raw string, width int) string {
 	lines := strings.Split(raw, "\n")
 	if isFence(lines[0]) {
 		return renderCode(lines)
 	}
 	out := make([]string, 0, len(lines))
 	inItem := false
-	for _, l := range lines {
-		if m := headingRe.FindStringSubmatch(l); m != nil {
+	for i := 0; i < len(lines); i++ {
+		l := lines[i]
+		if n := tableAt(lines, i); n > 0 {
+			out = append(out, renderTable(lines[i:i+n], width))
+			i += n - 1
+			inItem = false
+		} else if m := headingRe.FindStringSubmatch(l); m != nil {
 			out = append(out, boldStyle.Render(m[1]))
 			inItem = false
 		} else if m := bulletRe.FindStringSubmatch(l); m != nil {

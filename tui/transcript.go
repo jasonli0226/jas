@@ -224,7 +224,7 @@ func (t *Transcript) Live() string {
 		}
 	}
 	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
-		block := hang(renderBlock(p), t.nextAgentPrefix(), t.Width)
+		block := hang(renderBlock(p, t.contentWidth()), t.nextAgentPrefix(), t.Width)
 		if len(parts) == 0 && t.paragraphGap() {
 			block = "\n" + block
 		}
@@ -288,7 +288,7 @@ func (t *Transcript) agentBlock(raw string) []string {
 	out = append(out, t.enter(roleAgent)...)
 	prefix := t.nextAgentPrefix()
 	t.marked = true
-	return append(out, hang(renderBlock(raw), prefix, t.Width))
+	return append(out, hang(renderBlock(raw, t.contentWidth()), prefix, t.Width))
 }
 
 // paragraphGap reports whether the next agent block follows an earlier block
@@ -301,6 +301,10 @@ func (t *Transcript) nextAgentPrefix() string {
 	}
 	return assistantStyle.Render(agentMarker)
 }
+
+// contentWidth is the width left for an agent block under its marker
+// (0 = unknown, no limit).
+func (t *Transcript) contentWidth() int { return max(t.Width-len(hangIndent), 0) }
 
 // hang prefixes the first line of block with first and indents the rest,
 // wrapping to width first so wrapped rows stay under the marker too.
