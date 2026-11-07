@@ -23,6 +23,10 @@ func TestDetectGenerated(t *testing.T) {
 		"uv":                {[]string{"pyproject.toml", "uv.lock"}, []Generated{{"uv.lock", "uv lock"}}},
 		"package.json only": {[]string{"package.json"}, []Generated{{"package-lock.json", npmRegen}}},
 		"nothing":           {[]string{"README.md"}, nil},
+		"bun text lockfile": {[]string{"package.json", "bun.lock"}, nil},
+		"bun binary lock":   {[]string{"package.json", "bun.lockb"}, nil},
+		"deno lockfile":     {[]string{"package.json", "deno.lock"}, nil},
+		"npm shrinkwrap":    {[]string{"package.json", "npm-shrinkwrap.json"}, nil},
 		"nested lockfile":   {[]string{"client/package.json", "client/package-lock.json"}, nil},
 	} {
 		t.Run(name, func(t *testing.T) {

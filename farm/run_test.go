@@ -1141,3 +1141,19 @@ func TestIntegrate_RegenerateCommitsOnlyItsPath(t *testing.T) {
 		t.Fatalf(".gitignore = %q", got)
 	}
 }
+
+// A failed regenerate leaves the file as merged: its partial output is put
+// back, not committed.
+func TestIntegrate_RegenerateFailureNotCommitted(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "echo half > a.txt && exit 1"})
+	if code, _ := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if ev := r.last(EvGeneratedRegenerated); ev["changed"] != false {
+		t.Fatalf("generated_regenerated %v", ev)
+	}
+	if got, _ := r.git("show", r.integrateBranch()+":a.txt"); got != "one\ntwo\nthree" {
+		t.Fatalf("a.txt on integrate = %q", got)
+	}
+}

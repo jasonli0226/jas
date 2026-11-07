@@ -3,7 +3,9 @@ package farm
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -30,6 +32,11 @@ var lockfileDefaults = []Generated{
 	{"Cargo.lock", "cargo update --workspace"},
 	{"uv.lock", "uv lock"},
 }
+
+// jsLockfiles are the lockfiles that mean a root package.json already has a
+// package manager: no npm lockfile is added for it.
+var jsLockfiles = []string{"package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+	"bun.lock", "bun.lockb", "deno.lock"}
 
 const (
 	yarnBerryRegen   = "yarn install --mode=update-lockfile"
@@ -59,7 +66,7 @@ func DetectGenerated(ctx context.Context, git GitRunner, main, base string) ([]G
 		}
 		gen = append(gen, d)
 	}
-	if has("package.json") && !has("package-lock.json") && !has("yarn.lock") && !has("pnpm-lock.yaml") {
+	if has("package.json") && !slices.ContainsFunc(jsLockfiles, has) {
 		gen = append(gen, Generated{"package-lock.json", npmLockRegen})
 	}
 	return gen, nil
@@ -120,8 +127,14 @@ func (s *Supervisor) regenerate(ctx context.Context, dir string) ([]regenFailure
 	var failed []regenFailure
 	for _, g := range s.Gen {
 		res := core.RunCheck(ctx, s.checkSpec(g.Regenerate, dir), tools.RunShell)
+		ok := res.ExitCode == 0 && !res.TimedOut
 		if err := s.revertOthers(ctx, dir, g.Path); err != nil {
 			return nil, err
+		}
+		if !ok { // a failed or killed run may leave a partial file: keep it as merged
+			if err := s.revertPath(ctx, dir, g.Path); err != nil {
+				return nil, err
+			}
 		}
 		st, err := s.Git.Run(ctx, dir, "status", "--porcelain", "--", g.Path)
 		if err != nil {
@@ -139,11 +152,24 @@ func (s *Supervisor) regenerate(ctx context.Context, dir string) ([]regenFailure
 		}
 		s.event(EvGeneratedRegenerated, map[string]any{"path": g.Path, "exit_code": res.ExitCode,
 			"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut, "changed": changed})
-		if res.ExitCode != 0 || res.TimedOut {
+		if !ok {
 			failed = append(failed, regenFailure{gen: g, res: res})
 		}
 	}
 	return failed, nil
+}
+
+// revertPath puts p back as at HEAD: checked out when tracked there, else
+// removed.
+func (s *Supervisor) revertPath(ctx context.Context, dir, p string) error {
+	if _, err := s.Git.Run(ctx, dir, "cat-file", "-e", "HEAD:"+p); err == nil {
+		_, err := s.Git.Run(ctx, dir, "checkout", "HEAD", "--", p)
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(p))); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // revertOthers puts back every tracked file under dir that changed, except
