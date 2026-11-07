@@ -85,14 +85,25 @@ func Integrate(ctx context.Context, s *Supervisor, done []string) (branch string
 	if conflicts, err = s.mergeLeaves(ctx, path, leaves); err != nil {
 		return branch, err
 	}
+	// Regenerate always runs before the first check of the merged tree:
+	// integrateCheck's cached pass assumes nothing changes it afterwards.
 	if len(conflicts) > 0 {
-		if err := s.runIntegrator(ctx, path, leaves, conflicts, nil); err != nil {
+		if err := s.runIntegrator(ctx, path, leaves, conflicts, nil, nil); err != nil {
 			return branch, err
 		}
-	} else if chk, ok := s.integrateCheck(ctx, path); !ok {
-		// A clean merge can still break at the seams: the integrator fixes it.
-		if err := s.runIntegrator(ctx, path, leaves, nil, &chk); err != nil {
+		if _, err := s.regenerate(ctx, path); err != nil {
 			return branch, err
+		}
+	} else {
+		regenFailed, err := s.regenerate(ctx, path)
+		if err != nil {
+			return branch, err
+		}
+		if chk, ok := s.integrateCheck(ctx, path); !ok {
+			// A clean merge can still break at the seams: the integrator fixes it.
+			if err := s.runIntegrator(ctx, path, leaves, nil, &chk, regenFailed); err != nil {
+				return branch, err
+			}
 		}
 	}
 	return branch, s.verifyMerged(ctx, path, leaves)
@@ -149,8 +160,9 @@ func (s *Supervisor) unmergedFiles(path string) []string {
 	return strings.Fields(out)
 }
 
-// integratorWrites is every part's owns plus plan.shared.
-func integratorWrites(plan Plan) []string {
+// integratorWrites is every part's owns plus plan.shared and the generated
+// files.
+func integratorWrites(plan Plan, gen []Generated) []string {
 	var out []string
 	for _, p := range plan.Parts {
 		for _, o := range p.Owns {
@@ -159,7 +171,7 @@ func integratorWrites(plan Plan) []string {
 			}
 		}
 	}
-	for _, o := range plan.Shared {
+	for _, o := range append(slices.Clone(plan.Shared), generatedPaths(gen)...) {
 		if !slices.Contains(out, o) {
 			out = append(out, o)
 		}
@@ -169,7 +181,7 @@ func integratorWrites(plan Plan) []string {
 
 // integratorRoleFor is the coder role writing the union of owns and shared.
 func (s *Supervisor) integratorRoleFor() (Role, []string, error) {
-	owns := integratorWrites(s.Plan)
+	owns := integratorWrites(s.Plan, s.Gen)
 	role, err := ResolveRole(s.Cfg, integratorRole, owns)
 	if err != nil {
 		return Role{}, nil, err
@@ -204,7 +216,7 @@ func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.Chec
 // runIntegrator runs the integrator session over the conflicting merges, or
 // over a clean merge whose check failed, and commits whatever it left staged
 // or resolved.
-func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []string, conflicts []conflict, failing *core.CheckResult) error {
+func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []string, conflicts []conflict, failing *core.CheckResult, regenFailed []regenFailure) error {
 	role, owns, err := s.integratorRoleFor()
 	if err != nil {
 		return err
@@ -234,7 +246,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	sid := core.NewSessionID(time.Now())
 	part := Part{ID: integratePart, Role: role.Name, Goal: "integrate the farm's part branches", Owns: owns}
 	sess, err := s.NewSession(WorkerSession{
-		Part: part, Role: role, Root: path, System: IntegratorPrompt(s.Plan, role, s.baseSHA, s.WT.Branch(integratePart), s.Cfg.Check),
+		Part: part, Role: role, Root: path, System: IntegratorPrompt(s.Plan, role, s.baseSHA, s.WT.Branch(integratePart), s.Cfg.Check, owns),
 		SessionID: sid, Log: log, Pool: pool, Policy: pol, Tools: toolset, Gate: gate,
 		Meta: WorkerMeta(s.FarmID, integratePart, s.baseSHA, s.Manifest.PlanSHA256), MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap, UI: ui,
 	})
@@ -246,7 +258,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	s.ctl.setWorker(integratePart, iw) // the owner can steer the integrator too
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
 	defer cancel()
-	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts, failing))
+	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts, failing, regenFailed))
 	end := classifyTurn(integratePart, res, map[string]bool{poolFarm: true}, ctx.Err() != nil)
 	if sendErr != nil && end.kind == endDone {
 		end = failed(integratePart, ReasonError, core.ExitFailure, sendErr.Error())
@@ -358,7 +370,7 @@ func (s *Supervisor) setIntegrator(fn func(*PartState)) {
 }
 
 // IntegratorPrompt is the integrator's system prompt.
-func IntegratorPrompt(plan Plan, role Role, base, branch, check string) string {
+func IntegratorPrompt(plan Plan, role Role, base, branch, check string, writable []string) string {
 	var b strings.Builder
 	if role.Prompt != "" {
 		b.WriteString(strings.TrimSpace(role.Prompt) + "\n\n")
@@ -368,7 +380,7 @@ func IntegratorPrompt(plan Plan, role Role, base, branch, check string) string {
 	b.WriteString("Merge each branch you are given, in order, with `git merge --no-ff --no-verify <branch>`, " +
 		"resolve the conflicts so every part's goal and the contracts and interfaces hold, then `git add` and `git commit --no-verify`. " +
 		"Also handle blocked requests on the board where the shared files allow it.\n")
-	fmt.Fprintf(&b, "Writable paths: %s\n", strings.Join(integratorWrites(plan), ", "))
+	fmt.Fprintf(&b, "Writable paths: %s\n", strings.Join(writable, ", "))
 	if strings.TrimSpace(check) != "" {
 		fmt.Fprintf(&b, "You may run the check to iterate: %s\n", check)
 	}
@@ -380,7 +392,7 @@ func IntegratorPrompt(plan Plan, role Role, base, branch, check string) string {
 // integratorMessage lists the conflicting merges (or the failing check after
 // a clean merge), the plan's contracts and interfaces, and every board post
 // (delivered or not).
-func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict, failing *core.CheckResult) string {
+func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict, failing *core.CheckResult, regenFailed []regenFailure) string {
 	var b strings.Builder
 	var clean []string
 	for _, id := range leaves {
@@ -401,6 +413,10 @@ func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict, fa
 		fmt.Fprintf(&b, "Every branch merged cleanly, but the check `%s` fails on the merged tree (exit %d). "+
 			"Fix the seams so it passes, then commit.\n\nOutput (tail):\n```\n%s\n```\n",
 			s.Cfg.Check, failing.ExitCode, strings.TrimSpace(failing.Output))
+	}
+	for _, f := range regenFailed {
+		fmt.Fprintf(&b, "\nRegenerating `%s` with `%s` failed (exit %d), so it is as merged:\n```\n%s\n```\n",
+			f.gen.Path, f.gen.Regenerate, f.res.ExitCode, strings.TrimSpace(f.res.Output))
 	}
 	if c := strings.TrimSpace(s.Plan.Contracts); c != "" {
 		fmt.Fprintf(&b, "\nContracts:\n%s\n", c)

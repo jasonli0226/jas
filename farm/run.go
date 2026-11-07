@@ -245,6 +245,10 @@ type farmRun struct {
 // startFarm makes the farm dir, copies the plan, opens farm.jsonl (teed to
 // stdout with --json) and the board, and logs farm_started.
 func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
+	gen, err := ResolveGenerated(context.Background(), o.Cfg, git, o.Main, pre.baseSHA)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	id := NewFarmID(now)
 	dir := filepath.Join(o.Home, farmsDirName, id)
@@ -284,7 +288,7 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA},
 		NewSession: o.NewSession, Ask: o.Ask, Pools: NewPools(o.Cfg), Hard: o.Hard,
 		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact, Watch: watch,
-		WorkerUI: o.WorkerUI, Gates: o.Gates,
+		WorkerUI: o.WorkerUI, Gates: o.Gates, Gen: gen,
 	}
 	r := &farmRun{o: o, git: git, pre: pre, s: s, log: log, board: board, start: now}
 	s.event(EvFarmStarted, map[string]any{

@@ -29,3 +29,22 @@ func TestProgress_NoWidthNoClip(t *testing.T) {
 		t.Fatal("line clipped without a terminal width")
 	}
 }
+
+func TestProgressLine_Generated(t *testing.T) {
+	got := ProgressLine(EvGeneratedRestored, map[string]any{"part": "a", "paths": []any{"root.lock"}})
+	if got != "[a] undid generated root.lock" {
+		t.Fatalf("line %q", got)
+	}
+}
+
+func TestProgressLine_Regenerated(t *testing.T) {
+	for want, m := range map[string]map[string]any{
+		"[integrate] regenerated root.lock":                {"path": "root.lock", "exit_code": 0, "changed": true},
+		"[integrate] regenerate root.lock failed (exit 3)": {"path": "root.lock", "exit_code": 3, "changed": false},
+		"": {"path": "root.lock", "exit_code": 0, "changed": false},
+	} {
+		if got := ProgressLine(EvGeneratedRegenerated, m); got != want {
+			t.Errorf("line %q, want %q", got, want)
+		}
+	}
+}

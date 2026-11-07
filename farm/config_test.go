@@ -3,6 +3,7 @@ package farm
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -146,4 +147,49 @@ func TestLoadConfig_PartCheckOverrideAndOff(t *testing.T) {
 	cfg, _, err = LoadConfig(root, home, true)
 	assert.NoErr(t, err)
 	assert.Eq(t, cfg.PartCheck, "")
+}
+
+func TestLoadConfig_GeneratedProjectReplacesUser(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	write(t, filepath.Join(home, "farm.yaml"), "generated:\n  - {path: a.lock, regenerate: a}\n  - {path: b.lock, regenerate: b}\n")
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "generated:\n  - {path: c.lock, regenerate: c}\n")
+	cfg, _, err := LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.generatedSet, true)
+	assert.Eq(t, len(cfg.Generated), 1)
+	assert.Eq(t, cfg.Generated[0], Generated{Path: "c.lock", Regenerate: "c"})
+}
+
+func TestLoadConfig_GeneratedOffInUserLayer(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	write(t, filepath.Join(home, "farm.yaml"), "generated: []\n")
+	cfg, _, err := LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.generatedSet, true)
+	assert.Eq(t, len(cfg.Generated), 0)
+}
+
+func TestLoadConfig_GeneratedUnset(t *testing.T) {
+	cfg, _, err := LoadConfig(t.TempDir(), t.TempDir(), true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.generatedSet, false)
+}
+
+func TestLoadConfig_GeneratedValidation(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty path":       "generated:\n  - {path: \"\", regenerate: x}\n",
+		"absolute path":    "generated:\n  - {path: /abs.lock, regenerate: x}\n",
+		"dotdot path":      "generated:\n  - {path: ../x.lock, regenerate: x}\n",
+		"duplicate path":   "generated:\n  - {path: a.lock, regenerate: x}\n  - {path: a.lock, regenerate: y}\n",
+		"empty regenerate": "generated:\n  - {path: a.lock, regenerate: \"\"}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, filepath.Join(root, ".jas", "farm.yaml"), body)
+			_, _, err := LoadConfig(root, t.TempDir(), true)
+			if err == nil || !strings.Contains(err.Error(), "generated") {
+				t.Fatalf("err = %v, want one naming generated", err)
+			}
+		})
+	}
 }

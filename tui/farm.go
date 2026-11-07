@@ -324,6 +324,7 @@ func (m *Model) onFarmEvent(msg farmEventMsg) tea.Cmd {
 	show := msg.typ == farm.EvOwnerDecision && msg.m["note"] != nil
 	switch msg.typ {
 	case farm.EvPartCheck, farm.EvPartCheckDeferred, farm.EvPartEnded, farm.EvBoardPosted, farm.EvIntegrateCheck,
+		farm.EvGeneratedRestored, farm.EvGeneratedRegenerated,
 		farm.EvIntegrateEnded, farm.EvCheckRan, farm.EvBudgetStop:
 		show = true
 	}

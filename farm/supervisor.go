@@ -68,6 +68,9 @@ type Supervisor struct {
 	// changed afterwards; Verdict reuses it instead of running check again.
 	mergeCheck *core.CheckResult
 	Clock      Clock // rate limiter clock; nil is real time
+	// Gen is the run's generated files (ResolveGenerated): undone in part
+	// worktrees outside a part's owns, regenerated on the merged tree.
+	Gen []Generated
 
 	ctl      controls // the owner's live controls (Handle)
 	soft     context.Context

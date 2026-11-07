@@ -695,7 +695,10 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   happen. Paths outside `owns` that `part_check` itself writes
   (e.g. `npm install --prefix other/` making `other/package-lock.json`) are
   undone by the supervisor and never blamed on the worker, also when the
-  worker reruns the check. `BLOCKED:` may start any line of the answer. **(owner-approved, 2026-11-07, after a run where both
+  worker reruns the check. `BLOCKED:` may start any line of the answer.
+  Generated files (lockfiles; see
+  `2026-11-07-farm-generated-files-design.md`) outside a part's `owns` are
+  undone at each review without a fix round. **(owner-approved, 2026-11-07, after a run where both
   workers spent their budgets on a cross-part `check`.)** The supervisor
   then closes the session (no steering is drained after the
   final answer), commits its changes on the part branch (see Commits), runs
@@ -793,6 +796,10 @@ An LLM agent with the coder's tools (plus write access to `shared`) on
 2. Resolves conflicts and `blocked` requests, using the plan, `interfaces` and
    the board.
 3. May run `check` itself to iterate, within its budget.
+
+Before the first check of the merged tree the supervisor regenerates the
+generated files (after the integrator on the conflict path) and commits each
+alone; the integrator may write them too.
 
 When every leaf merges cleanly the integrator session is skipped, unless the
 supervisor's `check` on the merged tree fails (logged as `integrate_check`):
@@ -948,7 +955,9 @@ spec hash, base, roles digest, config digest, trust decision), `farm_resumed`,
 `part_started` (includes `blast_radius` when set), `part_setup`,
 `part_ended` (status, exit code, tokens, diffstat), `board_posted`,
 `board_delivered`, `owner_decision`, `part_check`, `part_check_deferred`
-(part, round, reason), `integrate_started`,
+(part, round, reason), `generated_restored` (part, paths),
+`generated_regenerated` (path, exit_code, duration_ms, timed_out, changed),
+`integrate_started`,
 `integrate_check`, `integrate_ended`, `check_ran`, `fuzz_ran` (after MVP; same shape as `check_ran`),
 `budget_stop`, `farm_ended` (exit code, reason, totals, `blast_radius_max`,
 optional `blast_gate`).
