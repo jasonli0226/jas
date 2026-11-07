@@ -283,6 +283,25 @@ func TestFinalChoice_MergeRefusedOnDirtyMain(t *testing.T) {
 	}
 }
 
+// The final prompt says keep does not merge, so "merge and keep" is not read
+// into it.
+func TestFinalChoice_PromptSaysKeepDoesNotMerge(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	var asked string
+	r.opts.Ask = func(prompt string, choices []string) (string, bool) {
+		asked = prompt
+		return "k", true
+	}
+	if code, _ := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, want := range []string{"[m]erge", "[k]eep unmerged", "main untouched", "[d]iscard"} {
+		if !strings.Contains(asked, want) {
+			t.Fatalf("prompt %q lacks %q", asked, want)
+		}
+	}
+}
+
 func TestHandle_PauseThenSoftStopEnds(t *testing.T) {
 	started, release := make(chan struct{}, 1), make(chan struct{})
 	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {

@@ -439,7 +439,7 @@ func (r *farmRun) askChoice(branch, reason string) (choice, by string) {
 		return ChoiceKeep, byNoTTY
 	}
 	target := r.s.target
-	prompt := fmt.Sprintf("farm %s: %s. [m]erge %s into %s, [k]eep the branches, [d]iscard? ", r.s.FarmID, reason, branch, target)
+	prompt := fmt.Sprintf("farm %s: %s. [m]erge %s into %s, [k]eep unmerged (branches only, %s untouched), [d]iscard? ", r.s.FarmID, reason, branch, target, target)
 	for range maxChoicePrompts {
 		ans, ok := r.o.Ask(prompt, []string{"m", "k", "d"})
 		if !ok {
