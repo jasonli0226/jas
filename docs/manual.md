@@ -365,7 +365,7 @@ farm there. In the chat, start a farm with `/farm`, not `jas farm` in the
 | key | default | does |
 |---|---|---|
 | `check` | detected | command whose exit code is the farm's verdict |
-| `part_check` | `check` | run in each part's worktree before it counts as done; `""` turns it off |
+| `part_check` | `check` | run in each part's worktree before it counts as done; `""` turns it off. In its fix round a worker may answer `BLOCKED: <reason>` when the check needs other parts' work: the part is done and the merged `check` decides (`part_check_deferred` in `farm.jsonl`) |
 | `vars` | detected | `check`, `test_globs`, `src_globs`, `build`, `lint` (see `jas farm vars`) |
 | `split.max_workers` | 3 | parts running at once |
 | `split.min_parts` | 2 | fewer and the planner refuses (exit 8) |
