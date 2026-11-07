@@ -62,6 +62,26 @@ func (f *chatFarmer) Available() (bool, string) {
 	return true, ""
 }
 
+// TreeReady reports whether the working tree can be planned: a farm branches
+// from HEAD, so the repository needs a commit and no uncommitted changes. It
+// runs git, so it is called off the chat's event loop (the suggest_farm tool).
+func (f *chatFarmer) TreeReady(ctx context.Context) (bool, string) {
+	root, git := f.b.e.root, farm.NewGit()
+	if _, err := git.Run(ctx, root, "rev-parse", "--verify", "HEAD"); err != nil {
+		return false, "the repository has no commit yet: a farm branches from HEAD; " +
+			"offer to commit the project (with the owner's ok), then call suggest_farm again"
+	}
+	dirty, err := farm.Dirty(ctx, git, root)
+	if err != nil {
+		return false, "git status: " + err.Error()
+	}
+	if dirty {
+		return false, "the working tree has uncommitted changes (a farm plans from HEAD, so they would be left out); " +
+			"offer to commit them (with the owner's ok), then call suggest_farm again"
+	}
+	return true, ""
+}
+
 // farmEnv is the env for a farm on model: the provider it resolves to and
 // its bare id, as the chat's own sessions use.
 func (f *chatFarmer) farmEnv(model string) (*env, error) {

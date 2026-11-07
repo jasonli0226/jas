@@ -36,6 +36,7 @@ const farmUnavailableHint = "Stop and ask the owner before doing anything else: 
 type suggestFarm struct {
 	ui        core.UI
 	available func() (bool, string)
+	tree      func(context.Context) (bool, string) // nil skips the git check
 }
 
 func (suggestFarm) Name() string        { return suggestFarmName }
@@ -46,7 +47,7 @@ func (suggestFarm) Schema() json.RawMessage {
 		`"description":"self-contained task description for the farm planner"}},"required":["task"]}`)
 }
 
-func (t suggestFarm) Call(_ context.Context, _ core.ExecPolicy, args json.RawMessage) (core.Result, error) {
+func (t suggestFarm) Call(ctx context.Context, _ core.ExecPolicy, args json.RawMessage) (core.Result, error) {
 	var a struct{ Task string }
 	if err := json.Unmarshal(args, &a); err != nil {
 		return core.Result{}, err
@@ -57,6 +58,11 @@ func (t suggestFarm) Call(_ context.Context, _ core.ExecPolicy, args json.RawMes
 	}
 	if ok, why := t.available(); !ok {
 		return core.Result{}, fmt.Errorf("a farm cannot run here: %s. %s", why, farmUnavailableHint)
+	}
+	if t.tree != nil {
+		if ok, why := t.tree(ctx); !ok {
+			return core.Result{}, fmt.Errorf("a farm cannot run yet: %s. Do not run jas farm through shell", why)
+		}
 	}
 	t.ui.Event(tui.EvSuggestFarm, map[string]any{"task": task})
 	return core.Result{Output: fmt.Sprintf("suggested to the owner: /farm %q (they decide whether to run it)", task)}, nil
