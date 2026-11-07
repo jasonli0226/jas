@@ -43,6 +43,18 @@ func TestChatFarm_AvailableNeedsTrustAndCheck(t *testing.T) {
 	assert.Eq(t, ok, true)
 }
 
+// The chat cannot pass --allow-dirty, so a dirty tree only says to commit.
+func TestChatFarm_DirtyTreeSaysCommit(t *testing.T) {
+	b := farmChat(t, "go test ./...", true)
+	assert.NoErr(t, os.WriteFile(filepath.Join(b.e.root, "new.sh"), []byte("echo\n"), 0o644))
+	_, err := b.Farmer().Plan(context.Background(), "x", "m")
+	if err == nil {
+		t.Fatal("planned on a dirty tree")
+	}
+	assert.Contains(t, err.Error(), "commit them first")
+	assert.Eq(t, strings.Contains(err.Error(), "--allow-dirty"), false)
+}
+
 func TestChatFarm_PlanRefusal(t *testing.T) {
 	refuse := "refuse:\n  reason: small_change\n  detail: one typo\nsuggest: 'jas run \"fix typo\"'\n"
 	f := farmChat(t, "go test ./...", true, fake.Turn{Text: fenceYAML(refuse)}).Farmer()

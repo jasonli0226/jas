@@ -104,7 +104,7 @@ func (f *chatFarmer) Plan(ctx context.Context, task, model string) (tui.FarmPlan
 	if err != nil {
 		return tui.FarmPlan{}, err
 	}
-	pf, err := farmPreflight(ctx, e, planArgs{task: task})
+	pf, err := farmPreflight(ctx, e, planArgs{task: task, chat: true})
 	if err != nil {
 		return tui.FarmPlan{}, err
 	}
