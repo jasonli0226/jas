@@ -689,9 +689,12 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   the worker may answer `BLOCKED: <reason>` when the check fails only for
   want of other parts' work; the part is then done, the merged `check` is
   the verdict, and `part_check_deferred{part, round, reason}` is logged.
-  Before `part_check`, every final answer also gets the write-limit diff
-  check; writes outside `owns` (shell commands included) go back in the
-  same fix round. **(owner-approved, 2026-11-07, after a run where both
+  Every final answer also gets the write-limit diff check, after
+  `part_check`; writes outside `owns` (shell commands included) go back in
+  the same fix round. Paths outside `owns` that `part_check` itself writes
+  (e.g. `npm install --prefix other/` making `other/package-lock.json`) are
+  undone by the supervisor and never blamed on the worker, also when the
+  worker reruns the check. `BLOCKED:` may start any line of the answer. **(owner-approved, 2026-11-07, after a run where both
   workers spent their budgets on a cross-part `check`.)** The supervisor
   then closes the session (no steering is drained after the
   final answer), commits its changes on the part branch (see Commits), runs

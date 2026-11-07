@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,10 +31,13 @@ type worker struct {
 	path  string // worktree
 	start string // worktree HEAD before the worker ran (base + merged deps)
 	pol   core.ExecPolicy
-	pool  *core.TokenPool
-	log   core.EventLog
-	sess  *core.Session
-	rec   *sessions.Handle
+	// made holds paths outside the write limit that part_check itself
+	// changed; the supervisor undoes them and never blames the worker.
+	made map[string]bool
+	pool *core.TokenPool
+	log  core.EventLog
+	sess *core.Session
+	rec  *sessions.Handle
 }
 
 // runAttempt prepares the part's worktree, runs its worker to the end and
@@ -96,13 +101,21 @@ type turnReview struct {
 	checkFailed bool
 }
 
-// reviewTurn checks a final answer before the part may finish: first writes
-// outside the part's limit (shell commands included), then part_check. A
-// worker answering a failed part_check with BLOCKED: defers the check to the
-// merged tree.
+// reviewTurn checks a final answer before the part may finish: part_check
+// first (it may write outside the limit; those writes are undone), then the
+// worker's own writes outside the limit (shell commands included). A worker
+// answering a failed part_check with BLOCKED: defers the check to the merged
+// tree.
 func (s *Supervisor) reviewTurn(ctx context.Context, w *worker, round int, final string, afterCheck bool) turnReview {
 	id := w.part.ID
-	viol, err := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
+	reason, blocked := blockedReason(final)
+	blocked = blocked && afterCheck
+	var chk *core.CheckResult
+	if s.Cfg.PartCheck != "" && !blocked {
+		res := s.partCheck(ctx, w, round)
+		chk = &res
+	}
+	viol, err := s.blamedViolations(ctx, w)
 	if err != nil {
 		end := failed(id, ReasonError, core.ExitFailure, err.Error())
 		return turnReview{fail: &end}
@@ -111,28 +124,91 @@ func (s *Supervisor) reviewTurn(ctx context.Context, w *worker, round int, final
 		end := failed(id, ReasonWriteLimit, core.ExitFailure, "wrote outside its limit: "+strings.Join(viol, ", "))
 		return turnReview{fix: writeFixMessage(viol, w.part.Owns), fail: &end}
 	}
-	if s.Cfg.PartCheck == "" {
-		return turnReview{}
-	}
-	if reason, ok := blockedReason(final); ok && afterCheck {
+	if blocked && s.Cfg.PartCheck != "" {
 		s.event(EvPartCheckDeferred, map[string]any{"part": id, "round": round, "reason": reason})
 		return turnReview{}
 	}
-	chk := s.partCheck(ctx, w, round)
-	if chk.ExitCode == 0 && !chk.TimedOut {
+	if chk == nil || (chk.ExitCode == 0 && !chk.TimedOut) {
 		return turnReview{}
 	}
 	end := failed(id, ReasonCheck, core.ExitUnmet, fmt.Sprintf("part_check failed (exit %d)", chk.ExitCode))
-	return turnReview{fix: checkFixMessage(s.Cfg.PartCheck, chk), fail: &end, checkFailed: true}
+	return turnReview{fix: checkFixMessage(s.Cfg.PartCheck, *chk), fail: &end, checkFailed: true}
+}
+
+// blamedViolations returns the writes outside the part's limit that are the
+// worker's. Paths part_check made (also when the worker reran the check) are
+// undone instead.
+func (s *Supervisor) blamedViolations(ctx context.Context, w *worker) ([]string, error) {
+	viol, err := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
+	if err != nil {
+		return nil, err
+	}
+	var mine, made []string
+	for _, p := range viol {
+		if w.made[p] {
+			made = append(made, p)
+		} else {
+			mine = append(mine, p)
+		}
+	}
+	if err := s.restorePaths(ctx, w, made); err != nil {
+		return nil, err
+	}
+	return mine, nil
 }
 
 // partCheck runs part_check in the worker's worktree before the part may be
-// done, and logs part_check.
+// done, and logs part_check. Paths outside the write limit that the check
+// itself changed (new since, or modified during, the run) are noted in
+// w.made and undone.
 func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.CheckResult {
+	before, beforeErr := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
+	started := time.Now().Add(-time.Second) // mtime granularity
 	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.PartCheck, w.path), tools.RunShell)
 	s.event(EvPartCheck, map[string]any{"part": w.part.ID, "round": round, "exit_code": res.ExitCode,
 		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
+	after, err := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
+	if beforeErr != nil || err != nil {
+		return res // the next review's diff check reports the error
+	}
+	var made []string
+	for _, p := range after {
+		if !slices.Contains(before, p) || modifiedSince(filepath.Join(w.path, filepath.FromSlash(p)), started) {
+			made = append(made, p)
+		}
+	}
+	if w.made == nil && len(made) > 0 {
+		w.made = map[string]bool{}
+	}
+	for _, p := range made {
+		w.made[p] = true
+	}
+	if err := s.restorePaths(ctx, w, made); err != nil {
+		s.noteErr(fmt.Errorf("part %s: undo part_check writes: %w", w.part.ID, err))
+	}
 	return res
+}
+
+func modifiedSince(path string, t time.Time) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.ModTime().Before(t)
+}
+
+// restorePaths puts repo-relative paths back as they were at the worker's
+// start: a path tracked there is checked out, any other is removed.
+func (s *Supervisor) restorePaths(ctx context.Context, w *worker, paths []string) error {
+	for _, p := range paths {
+		if _, err := s.Git.Run(ctx, w.path, "cat-file", "-e", w.start+":"+p); err == nil {
+			if _, err := s.Git.Run(ctx, w.path, "checkout", w.start, "--", p); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.Remove(filepath.Join(w.path, filepath.FromSlash(p))); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // blockedPrefix starts a worker's answer that its failing part_check needs
@@ -162,11 +238,22 @@ func writeFixMessage(viol, owns []string) string {
 		strings.Join(owns, ", "), strings.Join(viol, ", "))
 }
 
-// blockedReason reports whether a final answer starts with BLOCKED: (any
-// case, markdown emphasis allowed) and returns the reason on its first line.
+// blockedReason reports whether a line of a final answer starts with
+// BLOCKED: (any case, markdown emphasis allowed) and returns the reason on
+// the last such line. Workers often explain first and block last.
 func blockedReason(final string) (string, bool) {
-	const marks = "*_`# "
-	t := strings.TrimLeft(strings.TrimSpace(final), marks)
+	lines := strings.Split(final, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if reason, ok := blockedLine(lines[i]); ok {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+func blockedLine(line string) (string, bool) {
+	const marks = "*_`#> "
+	t := strings.TrimLeft(strings.TrimSpace(line), marks)
 	word := strings.TrimSuffix(blockedPrefix, ":")
 	if len(t) < len(word) || !strings.EqualFold(t[:len(word)], word) {
 		return "", false
@@ -175,8 +262,7 @@ func blockedReason(final string) (string, bool) {
 	if !strings.HasPrefix(rest, ":") {
 		return "", false
 	}
-	reason, _, _ := strings.Cut(strings.TrimLeft(rest[1:], marks), "\n")
-	reason = strings.TrimSpace(reason)
+	reason := strings.TrimSpace(strings.TrimLeft(rest[1:], marks))
 	return reason, reason != ""
 }
 
