@@ -50,7 +50,9 @@ lockfile is the tool that generates it, run once on the merged tree.
 ### Config
 
 New top-level key in `farm.yaml` (user and project layers, merged like
-other keys: the later layer replaces the list):
+other keys: the later layer replaces the list). An unset key falls through
+to the layer below, so `generated: []` in `~/.jas/farm.yaml` turns it off
+for every project that does not set its own list; the manual says so.
 
 ```yaml
 generated:                 # unset = detected defaults; [] = off
@@ -71,15 +73,24 @@ When `generated` is unset, `Detect` adds one entry per lockfile found at the
 | path | regenerate |
 |---|---|
 | `package-lock.json` | `npm install --package-lock-only --no-audit --no-fund` |
-| `yarn.lock` | `yarn install` |
+| `yarn.lock` (Berry: `.yarnrc.yml` at root) | `yarn install --mode=update-lockfile` |
+| `yarn.lock` (classic) | `yarn install --ignore-scripts --non-interactive` |
 | `pnpm-lock.yaml` | `pnpm install --lockfile-only` |
 | `Cargo.lock` | `cargo update --workspace` |
 | `uv.lock` | `uv lock` |
-| `poetry.lock` | `poetry lock --no-update` |
+
+Every default resolves the lockfile from the merged manifests and keeps
+existing pins; none upgrades unrelated dependencies. (`cargo update
+--workspace` updates only the workspace's own packages and adds missing
+ones; `cargo generate-lockfile` would re-resolve everything.) `poetry.lock`
+has no default: `poetry lock --no-update` is Poetry 1 only and plain
+`poetry lock` upgrades on Poetry 1, so a project lists its own command.
 
 Plus: a root `package.json` with no JS lockfile at base gets
 `package-lock.json` (npm is the default; the first `npm install` creates
-it). Detection is deterministic and never runs the tools.
+it). Detection reads the **base commit** (`git ls-tree` / `cat-file` on the
+base SHA), not the working tree, so an ignored or untracked lockfile in the
+main checkout does not count. It is deterministic and never runs the tools.
 
 ### In a part's worktree
 
@@ -87,7 +98,8 @@ A generated path that is **inside the part's `owns`** is an ordinary owned
 file (no change). Otherwise:
 
 - Writes to it are never blamed. Each time the supervisor reviews a final
-  answer (`reviewTurn`), it restores the path to its state at the worker's
+  answer (`reviewTurn`), including a `BLOCKED:` answer that skips
+  `part_check`, it restores the path to its state at the worker's
   start (tracked: checkout; untracked: remove), before the diff check, and
   logs `generated_restored{part, paths}` once per review that restored
   something. No fix round is used and nothing is said to the worker.
@@ -112,9 +124,22 @@ conflicts), and before `integrate_check` / the verdict:
    integrate` trailers. Any other tracked file the command changed is
    restored (only the lockfile is the command's business); untracked,
    ignored output (e.g. `node_modules/`) is left.
-4. A failing regenerate is **not fatal** on its own: it is logged, shown as
-   a progress line, and its output tail is added to the integrator's
-   message if the integrator runs. `check` decides.
+4. A failing regenerate is **not fatal** on its own: it is logged and shown
+   as a progress line, and `check` decides. On a clean merge, regenerate
+   runs before `integrate_check`, so if that check fails the integrator's
+   message also carries the regenerate output tail. On the conflict path
+   the integrator has already run; a failing regenerate there is only the
+   event and progress line before the verdict.
+
+Ordering invariant: regenerate always runs **before** the first check of
+the merged tree. `integrateCheck` caches a passing result for `Verdict`
+because nothing changes the tree in between; regenerate must never run
+between `integrate_check` and the verdict.
+
+```text
+clean merge:  merge leaves → regenerate → integrate_check → (fail: integrator, regenerate tail in message) → verdict
+conflicts:    merge leaves → integrator → regenerate → verdict (fresh check)
+```
 
 The integrator's write limit also includes every generated path, so it can
 fix a lockfile by hand or by rerunning the tool.
@@ -147,12 +172,17 @@ section, and the farm design spec's Supervisor/Integrator and events list.
   nothing at root → none.
 - Part: a worker that rewrites a root generated file finishes in one turn
   (no fix round), the file is not on the part branch, and
-  `generated_restored` is logged. A generated path inside `owns` is
-  committed as usual.
+  `generated_restored` is logged exactly once (not again for a review with
+  nothing to restore, and not twice when `part_check` already undid it as
+  its own write). A generated path inside `owns` is committed as usual.
+- Part: a `BLOCKED:` answer still has its generated writes restored.
 - Integrate: two parts each touching the root lockfile merge with no
   conflict; regenerate runs once and its commit is on the integrate branch
   before `integrate_check`; a failing regenerate is logged and the check
-  still decides; with conflicts, regenerate runs after the integrator.
+  still decides (and its tail reaches the integrator on a clean merge);
+  with conflicts, regenerate runs after the integrator.
+- Integrate: a regenerate that leaves the lockfile unchanged logs
+  `changed: false` and makes no commit.
 
 ## Left to the builder
 
@@ -163,7 +193,8 @@ section, and the farm design spec's Supervisor/Integrator and events list.
 
 ## Calls made without the owner (check these)
 
-- Go/`go.sum` left out of defaults.
+- Go/`go.sum` and `poetry.lock` left out of defaults.
+- Yarn split by `.yarnrc.yml` (Berry vs classic).
 - Regenerate failure is non-fatal; `check` decides.
 - Only the generated path is committed by regenerate; other tracked changes
   it makes are reverted.
