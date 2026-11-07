@@ -34,27 +34,27 @@ func TestMarkdown_FenceHoldsBlankLines(t *testing.T) {
 	assert.Eq(t, len(feedAll(&m, "```go\na\n\nb\n")), 0)
 	got := m.Feed("```\n")
 	assert.Eq(t, len(got), 1)
-	out := ansi.Strip(renderBlock(got[0]))
+	out := ansi.Strip(renderBlock(got[0], 0))
 	assert.Contains(t, out, "a")
 	assert.Contains(t, out, "b")
 	assert.Contains(t, out, "```go")
 }
 
 func TestMarkdown_CodeBlockFencesAndIndent(t *testing.T) {
-	out := ansi.Strip(renderBlock("```go\nfunc main() {\n\treturn 42\n}\n```"))
+	out := ansi.Strip(renderBlock("```go\nfunc main() {\n\treturn 42\n}\n```", 0))
 	assert.Eq(t, out, "```go\n  func main() {\n      return 42\n  }\n```")
 	// A block cut off before its closing fence still gets one.
-	assert.Eq(t, ansi.Strip(renderBlock("```\nx")), "```\n  x\n```")
+	assert.Eq(t, ansi.Strip(renderBlock("```\nx", 0)), "```\n  x\n```")
 }
 
 func TestMarkdown_InlineCode(t *testing.T) {
-	out := renderBlock("use `go test` and **bold**")
+	out := renderBlock("use `go test` and **bold**", 0)
 	assert.Eq(t, ansi.Strip(out), "use go test and bold")
 	assert.Contains(t, out, codeSpanStyle.Render("go test"))
 }
 
 func TestMarkdown_InlineCodeKeepsAsterisks(t *testing.T) {
-	out := renderBlock("use `**kwargs` and `**opts` here, **bold** too")
+	out := renderBlock("use `**kwargs` and `**opts` here, **bold** too", 0)
 	assert.Eq(t, ansi.Strip(out), "use **kwargs and **opts here, bold too")
 	assert.Contains(t, out, codeSpanStyle.Render("**kwargs"))
 }
@@ -69,12 +69,12 @@ func TestMarkdown_HighlightKeywordsAndCalls(t *testing.T) {
 }
 
 func TestMarkdown_BoldAndLists(t *testing.T) {
-	out := renderBlock("- **x** y")
+	out := renderBlock("- **x** y", 0)
 	assert.NotContains(t, out, "**")
 	plain := ansi.Strip(out)
 	assert.Eq(t, plain, "• x y")
-	assert.Eq(t, ansi.Strip(renderBlock("1. one\ncont")), "1. one\n  cont")
-	assert.Eq(t, ansi.Strip(renderBlock("## Title")), "Title")
+	assert.Eq(t, ansi.Strip(renderBlock("1. one\ncont", 0)), "1. one\n  cont")
+	assert.Eq(t, ansi.Strip(renderBlock("## Title", 0)), "Title")
 }
 
 func TestMarkdown_HighlightUsesDistinctColours(t *testing.T) {
