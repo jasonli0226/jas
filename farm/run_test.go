@@ -1007,3 +1007,137 @@ func TestRunFarm_GeneratedWrittenByCheckNotRestoredTwice(t *testing.T) {
 		t.Fatalf("generated_restored %v", evs)
 	}
 }
+
+// seqOf is the seq of the last event of typ.
+func (r *runRig) seqOf(typ string) float64 {
+	ev := r.last(typ)
+	if ev == nil {
+		r.t.Fatalf("no %s event", typ)
+	}
+	return ev["seq"].(float64)
+}
+
+func (r *runRig) integrateBranch() string { return branchPrefix + r.farmID() + "/" + integratePart }
+
+// Both parts touch the generated a.txt (tracked at base); jas regenerates it
+// once on the merged tree and commits it before integrate_check.
+func TestIntegrate_RegenerateCommitsBeforeCheck(t *testing.T) {
+	r := newRunRig(t, "grep -q v2 a.txt", twoParts(), func(ws WorkerSession) []fake.Turn {
+		return []fake.Turn{writeCall(ws.Part.ID+"/x.txt", "x\n"), shellTurn("echo x > a.txt"), final("done")}
+	})
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "echo v2 > a.txt"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; integrate %v", code, reason, r.events(EvIntegrateEnded))
+	}
+	evs := r.events(EvGeneratedRegenerated)
+	if len(evs) != 1 || evs[0]["path"] != "a.txt" || evs[0]["changed"] != true || num(evs[0]["exit_code"]) != 0 {
+		t.Fatalf("generated_regenerated %v", evs)
+	}
+	if r.seqOf(EvGeneratedRegenerated) > r.seqOf(EvIntegrateCheck) {
+		t.Fatal("regenerated after integrate_check")
+	}
+	if log, _ := r.git("log", "--format=%s", r.integrateBranch()); !strings.Contains(log, "regenerate a.txt") {
+		t.Fatalf("integrate log:\n%s", log)
+	}
+}
+
+func TestIntegrate_RegenerateUnchangedNoCommit(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "true"})
+	if code, _ := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if ev := r.last(EvGeneratedRegenerated); ev["changed"] != false {
+		t.Fatalf("generated_regenerated %v", ev)
+	}
+	if log, _ := r.git("log", "--format=%s", r.integrateBranch()); strings.Contains(log, "regenerate") {
+		t.Fatalf("integrate log:\n%s", log)
+	}
+}
+
+// A missing tool (exit 127) is logged; the check decides.
+func TestIntegrate_RegenerateFailureNotFatal(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "exit 127"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s", code, reason)
+	}
+	if ev := r.last(EvGeneratedRegenerated); num(ev["exit_code"]) != 127 {
+		t.Fatalf("generated_regenerated %v", ev)
+	}
+}
+
+// On a clean merge whose check fails, the integrator hears about the failed
+// regenerate too.
+func TestIntegrate_RegenerateFailureReachesIntegrator(t *testing.T) {
+	r := newRunRig(t, "false", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID == integratePart {
+			return []fake.Turn{final("tried")}
+		}
+		return twoWriters(ws)
+	})
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "echo nope; exit 3"})
+	r.run(context.Background())
+	raw, err := os.ReadFile(filepath.Join(r.farmDir(), integratePart, eventsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first string
+	for _, l := range strings.Split(string(raw), "\n") {
+		var ev struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		if json.Unmarshal([]byte(l), &ev) == nil && ev.Type == "user_message" && len(ev.Content) > 0 {
+			first = ev.Content[0].Text
+			break
+		}
+	}
+	for _, want := range []string{"a.txt", "exit 3", "nope"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("integrator message lacks %q:\n%s", want, first)
+		}
+	}
+}
+
+// With conflicts the integrator merges first; regenerate runs on its result.
+func TestIntegrate_RegenerateAfterIntegratorOnConflict(t *testing.T) {
+	parts := []Part{coder("a", "a.txt"), coder("b", "a.txt")}
+	r := newRunRig(t, "grep -q AB a.txt && grep -q v2 root.lock", parts, func(ws WorkerSession) []fake.Turn {
+		switch ws.Part.ID {
+		case "a", "b":
+			return writes(map[string]string{"a.txt": strings.ToUpper(ws.Part.ID) + "\n"}, "done")
+		}
+		br := branchPrefix + ws.Meta["farm_id"].(string) + "/b"
+		return []fake.Turn{shellTurn("git merge --no-ff --no-verify --no-edit " + br), writeCall("a.txt", "AB\n"),
+			shellTurn("git add a.txt && git commit --no-verify -q -m resolve"), final("merged b, fixed a.txt")}
+	})
+	r.opts.Cfg.Split.DisjointFiles = false
+	withGenerated(&r.opts.Cfg, Generated{Path: "root.lock", Regenerate: "echo v2 > root.lock"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; integrate %v", code, reason, r.events(EvIntegrateEnded))
+	}
+	if r.seqOf(EvGeneratedRegenerated) > r.seqOf(EvCheckRan) {
+		t.Fatal("regenerated after the verdict")
+	}
+	if head, _ := r.git("log", "-1", "--format=%s", r.integrateBranch()); !strings.Contains(head, "regenerate root.lock") {
+		t.Fatalf("integrate head %q, want the regenerate commit on top of the integrator's", head)
+	}
+}
+
+// regenerate commits only its path; other tracked files it changed go back.
+func TestIntegrate_RegenerateCommitsOnlyItsPath(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	withGenerated(&r.opts.Cfg, Generated{Path: "root.lock", Regenerate: "echo v2 > root.lock && echo junk >> .gitignore"})
+	if code, _ := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if got, _ := r.git("show", r.integrateBranch()+":root.lock"); got != "v2" {
+		t.Fatalf("root.lock = %q", got)
+	}
+	if got, _ := r.git("show", r.integrateBranch()+":.gitignore"); strings.Contains(got, "junk") {
+		t.Fatalf(".gitignore = %q", got)
+	}
+}

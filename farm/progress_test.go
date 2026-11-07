@@ -36,3 +36,15 @@ func TestProgressLine_Generated(t *testing.T) {
 		t.Fatalf("line %q", got)
 	}
 }
+
+func TestProgressLine_Regenerated(t *testing.T) {
+	for want, m := range map[string]map[string]any{
+		"[integrate] regenerated root.lock":                {"path": "root.lock", "exit_code": 0, "changed": true},
+		"[integrate] regenerate root.lock failed (exit 3)": {"path": "root.lock", "exit_code": 3, "changed": false},
+		"": {"path": "root.lock", "exit_code": 0, "changed": false},
+	} {
+		if got := ProgressLine(EvGeneratedRegenerated, m); got != want {
+			t.Errorf("line %q, want %q", got, want)
+		}
+	}
+}

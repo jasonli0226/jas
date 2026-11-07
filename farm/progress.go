@@ -74,6 +74,14 @@ func farmLine(typ string, m map[string]any) string {
 			return fmt.Sprintf("[%s] part_check passed (%s)", part, dur(m))
 		}
 		return fmt.Sprintf("[%s] part_check failed (%s), %s", part, exitText(m), dur(m))
+	case EvGeneratedRegenerated:
+		if num(m["exit_code"]) != 0 || m["timed_out"] == true {
+			return fmt.Sprintf("[%s] regenerate %v failed (%s)", integratePart, m["path"], exitText(m))
+		}
+		if m["changed"] == true {
+			return fmt.Sprintf("[%s] regenerated %v", integratePart, m["path"])
+		}
+		return ""
 	case EvGeneratedRestored:
 		return fmt.Sprintf("[%s] undid generated %s", part, joinAny(m["paths"]))
 	case EvPartCheckDeferred:
