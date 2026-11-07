@@ -104,8 +104,10 @@ type Config struct {
 	OnFailure string // drop | abort
 	Models    Models
 	Roles     map[string]RoleDef
+	Generated []Generated // see ResolveGenerated; unset = detected defaults
 
 	partCheckSet bool // some layer set part_check (possibly to "")
+	generatedSet bool // some layer set generated (possibly to [])
 }
 
 // fileCfg mirrors farm.yaml; pointers distinguish "unset" from zero.
@@ -142,7 +144,8 @@ type fileCfg struct {
 		Planner    *string `yaml:"planner"`
 		Integrator *string `yaml:"integrator"`
 	} `yaml:"models"`
-	Roles map[string]RoleDef `yaml:"roles"`
+	Roles     map[string]RoleDef `yaml:"roles"`
+	Generated *[]Generated       `yaml:"generated"`
 }
 
 func defaults() Config {
@@ -234,6 +237,9 @@ func apply(cfg *Config, f fileCfg, vars map[string][]string) error {
 	if f.PartCheck != nil {
 		cfg.PartCheck, cfg.partCheckSet = *f.PartCheck, true
 	}
+	if f.Generated != nil {
+		cfg.Generated, cfg.generatedSet = *f.Generated, true
+	}
 	set(&cfg.Split.MaxWorkers, f.Split.MaxWorkers)
 	set(&cfg.Split.MinParts, f.Split.MinParts)
 	set(&cfg.Split.DisjointFiles, f.Split.DisjointFiles)
@@ -323,6 +329,9 @@ func resolveVars(root string, user, proj map[string][]string) map[string]Var {
 var varRef = regexp.MustCompile(`\$\{([^}]*)\}`)
 
 func validate(cfg Config) error {
+	if err := validateGenerated(cfg.Generated); err != nil {
+		return err
+	}
 	if cfg.OnFailure != onFailureDrop && cfg.OnFailure != onFailureAbort {
 		return fmt.Errorf("on_failure %q: want drop or abort", cfg.OnFailure)
 	}
