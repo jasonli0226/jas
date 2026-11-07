@@ -36,8 +36,10 @@ Keys: Enter sends (typing while a reply runs steers it), Ctrl+Q while a reply
 runs queues a follow-up sent only after the run ends ok, Alt+Up pulls queued
 messages back into the input (one-time `tip:` hints teach these; setting
 `hints=false` hides them), Esc stops the run,
-Ctrl-L clears the screen (keeps the session), Ctrl-C clears the input (twice
-on an empty box quits), Alt/Shift+Enter or Ctrl+J is a newline (native
+Ctrl-L clears the screen (keeps the session), Ctrl-C clears the input (on an
+empty box it stops a running `!` command, else twice quits), `!cmd` runs a
+shell command whose output goes to the agent with the next message (`!!cmd`
+keeps it local; no approval, output redacted), Alt/Shift+Enter or Ctrl+J is a newline (native
 Windows also probes Shift so Shift+Enter works when the terminal drops the
 modifier), Up/Down recalls input, `/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in

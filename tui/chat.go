@@ -94,6 +94,8 @@ type Model struct {
 	farmBusy     string       // what the farm is doing before its rows show: planning, starting; "" idle
 	farmSince    time.Time    // when farmBusy began
 	reply        string       // the last final reply, for /copy
+	bang         *bangRun     // the owner's running ! command
+	bangNotes    []string     // ! command outputs the agent has not seen, for the next message
 
 	slashFor    string // input text the / menu cursor belongs to
 	slashCursor int
@@ -261,6 +263,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onFarmMsg(msg)
 	case farmWorkerEventMsg:
 		return m, m.onFarmWorkerEvent(msg)
+	case bangDoneMsg:
+		return m, m.onBangDone(msg)
 	case noticeMsg:
 		return m, m.print(m.tr.Notice(dimStyle.Render(msg.s))...)
 	case printedMsg:
@@ -302,6 +306,9 @@ func (m *Model) View() tea.View {
 			line := "↳ after run: " + strings.Join(strings.Fields(q), " ")
 			parts = append(parts, dimStyle.Render(ansi.Truncate(line, m.width, "…")))
 		}
+	}
+	if l := m.bangLine(); l != "" {
+		parts = append(parts, l)
 	}
 	if l := m.loader(); l != "" {
 		parts = append(parts, l)

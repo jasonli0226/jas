@@ -401,7 +401,7 @@ func (m *Model) changeSuggestion(task, change string) tea.Cmd {
 	}
 	shown := m.tr.User(change)
 	text := suggestChangeNote + change
-	if note, label := m.takeFarmNotes(); note != "" {
+	if note, label := m.takeNotes(); note != "" {
 		shown = append(shown, m.tr.Notice(dimStyle.Render("("+label+" attached)"))...)
 		text = note + "\n\n" + text
 	}

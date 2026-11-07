@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -301,4 +303,8 @@ func TestTestBackend_SessionRoundTrip(t *testing.T) {
 	assert.Eq(t, res.Final, "B")
 	assert.NoErr(t, live2.Close(res.Status, res.Code))
 	assert.Eq(t, b.closes.Load(), 2)
+}
+
+func (b *testBackend) Shell(ctx context.Context, command string, out io.Writer) (int, error) {
+	return tools.RunShell(ctx, b.root, command, os.Environ(), out)
 }

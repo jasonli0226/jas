@@ -569,3 +569,10 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 	s.SetReadRoots(roots)
 	return notices, nil
 }
+
+// Shell runs the owner's ! command in the project root with the owner's own
+// environment: unlike the agent's shell tool, the owner typed it. The chat
+// redacts its output before showing or sending it.
+func (b *chatBackend) Shell(ctx context.Context, command string, out io.Writer) (int, error) {
+	return tools.RunShell(ctx, b.e.root, command, os.Environ(), out)
+}

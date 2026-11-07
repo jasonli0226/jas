@@ -191,7 +191,12 @@ func (m *Model) onRunDone(msg runDoneMsg) tea.Cmd {
 	}
 	printCmd := m.print(blocks...)
 	if follow != "" { // printed after the run's blocks: the outbox keeps order
-		return tea.Batch(printCmd, m.startRun(follow, m.tr.User(follow)))
+		shown := m.tr.User(follow)
+		if note, label := m.takeNotes(); note != "" {
+			shown = append(shown, m.tr.Notice(dimStyle.Render("("+label+" attached)"))...)
+			follow = note + "\n\n" + follow
+		}
+		return tea.Batch(printCmd, m.startRun(follow, shown))
 	}
 	return tea.Batch(closeCmd, printCmd, m.openFarmAsk())
 }
@@ -308,6 +313,9 @@ func (m *Model) quit() tea.Cmd {
 	m.viewing = "" // the last blocks print wherever the owner was
 	m.cancelFarmAsks()
 	m.quitting = true
+	if m.bang != nil {
+		m.bang.cancel() // the owner's ! command dies with the chat
+	}
 	if m.run != nil {
 		m.run.cancel()
 		return nil
@@ -356,6 +364,9 @@ func (m *Model) onClosed(msg closedMsg) tea.Cmd {
 // session still opening or closing, and closes any session left open (the
 // program ended without a clean quit, e.g. ctx cancelled).
 func (m *Model) shutdown() error {
+	if m.bang != nil {
+		m.bang.cancel()
+	}
 	if m.run != nil {
 		m.run.cancel()
 		<-m.run.done

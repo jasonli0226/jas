@@ -79,7 +79,8 @@ keys
   Alt-Up pull queued messages back into the input
   Ctrl-O expand or collapse the latest tool output
   Ctrl+1..9 / Alt+1..9 show farm agent N · Ctrl+0 / Alt+0 back to the main chat
-  Ctrl-C clear the input; twice on an empty box quits
+  Ctrl-C clear the input; on an empty box stop a running ! command, else twice quits
+  !cmd run a shell command; its output goes with your next message · !!cmd keeps it local
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc cancel
   in the /model picker: Ctrl+S also sets the default for new sessions
