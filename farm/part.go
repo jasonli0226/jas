@@ -56,17 +56,19 @@ func (s *Supervisor) runAttempt(ctx context.Context, part Part, attempt int, not
 	defer cancel()
 	res, sendErr := w.sess.Send(pctx, firstMessage(part, note))
 	end := s.endOfTurn(ctx, part.ID, res, sendErr)
-	for round := 0; end.kind == endDone && s.Cfg.PartCheck != ""; round++ {
-		chk := s.partCheck(pctx, w, round)
-		if chk.ExitCode == 0 && !chk.TimedOut {
+	afterCheck := false // the last message to the worker was a failed part_check
+	for round := 0; end.kind == endDone; round++ {
+		rev := s.reviewTurn(pctx, w, round, res.Final, afterCheck)
+		if rev.fix == "" && rev.fail == nil {
 			break
 		}
-		if round == partFixRounds {
-			end = failed(part.ID, ReasonCheck, core.ExitUnmet, fmt.Sprintf("part_check failed (exit %d)", chk.ExitCode))
-			res.Status, res.Code = "failed", core.ExitUnmet
+		if rev.fix == "" || round == partFixRounds {
+			end = *rev.fail
+			res.Status, res.Code = "failed", end.exitCode
 			break
 		}
-		res, sendErr = w.sess.Send(pctx, checkFixMessage(s.Cfg.PartCheck, chk))
+		afterCheck = rev.checkFailed
+		res, sendErr = w.sess.Send(pctx, rev.fix)
 		end = s.endOfTurn(ctx, part.ID, res, sendErr)
 	}
 	if end.kind != endDone {
@@ -85,6 +87,45 @@ func (s *Supervisor) endOfTurn(ctx context.Context, id string, res core.TurnResu
 	return end
 }
 
+// turnReview is the verdict on a worker's final answer: fix is the message
+// that sends it back ("" when none), fail is how the part fails when no fix
+// round is left (or at once, when fix is "").
+type turnReview struct {
+	fix         string
+	fail        *attemptEnd
+	checkFailed bool
+}
+
+// reviewTurn checks a final answer before the part may finish: first writes
+// outside the part's limit (shell commands included), then part_check. A
+// worker answering a failed part_check with BLOCKED: defers the check to the
+// merged tree.
+func (s *Supervisor) reviewTurn(ctx context.Context, w *worker, round int, final string, afterCheck bool) turnReview {
+	id := w.part.ID
+	viol, err := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
+	if err != nil {
+		end := failed(id, ReasonError, core.ExitFailure, err.Error())
+		return turnReview{fail: &end}
+	}
+	if len(viol) > 0 {
+		end := failed(id, ReasonWriteLimit, core.ExitFailure, "wrote outside its limit: "+strings.Join(viol, ", "))
+		return turnReview{fix: writeFixMessage(viol, w.part.Owns), fail: &end}
+	}
+	if s.Cfg.PartCheck == "" {
+		return turnReview{}
+	}
+	if reason, ok := blockedReason(final); ok && afterCheck {
+		s.event(EvPartCheckDeferred, map[string]any{"part": id, "round": round, "reason": reason})
+		return turnReview{}
+	}
+	chk := s.partCheck(ctx, w, round)
+	if chk.ExitCode == 0 && !chk.TimedOut {
+		return turnReview{}
+	}
+	end := failed(id, ReasonCheck, core.ExitUnmet, fmt.Sprintf("part_check failed (exit %d)", chk.ExitCode))
+	return turnReview{fix: checkFixMessage(s.Cfg.PartCheck, chk), fail: &end, checkFailed: true}
+}
+
 // partCheck runs part_check in the worker's worktree before the part may be
 // done, and logs part_check.
 func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.CheckResult {
@@ -93,6 +134,10 @@ func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.C
 		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
 	return res
 }
+
+// blockedPrefix starts a worker's answer that its failing part_check needs
+// work outside its writable paths.
+const blockedPrefix = "BLOCKED:"
 
 // checkFixMessage hands a failed part_check back to the worker for its one
 // fix round.
@@ -103,8 +148,36 @@ func checkFixMessage(cmd string, res core.CheckResult) string {
 	}
 	return fmt.Sprintf("The supervisor ran this part's check `%s` in your worktree and it %s. "+
 		"Your part is not done until it passes. Fix the cause within your writable paths, "+
-		"run the check yourself, then give your final answer again.\n\nOutput (tail):\n```\n%s\n```",
-		cmd, what, strings.TrimSpace(res.Output))
+		"run the check yourself, then give your final answer again.\n\n"+
+		"If it fails only because of work outside your writable paths (another part's files reach your "+
+		"worktree only when the farm merges), do not work around it or move files: reply with one line "+
+		"starting `%s` and the reason, and stop. The check then runs on the merged tree.\n\nOutput (tail):\n```\n%s\n```",
+		cmd, what, blockedPrefix, strings.TrimSpace(res.Output))
+}
+
+// writeFixMessage hands writes outside the part's limit back to the worker.
+func writeFixMessage(viol, owns []string) string {
+	return fmt.Sprintf("These paths changed outside your writable paths (%s): %s. Shell commands count too. "+
+		"Move or delete them so only your owned paths differ from the base commit, then give your final answer again.",
+		strings.Join(owns, ", "), strings.Join(viol, ", "))
+}
+
+// blockedReason reports whether a final answer starts with BLOCKED: (any
+// case, markdown emphasis allowed) and returns the reason on its first line.
+func blockedReason(final string) (string, bool) {
+	const marks = "*_`# "
+	t := strings.TrimLeft(strings.TrimSpace(final), marks)
+	word := strings.TrimSuffix(blockedPrefix, ":")
+	if len(t) < len(word) || !strings.EqualFold(t[:len(word)], word) {
+		return "", false
+	}
+	rest := strings.TrimLeft(t[len(word):], "*_`")
+	if !strings.HasPrefix(rest, ":") {
+		return "", false
+	}
+	reason, _, _ := strings.Cut(strings.TrimLeft(rest[1:], marks), "\n")
+	reason = strings.TrimSpace(reason)
+	return reason, reason != ""
 }
 
 // prepare makes the worktree (serially across parts), copies files and runs

@@ -151,6 +151,10 @@ func (f *farmState) apply(typ string, m map[string]any) {
 				a.check, a.activity = "pass", "part_check passed"
 			}
 		}
+	case farm.EvPartCheckDeferred:
+		if a != nil {
+			a.check, a.activity = "deferred", "part_check deferred"
+		}
 	case farm.EvPartEnded:
 		if a != nil {
 			a.status = agentStatus(fmt.Sprint(m["status"]))
@@ -290,12 +294,15 @@ func (m *Model) onFarmEvent(msg farmEventMsg) tea.Cmd {
 	case farm.EvPartEnded:
 		part, _ := msg.m["part"].(string)
 		cmds = append(cmds, m.dropFarmPrompts(part)) // its gate is gone
+		if a := f.agent(part); a != nil {
+			cmds = append(cmds, m.farmPrint(a, a.tr.Notice(dimStyle.Render(partEndLine(msg.m)))...))
+		}
 	case farm.EvIntegrateEnded:
 		cmds = append(cmds, m.dropFarmPrompts(integrateAgent))
 	}
 	show := msg.typ == farm.EvOwnerDecision && msg.m["note"] != nil
 	switch msg.typ {
-	case farm.EvPartCheck, farm.EvPartEnded, farm.EvBoardPosted, farm.EvIntegrateCheck,
+	case farm.EvPartCheck, farm.EvPartCheckDeferred, farm.EvPartEnded, farm.EvBoardPosted, farm.EvIntegrateCheck,
 		farm.EvIntegrateEnded, farm.EvCheckRan, farm.EvBudgetStop:
 		show = true
 	}
@@ -303,6 +310,22 @@ func (m *Model) onFarmEvent(msg farmEventMsg) tea.Cmd {
 		cmds = append(cmds, m.heldNotice(line))
 	}
 	return tea.Batch(cmds...)
+}
+
+// partEndLine is the last line of a part's own view: how it ended, so its
+// final tool output does not read as a hang.
+func partEndLine(m map[string]any) string {
+	line := "■ part ended: " + fmt.Sprint(m["status"])
+	if r, ok := m["reason"].(string); ok && r != "" {
+		line += " (" + r + ")"
+	}
+	if d, ok := m["diffstat"].(string); ok && d != "" {
+		line += " · " + d
+	}
+	if n := num(m["tokens"]); n > 0 {
+		line += " · " + formatTokens(int(n)) + " tok"
+	}
+	return line
 }
 
 // onFarmDone marks the farm ended, prints its summary and keeps it for the

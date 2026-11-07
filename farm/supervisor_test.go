@@ -244,7 +244,7 @@ func TestSupervisor_DoneCommitsAndPostsDone(t *testing.T) {
 func TestSupervisor_ShellWriteOutsideOwnsFails(t *testing.T) {
 	plan := Plan{Task: "t", Parts: []Part{coder("core", "core/**"), coder("dep", "dep/**", "core")}}
 	r := newSup(t, plan, testCfg(), func(string, int) []fake.Turn {
-		return []fake.Turn{call("shell", `{"command":"mkdir -p cmd && touch cmd/x.go"}`), final("done")}
+		return []fake.Turn{call("shell", `{"command":"mkdir -p cmd && touch cmd/x.go"}`), final("done"), final("left it")}
 	})
 	out := r.run(t, context.Background())
 	if ps := r.part("core"); ps.FailureReason != ReasonWriteLimit {
@@ -253,6 +253,52 @@ func TestSupervisor_ShellWriteOutsideOwnsFails(t *testing.T) {
 	sortedEq(t, out.Dropped, "core", "dep")
 	if r.attempts["dep"] != 0 {
 		t.Fatal("dependent started")
+	}
+}
+
+// A shell write outside owns goes back to the worker before the part ends, so
+// it can undo the write instead of failing at the commit.
+func TestSupervisor_ShellWriteOutsideOwnsGetsFixRound(t *testing.T) {
+	plan := Plan{Task: "t", Parts: []Part{coder("core", "core/**")}}
+	r := newSup(t, plan, testCfg(), func(string, int) []fake.Turn {
+		return []fake.Turn{call("shell", `{"command":"mkdir -p cmd && touch cmd/x.go"}`), final("done"),
+			call("shell", `{"command":"rm -rf cmd"}`), final("undone")}
+	})
+	r.run(t, context.Background())
+	if ps := r.part("core"); ps.Status != StatusDone {
+		t.Fatalf("core %+v", ps)
+	}
+}
+
+func TestWriteFixMessage(t *testing.T) {
+	got := writeFixMessage([]string{"cmd/x.go", "package.json"}, []string{"core/**"})
+	for _, want := range []string{"cmd/x.go", "package.json", "core/**", "Move or delete"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("message lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestCheckFixMessage_OffersBlocked(t *testing.T) {
+	got := checkFixMessage("make test", core.CheckResult{ExitCode: 2, Output: "no such dir"})
+	for _, want := range []string{"make test", "exited 2", "no such dir", blockedPrefix} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("message lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBlockedReason(t *testing.T) {
+	for in, want := range map[string]string{
+		"BLOCKED: needs server/":       "needs server/",
+		"**BLOCKED:** needs server/":   "needs server/",
+		"  blocked: the check needs b": "the check needs b",
+		"Fixed it.":                    "",
+		"Not BLOCKED: fine":            "",
+	} {
+		if got, ok := blockedReason(in); got != want || ok != (want != "") {
+			t.Errorf("blockedReason(%q) = %q, %v; want %q", in, got, ok, want)
+		}
 	}
 }
 
@@ -527,7 +573,8 @@ func TestWorkerPrompt(t *testing.T) {
 		Parts: []Part{coder("a", "a/**"), coder("b", "b/**", "a")}}
 	role := Role{Name: "coder", Prompt: "ROLE PROMPT"}
 	got := WorkerPrompt(plan, plan.Parts[1], role, "abc123")
-	for _, want := range []string{"ROLE PROMPT", "do b", "Use errors.Is.", "Store", "Get(k) string", "a/**", "b/**", "abc123"} {
+	for _, want := range []string{"ROLE PROMPT", "do b", "Use errors.Is.", "Store", "Get(k) string", "a/**", "b/**", "abc123",
+		"full checkout of the repository", "not in your worktree until"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, got)
 		}

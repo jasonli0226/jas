@@ -630,7 +630,7 @@ sections** instead of free text:
 
 ## Worktrees
 
-- Location: `<repo>/.jas/worktrees/<farm-id>/<part-id>`, git-excluded
+- Location: `<repo>/.jas/worktrees/<farm-id>/part-<part-id>`, git-excluded
   (`/.jas/worktrees/` in `.git/info/exclude`). Configurable with
   `worktree.dir` (absolute), e.g. a cache dir outside the repo.
   **(owner's decision, 2026-11-04; reverses the second review's move to the
@@ -685,7 +685,14 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   `part_check` (logged as `part_check{part, round, exit_code}`) goes back to
   the worker once with the output tail; failing again fails the part with
   reason `check`. **(owner-approved, 2026-11-04, after the dogfood run: a
-  part was marked done with code that did not compile.)** The supervisor
+  part was marked done with code that did not compile.)** In the fix round
+  the worker may answer `BLOCKED: <reason>` when the check fails only for
+  want of other parts' work; the part is then done, the merged `check` is
+  the verdict, and `part_check_deferred{part, round, reason}` is logged.
+  Before `part_check`, every final answer also gets the write-limit diff
+  check; writes outside `owns` (shell commands included) go back in the
+  same fix round. **(owner-approved, 2026-11-07, after a run where both
+  workers spent their budgets on a cross-part `check`.)** The supervisor
   then closes the session (no steering is drained after the
   final answer), commits its changes on the part branch (see Commits), runs
   the write-limit diff check and marks the part done. A done part is never
@@ -936,7 +943,8 @@ worker events). Each farm event carries `farm_id`; worker detail is linked by
 spec hash, base, roles digest, config digest, trust decision), `farm_resumed`,
 `part_started` (includes `blast_radius` when set), `part_setup`,
 `part_ended` (status, exit code, tokens, diffstat), `board_posted`,
-`board_delivered`, `owner_decision`, `part_check`, `integrate_started`,
+`board_delivered`, `owner_decision`, `part_check`, `part_check_deferred`
+(part, round, reason), `integrate_started`,
 `integrate_check`, `integrate_ended`, `check_ran`, `fuzz_ran` (after MVP; same shape as `check_ran`),
 `budget_stop`, `farm_ended` (exit code, reason, totals, `blast_radius_max`,
 optional `blast_gate`).
@@ -1082,7 +1090,7 @@ feature at a time.
   manifest.json      current state (atomic)
   parts/<part-id>/events.jsonl
   integrate/events.jsonl
-<repo>/.jas/worktrees/<farm-id>/<part-id>/   (git-excluded; removed after the final choice)
+<repo>/.jas/worktrees/<farm-id>/part-<part-id>/   (git-excluded; removed after the final choice)
 ```
 
 Logs stay under `~/.jas` (protected from workers' file tools by the deny

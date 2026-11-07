@@ -536,7 +536,7 @@ func TestRunFarm_InterruptedExit130(t *testing.T) {
 	if ev := r.last(EvFarmEnded); ev["status"] != "interrupted" {
 		t.Fatalf("farm_ended %v", ev)
 	}
-	if _, err := os.Stat(filepath.Join(r.wtDir, r.farmID(), "a")); err != nil {
+	if _, err := os.Stat(filepath.Join(r.wtDir, r.farmID(), "part-a")); err != nil {
 		t.Fatalf("worktree removed after interrupt: %v", err)
 	}
 }
@@ -618,6 +618,43 @@ func TestRunFarm_PartCheckStillFailingFailsPart(t *testing.T) {
 	}
 	if got != "failed check" {
 		t.Fatalf("part a ended %q; events %v", got, ended)
+	}
+}
+
+// A worker that answers the fix round with BLOCKED: is done; the merged
+// check is the verdict.
+func TestRunFarm_PartCheckBlockedDefersToMergedCheck(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "BROKEN\n"), final("a done"), final("BLOCKED: the check needs part b")}
+	})
+	r.opts.Cfg.PartCheck = brokenCheck
+	code, reason := r.run(context.Background())
+	if code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(""))
+	}
+	ev := r.last(EvPartCheckDeferred)
+	if ev["part"] != "a" || ev["reason"] != "the check needs part b" {
+		t.Fatalf("part_check_deferred %v", ev)
+	}
+}
+
+// BLOCKED: only counts as the answer to a failed check, not as a first answer.
+func TestRunFarm_BlockedFirstAnswerStillChecked(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "BROKEN\n"), final("BLOCKED: skip it"), final("tried")}
+	})
+	r.opts.Cfg.PartCheck = brokenCheck
+	if code, _ := r.run(context.Background()); code != core.ExitUnmet {
+		t.Fatalf("exit %d", code)
+	}
+	if evs := r.events(EvPartCheckDeferred); len(evs) != 0 {
+		t.Fatalf("deferred %v", evs)
 	}
 }
 

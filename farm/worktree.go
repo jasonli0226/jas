@@ -15,9 +15,12 @@ import (
 )
 
 const (
-	tmpRoot       = "jas-farm"         // under the system temp dir; see TmpDir
-	excludeTrees  = "/.jas/worktrees/" // the default worktree dir, inside main
-	branchPrefix  = "jas/farm/"
+	tmpRoot      = "jas-farm"         // under the system temp dir; see TmpDir
+	excludeTrees = "/.jas/worktrees/" // the default worktree dir, inside main
+	branchPrefix = "jas/farm/"
+	// partDirPrefix names a part's worktree dir part-<id>, so a part that owns
+	// client/ works in part-client/client/, not the confusing client/client/.
+	partDirPrefix = "part-"
 	setupMaxBytes = 32 * 1024
 )
 
@@ -34,7 +37,7 @@ func (e *MergeConflictError) Error() string {
 // Worktrees manages per-part git worktrees of one main checkout.
 type Worktrees struct {
 	Git          GitRunner
-	Main, Dir    string // Dir is the repo-id directory holding <FarmID>/<part>
+	Main, Dir    string // Dir is the repo-id directory holding <FarmID>/part-<part>
 	FarmID       string
 	Copy         []string
 	Setup        string
@@ -43,8 +46,8 @@ type Worktrees struct {
 	excludeError error
 }
 
-// TmpDir is the private TMPDIR for a worktree <dir>/<farm-id>/<part>:
-// <system temp>/jas-farm/<farm-id>/<part>. It stays outside every checkout,
+// TmpDir is the private TMPDIR for a worktree <dir>/<farm-id>/<name>:
+// <system temp>/jas-farm/<farm-id>/<name>. It stays outside every checkout,
 // so temp dirs made by the project's own tests are not inside a git repo.
 func TmpDir(worktree string) string {
 	return filepath.Join(os.TempDir(), tmpRoot, filepath.Base(filepath.Dir(worktree)), filepath.Base(worktree))
@@ -53,8 +56,22 @@ func TmpDir(worktree string) string {
 // Branch returns the branch name for a part.
 func (w *Worktrees) Branch(part string) string { return branchPrefix + w.FarmID + "/" + part }
 
-// Path returns the worktree path for a part.
-func (w *Worktrees) Path(part string) string { return filepath.Join(w.Dir, w.FarmID, part) }
+// Path returns the worktree path for a part: <dir>/<farm-id>/part-<part>, or
+// the pre-prefix <dir>/<farm-id>/<part> when only that one exists (a farm
+// made by an older jas), so clean and retries still find it.
+func (w *Worktrees) Path(part string) string {
+	path := filepath.Join(w.Dir, w.FarmID, partDirPrefix+part)
+	legacy := filepath.Join(w.Dir, w.FarmID, part)
+	if !pathExists(path) && pathExists(legacy) {
+		return legacy
+	}
+	return path
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // Create makes the part's branch from base in a new worktree, then merges each
 // dep branch (--no-ff, in order). A conflict aborts the merge and returns

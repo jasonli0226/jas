@@ -202,3 +202,24 @@ func TestReview12_CtrlZeroPrintsEveryHeldBlock(t *testing.T) {
 		t.Fatalf("held output cut on Ctrl+0:\n%s", out)
 	}
 }
+
+// A part that stops (here on its token budget) says so in its own view, so
+// the last tool output does not look like a hang.
+func TestPartEndShownInAgentView(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	c.update(modKey('1', tea.ModCtrl))
+	mark := len(c.m.Screen())
+	f.event(farm.EvPartEnded, map[string]any{"part": "a", "status": "failed", "reason": "budget", "tokens": 1463913})
+	c.drain()
+	out := c.screenSince(mark)
+	assert.Contains(t, out, "part ended: failed (budget)")
+	assert.Contains(t, out, "1.5M tok")
+}
+
+func TestPartCheckDeferredMarksRow(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	f.event(farm.EvPartCheckDeferred, map[string]any{"part": "a", "round": 1, "reason": "needs b"})
+	c.drain()
+	assert.Eq(t, c.m.farm.agent("a").check, "deferred")
+	assert.Contains(t, strings.Join(c.m.Printed(), "\n"), "part_check deferred to the merged check: needs b")
+}

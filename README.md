@@ -315,8 +315,9 @@ Farm splits one big task into parts that run in parallel worktrees, then
 merges them behind a `check` gate. Each part must also pass `part_check`
 (defaults to `check`; `part_check: ""` in `.jas/farm.yaml` turns it off) in
 its own worktree before it counts as done; a failure goes back to the worker
-for one fix round. A clean merge whose `check` fails goes to the integrator.
-Worktrees live in the repo under `.jas/worktrees/<farm-id>/<part>`
+for one fix round, where it may answer `BLOCKED: <reason>` if the check needs
+other parts' work (the merged `check` then decides). A clean merge whose `check` fails goes to the integrator.
+Worktrees live in the repo under `.jas/worktrees/<farm-id>/part-<part>`
 (git-excluded, hidden from your chat's file tools); set `worktree.dir` to an
 absolute path to put them elsewhere. Without `--json`, the run prints a line per part event and
 worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental.**

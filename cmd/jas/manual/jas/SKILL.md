@@ -126,10 +126,13 @@ jas farm vars
 
 Roles: `coder` writes its part, `tester` adds tests. A part is done only when
 `part_check` (default: `check`; `part_check: ""` turns it off) passes in its
-worktree; a failure gets one fix round. A clean merge whose `check` fails is
+worktree; a failure gets one fix round, in which the worker may answer
+`BLOCKED: <reason>` when the check needs other parts (the merged `check`
+then decides). Writes outside `owns`, shell ones too, also go back for that
+round. A clean merge whose `check` fails is
 handed to the integrator. At the failure prompt, answer `retry`, `drop` or
 `abort` (or a prefix); anything else is asked again. Part worktrees live in
-`.jas/worktrees/<farm-id>/<part>` (git-excluded; file tools in the main
+`.jas/worktrees/<farm-id>/part-<part>` (git-excluded; file tools in the main
 checkout are denied there); `worktree.dir` moves them. Without `--json`, progress prints
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
 and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.

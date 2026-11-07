@@ -71,7 +71,7 @@ func TestWorktrees_CreateFromBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if branch != "jas/farm/f1/core" || path != filepath.Join(w.Dir, "f1", "core") {
+	if branch != "jas/farm/f1/core" || path != filepath.Join(w.Dir, "f1", "part-core") {
 		t.Fatalf("path=%s branch=%s", path, branch)
 	}
 	if got := mustGit(t, w.Git, w.Main, "rev-parse", branch); got != base {
@@ -208,6 +208,27 @@ func TestWorktrees_CopyRefusesDenied(t *testing.T) {
 	w.Copy = []string{"missing"}
 	if err := w.CopyFiles(p); err == nil {
 		t.Fatal("copied a missing file")
+	}
+}
+
+// A worktree made before the part- prefix (<farm>/<part>) is still found, so
+// clean and retries remove it.
+func TestWorktrees_RemoveLegacyPath(t *testing.T) {
+	w, base := newRepo(t)
+	ctx := context.Background()
+	legacy := filepath.Join(w.Dir, "f1", "core")
+	mustGit(t, w.Git, w.Main, "worktree", "add", "-b", w.Branch("core"), legacy, base)
+	if got := w.Path("core"); got != legacy {
+		t.Fatalf("Path = %s, want legacy %s", got, legacy)
+	}
+	if err := w.Remove(ctx, "core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); err == nil {
+		t.Fatal("legacy worktree still present")
+	}
+	if got := w.Path("core"); got != filepath.Join(w.Dir, "f1", "part-core") {
+		t.Fatalf("Path after remove = %s", got)
 	}
 }
 
