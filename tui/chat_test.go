@@ -229,7 +229,7 @@ func TestChat_SendStreamsAndPrints(t *testing.T) {
 	assert.Eq(t, c.m.input.Value(), "")
 	assert.Contains(t, c.view(), "working…")
 	c.pump()
-	eqStrings(t, plain(c.printedNoBanner()), []string{"› hi", "", "● Hello", "  World"})
+	eqStrings(t, plain(c.printedNoBanner()), []string{"› hi", "", "● Hello", "", "  World"})
 	assert.NotContains(t, c.view(), "working…")
 }
 
@@ -574,10 +574,10 @@ func TestChat_ResumeReprintsTranscript(t *testing.T) {
 
 	c := newTestChatOpts(t, b, Options{Continue: true})
 	got := plain(c.m.Printed())
-	assert.Eq(t, len(got), 6)
+	assert.Eq(t, len(got), 7)
 	eqStrings(t, got[:2], []string{"› hello", ""})
 	assert.Eq(t, strings.HasPrefix(got[2], "▸ ls ."), true)
-	eqStrings(t, got[3:], []string{"● hi there", "", "resumed " + c.m.live.ID + " · 4 messages"})
+	eqStrings(t, got[3:], []string{"", "● hi there", "", "resumed " + c.m.live.ID + " · 4 messages"})
 }
 
 func TestChat_QuitBeforeSessionOpensClosesIt(t *testing.T) {
@@ -759,7 +759,7 @@ func TestChat_StreamingNoBlankFlash(t *testing.T) {
 	c.m.Update(textMsg{gen: c.m.gen, s: "Hello\n\n"})
 	assert.Contains(t, c.view(), "● Hello")
 	c.m.Update(textMsg{gen: c.m.gen, s: "World\n\n"}) // waits behind the first print
-	assert.Contains(t, c.view(), "● Hello\n  World")
+	assert.Contains(t, c.view(), "● Hello\n\n  World")
 	c.m.Update(printedMsg{}) // the first print landed; the second goes out
 	assert.NotContains(t, c.view(), "Hello")
 	assert.Contains(t, c.view(), "  World")

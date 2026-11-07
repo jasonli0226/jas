@@ -224,11 +224,15 @@ func (t *Transcript) Live() string {
 		}
 	}
 	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
-		parts = append(parts, hang(renderBlock(p), t.nextAgentPrefix(), t.Width))
+		block := hang(renderBlock(p), t.nextAgentPrefix(), t.Width)
+		if len(parts) == 0 && t.paragraphGap() {
+			block = "\n" + block
+		}
+		parts = append(parts, block)
 	}
-	// Match enter(roleAgent): blank only when leaving user/notice, not after
-	// tools or within the agent group (consecutive blocks stay dense).
-	if len(parts) > 0 && (t.last == roleUser || t.last == roleNotice) {
+	// Match enter(roleAgent): blank when leaving user, notice or tool output;
+	// agentBlock's paragraph gap is added above.
+	if len(parts) > 0 && (t.last == roleUser || t.last == roleNotice || t.last == roleTool) {
 		parts = append([]string{""}, parts...)
 	}
 	// Match enter(roleTool): no blank after agent text; blank after user/notice
@@ -248,12 +252,13 @@ func (t *Transcript) Live() string {
 }
 
 // enter switches the printed group to r, returning the blank separator line
-// when the group changes after something was already printed. Agent text and
-// tool rows stay tight either way (pi always Spacer(1) before each tool; jas
-// does not blank agent↔tool). Consecutive tool blocks get a blank so previews
-// do not glue to the next ▸. A blank always precedes a new user turn (and
-// other non-agent/tool switches such as notices). Preview lines are not
-// hang-indented (pi also leaves them flush; owner asked for no indent).
+// when the group changes after something was already printed. Agent text
+// runs straight into its tool row (pi always Spacer(1) before each tool; jas
+// does not), but tool output gets a blank before the agent text that follows
+// it. Consecutive tool blocks get a blank so previews do not glue to the next
+// ▸. A blank always precedes a new user turn (and other switches such as
+// notices). Preview lines are not hang-indented (pi also leaves them flush;
+// owner asked for no indent).
 func (t *Transcript) enter(r role) []string {
 	if t.last == r {
 		if r == roleTool {
@@ -266,20 +271,29 @@ func (t *Transcript) enter(r role) []string {
 	if prev == roleNone {
 		return nil
 	}
-	if (prev == roleAgent && r == roleTool) || (prev == roleTool && r == roleAgent) {
+	if prev == roleAgent && r == roleTool {
 		return nil
 	}
 	return []string{""}
 }
 
 // agentBlock renders a finished assistant block: the turn's first block gets
-// the agent marker; later blocks hang under it with no blank between them.
+// the agent marker; later blocks hang under it, a blank apart like the
+// paragraphs the model wrote.
 func (t *Transcript) agentBlock(raw string) []string {
-	out := t.enter(roleAgent)
+	var out []string
+	if t.paragraphGap() {
+		out = []string{""}
+	}
+	out = append(out, t.enter(roleAgent)...)
 	prefix := t.nextAgentPrefix()
 	t.marked = true
 	return append(out, hang(renderBlock(raw), prefix, t.Width))
 }
+
+// paragraphGap reports whether the next agent block follows an earlier block
+// of the same reply, and so needs a blank before it.
+func (t *Transcript) paragraphGap() bool { return t.last == roleAgent && t.marked }
 
 func (t *Transcript) nextAgentPrefix() string {
 	if t.last == roleAgent && t.marked {
