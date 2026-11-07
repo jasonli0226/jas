@@ -20,7 +20,7 @@ type tickMsg struct{}
 // armTick arms the next loader frame while a run is active, at most one
 // timer at a time (tickMsg clears tickPending again).
 func (m *Model) armTick() tea.Cmd {
-	if m.tickPend || !m.running() {
+	if m.tickPend || !m.animating() {
 		return nil
 	}
 	m.tickPend = true
@@ -31,10 +31,21 @@ func (m *Model) armTick() tea.Cmd {
 // is still active; the loader freezes (and hides) once it ends.
 func (m *Model) onTick() tea.Cmd {
 	m.tickPend = false
-	if !m.running() {
+	if !m.animating() {
 		return nil
 	}
 	m.frame = (m.frame + 1) % len(spinnerFrames)
+	return m.armTick()
+}
+
+// animating reports whether the loader spins: a run, or the farm planning
+// or starting.
+func (m *Model) animating() bool { return m.running() || m.farmBusy != "" }
+
+// setFarmBusy shows what the farm is doing in the loader until its result
+// arrives, and starts the spinner.
+func (m *Model) setFarmBusy(what string) tea.Cmd {
+	m.farmBusy, m.farmSince = what, m.o.Now()
 	return m.armTick()
 }
 
@@ -43,7 +54,11 @@ func (m *Model) onTick() tea.Cmd {
 // when idle.
 func (m *Model) loader() string {
 	if !m.running() {
-		return ""
+		if m.farmBusy == "" {
+			return ""
+		}
+		elapsed := formatElapsed(m.o.Now().Sub(m.farmSince))
+		return dimStyle.Render(fmt.Sprintf("%c farm: %s… %s", spinnerFrames[m.frame], m.farmBusy, elapsed))
 	}
 	what := "working…"
 	if m.tr.thinking {

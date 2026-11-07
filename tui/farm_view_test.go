@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/internal/assert"
 )
 
@@ -205,4 +206,35 @@ func TestSteer_HandBackWhileTyping(t *testing.T) {
 	if !strings.Contains(v, "half") || !strings.Contains(v, "late") {
 		t.Fatalf("input %q", v)
 	}
+}
+
+// Each agent gets its own color, in plan order, so the rows under the input
+// and the strip tell agents apart at a glance.
+func TestFarmAgents_DistinctColors(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	a, b := c.m.farm.agent("a"), c.m.farm.agent("b")
+	if a.hue == b.hue {
+		t.Fatalf("a and b share hue %d", a.hue)
+	}
+	rows := strings.Join(c.m.farmRows(), "\n")
+	assert.Contains(t, rows, agentStyle(a.hue).Render("a"))
+	assert.Contains(t, rows, agentStyle(b.hue).Render("b"))
+	f.event(farm.EvIntegrateStarted, map[string]any{})
+	c.drain()
+	if i := c.m.farm.agent("integrate"); i.hue == b.hue || i.hue == a.hue {
+		t.Fatalf("integrator hue %d reuses a part's", i.hue)
+	}
+	c.update(modKey('1', tea.ModCtrl))
+	assert.Contains(t, c.m.farmStrip(), agentStyle(a.hue).Bold(true).Render("1 a")) // viewed: bold
+	assert.Contains(t, c.m.farmStrip(), agentStyle(b.hue).Render("2 b"))
+}
+
+func TestFarmRows_StatusMarkColored(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	f.event(farm.EvPartEnded, map[string]any{"part": "a", "status": "done"})
+	f.event(farm.EvPartEnded, map[string]any{"part": "b", "status": "failed", "reason": "budget"})
+	c.drain()
+	rows := strings.Join(c.m.farmRows(), "\n")
+	assert.Contains(t, rows, doneStyle.Render(agentMarks[agentDone]))
+	assert.Contains(t, rows, errStyle.Render(agentMarks[agentFailed]))
 }

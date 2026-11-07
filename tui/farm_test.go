@@ -264,3 +264,22 @@ func TestFarm_PlanningNoticeShowsTheTaskHead(t *testing.T) {
 		t.Fatalf("planning line not cut (%d): %q", n, planning(c))
 	}
 }
+
+// While the planner works the loader says so, so a confirmed suggestion does
+// not look like nothing happened.
+func TestFarm_LoaderWhilePlanning(t *testing.T) {
+	c, f := farmChat(t)
+	_ = c.m.farmPlan("migrate logging") // the planner's Cmd is not run yet
+	assert.Contains(t, c.view(), "farm: planning…")
+	assert.Eq(t, c.m.tickPend, true) // the spinner is armed
+	c.update(farmPlannedMsg{plan: f.plan})
+	assert.Eq(t, strings.Contains(c.view(), "farm: planning…"), false)
+}
+
+func TestFarm_LoaderWhileStarting(t *testing.T) {
+	c, f := farmChat(t)
+	_ = c.m.farmApprove(f, f.plan)
+	assert.Contains(t, c.view(), "farm: starting…")
+	c.update(farmStartedMsg{err: errors.New("boom")})
+	assert.Eq(t, strings.Contains(c.view(), "farm: starting…"), false)
+}

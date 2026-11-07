@@ -91,7 +91,7 @@ func (m *Model) farmPlan(task string) tea.Cmd {
 	}
 	model := m.model
 	m.farmReview = &FarmPlan{Task: task} // holds the slot while the planner works
-	return tea.Batch(m.notice("farm: planning "+taskHead(task)+" …"), func() tea.Msg {
+	return tea.Batch(m.notice("farm: planning "+taskHead(task)+" …"), m.setFarmBusy("planning"), func() tea.Msg {
 		p, err := f.Plan(context.Background(), task, model)
 		return farmPlannedMsg{plan: p, err: err}
 	})
@@ -100,6 +100,7 @@ func (m *Model) farmPlan(task string) tea.Cmd {
 // onFarmPlanned shows a drafted plan and opens the review picker.
 func (m *Model) onFarmPlanned(msg farmPlannedMsg) tea.Cmd {
 	m.farmReview = nil
+	m.farmBusy = ""
 	if msg.err != nil {
 		m.tellAgent("farm planning failed: " + msg.err.Error())
 		return m.answer(errStyle.Render("farm: " + m.clean(msg.err.Error())))
@@ -164,7 +165,7 @@ func (m *Model) farmApprove(f Farmer, p FarmPlan) tea.Cmd {
 	m.farmGen++
 	gen := m.farmGen
 	model, level, hooks := m.model, m.gate.Level(), m.farmHooks(gen)
-	return func() tea.Msg {
+	return tea.Batch(m.setFarmBusy("starting"), func() tea.Msg {
 		path, err := f.Approve(p)
 		if err != nil {
 			return farmStartedMsg{err: err}
@@ -172,7 +173,7 @@ func (m *Model) farmApprove(f Farmer, p FarmPlan) tea.Cmd {
 		plan, _ := farm.ParsePlan(p.Raw)
 		run, err := f.Start(context.Background(), path, model, level, hooks)
 		return farmStartedMsg{gen: gen, run: run, plan: plan, task: p.Task, err: err}
-	}
+	})
 }
 
 // farmRunPlan starts an approved plan file.
@@ -187,7 +188,7 @@ func (m *Model) farmRunPlan(path string) tea.Cmd {
 	m.farmGen++
 	gen := m.farmGen
 	model, level, hooks := m.model, m.gate.Level(), m.farmHooks(gen)
-	return func() tea.Msg {
+	return tea.Batch(m.setFarmBusy("starting"), func() tea.Msg {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return farmStartedMsg{err: err}
@@ -198,7 +199,7 @@ func (m *Model) farmRunPlan(path string) tea.Cmd {
 		}
 		run, err := f.Start(context.Background(), path, model, level, hooks)
 		return farmStartedMsg{gen: gen, run: run, plan: plan, task: plan.Task, err: err}
-	}
+	})
 }
 
 // farmEdit opens the plan in $EDITOR, then re-checks it.
@@ -250,7 +251,7 @@ func (m *Model) farmFeedback(text string) tea.Cmd {
 	}
 	m.farmReview = &FarmPlan{Task: p.Task} // holds the slot while the planner works
 	f := m.b.Farmer()
-	return tea.Batch(m.notice("farm: replanning …"), func() tea.Msg {
+	return tea.Batch(m.notice("farm: replanning …"), m.setFarmBusy("replanning"), func() tea.Msg {
 		next, err := f.Replan(context.Background(), p, text)
 		return farmPlannedMsg{plan: next, err: err}
 	})
@@ -258,6 +259,9 @@ func (m *Model) farmFeedback(text string) tea.Cmd {
 
 // onFarmStarted shows the rows and waits for the farm's end.
 func (m *Model) onFarmStarted(msg farmStartedMsg) tea.Cmd {
+	if msg.err != nil || msg.gen == m.farmGen {
+		m.farmBusy = ""
+	}
 	if msg.err != nil {
 		m.tellAgent("farm failed to start: " + msg.err.Error())
 		return m.answer(errStyle.Render("farm: " + m.clean(msg.err.Error())))

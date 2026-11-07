@@ -1,6 +1,10 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // Palette: hex approximations of pi's dark theme. Styles are plain lipgloss
 // values; the terminal profile downgrades colours when the blocks are
@@ -27,9 +31,18 @@ var (
 	diffAddBg     = lipgloss.Color("#1c3a24")
 	diffDelWordBg = lipgloss.Color("#7a2a2a")
 	diffAddWordBg = lipgloss.Color("#2a6b3c")
+
+	// agentHues tell farm agents apart, in plan order; red stays for errors.
+	agentHues = []color.Color{blueFg, orangeFg, violetFg, greenFg, yellowFg}
 )
 
+// agentStyle colors a farm agent's name with its hue.
+func agentStyle(hue int) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(agentHues[hue%len(agentHues)])
+}
+
 var (
+	doneStyle      = lipgloss.NewStyle().Foreground(greenFg)
 	boldStyle      = lipgloss.NewStyle().Bold(true)
 	dimStyle       = lipgloss.NewStyle().Faint(true)
 	errStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
