@@ -583,7 +583,7 @@ func TestWorkerPrompt(t *testing.T) {
 		t.Fatalf("prompt lacks the generated note:\n%s", gen)
 	}
 	for _, want := range []string{"ROLE PROMPT", "do b", "Use errors.Is.", "Store", "Get(k) string", "a/**", "b/**", "abc123",
-		"full checkout of the repository", "not in your worktree until"} {
+		"full checkout of the repository", "not in your worktree until", ".gitignore", "node_modules"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, got)
 		}

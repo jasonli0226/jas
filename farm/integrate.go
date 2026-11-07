@@ -378,7 +378,7 @@ func IntegratorPrompt(plan Plan, role Role, base, branch, check string, writable
 	fmt.Fprintf(&b, "You are the integrator of a farm: parallel workers each finished a part of this task on its own branch:\n%s\n\n", plan.Task)
 	fmt.Fprintf(&b, "Your worktree is on branch %s, made from base commit %s; some part branches are already merged into it. ", branch, base)
 	b.WriteString("Merge each branch you are given, in order, with `git merge --no-ff --no-verify <branch>`, " +
-		"resolve the conflicts so every part's goal and the contracts and interfaces hold, then `git add` and `git commit --no-verify`. " +
+		"resolve the conflicts so every part's goal and the contracts and interfaces hold, then `git add` the resolved files (never `git add -A`) and `git commit --no-verify`. " +
 		"Also handle blocked requests on the board where the shared files allow it.\n")
 	fmt.Fprintf(&b, "Writable paths: %s\n", strings.Join(writable, ", "))
 	if strings.TrimSpace(check) != "" {

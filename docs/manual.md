@@ -362,6 +362,14 @@ the trust prompt, so it stays untrusted: start jas with `--trust-project` to
 farm there. In the chat, start a farm with `/farm`, not `jas farm` in the
 `shell` tool (no terminal for the plan picker and approvals).
 
+A part's commit never includes untracked dependency or cache dirs
+(`node_modules`, `.venv`, `venv`, `__pycache__`, `.pytest_cache`,
+`.mypy_cache`, `.ruff_cache`, `.tox`, `.gradle`, `.next`, `.nuxt`,
+`.svelte-kit`, `.turbo`, `.parcel-cache`), even with no `.gitignore`;
+tracked files under them still commit. Other build output (`dist/`) is
+committed unless ignored, so workers are told to add a `.gitignore` inside
+their owned paths when they create it.
+
 | key | default | does |
 |---|---|---|
 | `check` | detected | command whose exit code is the farm's verdict |
