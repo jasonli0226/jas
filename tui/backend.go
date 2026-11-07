@@ -1,6 +1,11 @@
 package tui
 
-import "github.com/jasonli0226/jas/core"
+import (
+	"context"
+	"io"
+
+	"github.com/jasonli0226/jas/core"
+)
 
 // SettingLine is one row of /settings (effective value + source).
 // Options is the closed set for the value picker; empty means free-text.
@@ -59,6 +64,11 @@ type Backend interface {
 	// s under the trust rules. ask is called when trust must be re-confirmed
 	// (nil refuses like a non-interactive skip). Notices describe what loaded.
 	Reload(s *core.Session, ask func(string) string) (notices []string, err error)
+	// Shell runs the owner's ! command in the project root with the owner's
+	// environment, writing stdout and stderr to out. It returns the exit code
+	// and an error with an ExitCode method for a non-zero exit, or why the
+	// command could not run.
+	Shell(ctx context.Context, command string, out io.Writer) (code int, err error)
 }
 
 // Live is one open session.

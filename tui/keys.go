@@ -126,6 +126,9 @@ func (m *Model) onEnter() tea.Cmd {
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
 	}
+	if isBang(text) {
+		return m.runBang(text)
+	}
 	if m.viewing != "" {
 		return m.steerAgent(text)
 	}
@@ -137,7 +140,7 @@ func (m *Model) onEnter() tea.Cmd {
 		m.tip(hintSteer, "that steers the reply now · Ctrl+Q queues a message for after the run")
 		return nil
 	}
-	if note, label := m.takeFarmNotes(); note != "" {
+	if note, label := m.takeNotes(); note != "" {
 		shown := append(m.tr.User(text), m.tr.Notice(dimStyle.Render("("+label+" attached)"))...)
 		return m.startRun(note+"\n\n"+text, shown)
 	}
@@ -151,7 +154,7 @@ func (m *Model) onEnter() tea.Cmd {
 func (m *Model) onFollowUp() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	if !m.running() || m.viewing != "" || m.approval != nil || m.ask != nil || m.farmReplan != nil ||
-		text == "" || strings.HasPrefix(text, "/") {
+		text == "" || strings.HasPrefix(text, "/") || isBang(text) {
 		return m.onEnter()
 	}
 	m.hist.add(text)
@@ -200,6 +203,10 @@ func (m *Model) onCtrlC() tea.Cmd {
 	if m.input.Value() != "" {
 		m.input.Reset()
 		m.lastCtrlC = time.Time{} // clearing is not the first quit press
+		return nil
+	}
+	if m.bang != nil { // stops the owner's ! command, never the chat
+		m.bang.cancel()
 		return nil
 	}
 	now, prev := m.o.Now(), m.lastCtrlC

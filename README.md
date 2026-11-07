@@ -98,6 +98,8 @@ dim spinner line above the input shows the run in progress (`working…`, or
 - **Enter** sends; while a reply runs, Enter **steers** it (the text reaches
   the model at its next step) and **Ctrl+Q** queues a **follow-up** for when
   it ends. **Esc** stops the run.
+- **`!cmd`** runs a shell command yourself; its output goes to the agent with
+  your next message. **`!!cmd`** keeps the output to yourself.
 - **`/`** opens the command menu; `/help` lists every command and key.
 - `/model` switches models, `/resume` or `jas --continue` reopens a session,
   `/compact` frees context, `/reload` picks up edited `AGENTS.md` and skills.

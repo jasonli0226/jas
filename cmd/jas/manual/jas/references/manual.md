@@ -150,7 +150,7 @@ token counts and the number of queued messages.
 | Up / Down | recall earlier input (from the first or last line of the input) |
 | Ctrl+L | clear the screen and reprint the banner; the session is kept |
 | Ctrl+O | expand or collapse the latest tool output (Up/Down scroll it) |
-| Ctrl+C | clear the input; twice on an empty input quits |
+| Ctrl+C | clear the input; on an empty input, stop a running `!` command; otherwise twice quits |
 | Ctrl+1–9 / Alt+1–9 | show farm agent N |
 | Ctrl+0 / Alt+0 | back to the main chat |
 | `/` | open the command menu (Up/Down move, Tab or Enter complete, Esc hide) |
@@ -192,6 +192,23 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 
 `/new`, `/model`, `/name`, `/resume`, `/compact` and `/reload` wait until
 no reply is running.
+
+### Shell commands
+
+Start a line with `!` to run it yourself in the project root, through the
+platform shell (`sh -c`, or `cmd` on Windows) with your own environment:
+
+| input | does |
+|---|---|
+| `!cmd` / `! cmd` | run `cmd` and show its output; the output goes to the agent in front of your **next** message (`` Ran `cmd` `` and the output in a code block) |
+| `!!cmd` | run `cmd` and show its output; it never reaches the agent |
+
+A `!` command never starts a reply, needs no approval and skips the deny
+floor: you typed it. It runs even while a reply runs, one at a time; Ctrl+C
+on an empty input stops it. Its output is redacted before it is shown or
+sent; the agent's copy is capped at 32 KiB. Several `!` commands before one
+message all go with it, in order (`(command output attached)` marks the
+message). `!` commands run in the main chat only, not in a farm agent view.
 
 ### Hints
 
