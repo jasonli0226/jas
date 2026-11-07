@@ -536,7 +536,7 @@ func TestRunFarm_InterruptedExit130(t *testing.T) {
 	if ev := r.last(EvFarmEnded); ev["status"] != "interrupted" {
 		t.Fatalf("farm_ended %v", ev)
 	}
-	if _, err := os.Stat(filepath.Join(r.wtDir, r.farmID(), "a")); err != nil {
+	if _, err := os.Stat(filepath.Join(r.wtDir, r.farmID(), "part-a")); err != nil {
 		t.Fatalf("worktree removed after interrupt: %v", err)
 	}
 }

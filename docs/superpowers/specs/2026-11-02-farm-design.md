@@ -630,7 +630,7 @@ sections** instead of free text:
 
 ## Worktrees
 
-- Location: `<repo>/.jas/worktrees/<farm-id>/<part-id>`, git-excluded
+- Location: `<repo>/.jas/worktrees/<farm-id>/part-<part-id>`, git-excluded
   (`/.jas/worktrees/` in `.git/info/exclude`). Configurable with
   `worktree.dir` (absolute), e.g. a cache dir outside the repo.
   **(owner's decision, 2026-11-04; reverses the second review's move to the
@@ -1082,7 +1082,7 @@ feature at a time.
   manifest.json      current state (atomic)
   parts/<part-id>/events.jsonl
   integrate/events.jsonl
-<repo>/.jas/worktrees/<farm-id>/<part-id>/   (git-excluded; removed after the final choice)
+<repo>/.jas/worktrees/<farm-id>/part-<part-id>/   (git-excluded; removed after the final choice)
 ```
 
 Logs stay under `~/.jas` (protected from workers' file tools by the deny

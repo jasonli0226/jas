@@ -450,5 +450,5 @@ Field-level detail and the resume rules: [design §3](design.md).
 | `<root>/.jas/config.json`, `config.local.json` | project / local settings |
 | `<root>/.jas/farm.yaml` | project farm config |
 | `<root>/.jas/sessions/<id>.json` | live session records (`jas sessions`) |
-| `<root>/.jas/worktrees/<farm-id>/<part>` | farm worktrees |
+| `<root>/.jas/worktrees/<farm-id>/part-<part>` | farm worktrees |
 | `~/.config/jas/skills/jas/` | jas's built-in manual skill |

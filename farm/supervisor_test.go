@@ -527,7 +527,8 @@ func TestWorkerPrompt(t *testing.T) {
 		Parts: []Part{coder("a", "a/**"), coder("b", "b/**", "a")}}
 	role := Role{Name: "coder", Prompt: "ROLE PROMPT"}
 	got := WorkerPrompt(plan, plan.Parts[1], role, "abc123")
-	for _, want := range []string{"ROLE PROMPT", "do b", "Use errors.Is.", "Store", "Get(k) string", "a/**", "b/**", "abc123"} {
+	for _, want := range []string{"ROLE PROMPT", "do b", "Use errors.Is.", "Store", "Get(k) string", "a/**", "b/**", "abc123",
+		"full checkout of the repository", "not in your worktree until"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, got)
 		}

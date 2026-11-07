@@ -94,6 +94,9 @@ func WorkerPrompt(plan Plan, part Part, role Role, base string) string {
 	fmt.Fprintf(&b, "You are part %q (role %s) of a farm: parallel workers, each in its own git worktree, splitting this task:\n%s\n\n", part.ID, role.Name, plan.Task)
 	fmt.Fprintf(&b, "Your goal:\n%s\n\n", part.Goal)
 	fmt.Fprintf(&b, "You own (only these paths are writable): %s\nBase commit: %s\n", strings.Join(part.Owns, ", "), base)
+	b.WriteString("Your working directory is your worktree: a full checkout of the repository, so its root is the repo root " +
+		"and owned paths are relative to it, whatever the worktree folder is called. Keep files where your owned paths put them. " +
+		"Other parts' work is not in your worktree until the farm merges it.\n")
 	if c := strings.TrimSpace(plan.Contracts); c != "" {
 		fmt.Fprintf(&b, "\nContracts:\n%s\n", c)
 	}
