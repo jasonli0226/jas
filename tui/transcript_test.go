@@ -116,13 +116,13 @@ func TestTranscript_UserBand(t *testing.T) {
 func TestTranscript_AssistantChrome(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.Text("Hello\nthere\n\nWorld\n\n", t0))
-	eqStrings(t, got, []string{"● Hello\n  there", "  World"})
+	eqStrings(t, got, []string{"● Hello\n  there", "", "  World"})
 
-	// A tool row ends the agent turn; the next text is a new turn (no blank).
+	// A tool row ends the agent turn; the next text is a new turn after a blank.
 	tr.Event("tool_started", map[string]any{"call_id": "c", "args": map[string]any{}}, t0)
 	tr.Event("tool_result", map[string]any{"call_id": "c", "tool": "ls", "status": "ok"}, t0)
 	got = plain(tr.Text("Again\n\n", t0))
-	eqStrings(t, got, []string{"● Again"})
+	eqStrings(t, got, []string{"", "● Again"})
 }
 
 func TestTranscript_WrapsUnderMarker(t *testing.T) {
@@ -142,7 +142,7 @@ func TestTranscript_AssistantLiveMatchesPrinted(t *testing.T) {
 	tr.Text("par", t0)
 	assert.Eq(t, ansi.Strip(tr.Live()), "\n● par")
 	tr.Text("t\n\nnext", t0)
-	assert.Eq(t, ansi.Strip(tr.Live()), "  next")
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n  next")
 }
 
 func TestTranscript_TurnGap(t *testing.T) {
@@ -154,12 +154,13 @@ func TestTranscript_TurnGap(t *testing.T) {
 	eqStrings(t, plain(got), []string{"› hi", "", "● Hello", "", "› more"})
 }
 
-// Tighter spacing: consecutive agent blocks and agent↔tool have no blank;
-// a blank still precedes each user turn. User bands have no vertical pad.
-func TestTranscript_TighterSpacing(t *testing.T) {
+// Spacing: paragraphs of one reply keep their blank, agent text→tool row has
+// none, tool output→agent text has one, and a blank precedes each user turn.
+// User bands have no vertical pad.
+func TestTranscript_Spacing(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.Text("One\n\nTwo\n\n", t0))
-	eqStrings(t, got, []string{"● One", "  Two"})
+	eqStrings(t, got, []string{"● One", "", "  Two"})
 
 	tr.Event("tool_started", map[string]any{"call_id": "c1", "tool": "ls",
 		"args": map[string]any{"path": "."}}, t0)
@@ -168,7 +169,7 @@ func TestTranscript_TighterSpacing(t *testing.T) {
 	eqStrings(t, got, []string{"▸ ls . (1 entries)", "a"})
 
 	got = plain(tr.Text("After\n\n", t0))
-	eqStrings(t, got, []string{"● After"})
+	eqStrings(t, got, []string{"", "● After"})
 
 	got = plain(tr.User("next"))
 	eqStrings(t, got, []string{"", "› next"})
@@ -307,7 +308,7 @@ func TestTranscript_HistoryReprintsTurns(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.History(msgs, func(s string) string { return s }, t0))
 	eqStrings(t, got, []string{"· compacted earlier messages", "", "› hello", "", "● hi there",
-		"▸ ls src (2 entries)", "a", "b", "● done"})
+		"▸ ls src (2 entries)", "a", "b", "", "● done"})
 }
 
 func TestTranscript_HistoryEmpty(t *testing.T) {
@@ -444,9 +445,11 @@ func TestTranscript_ConsecutiveToolGap(t *testing.T) {
 	// consecutive tools: blank between blocks; no preview indent
 	eqStrings(t, got, []string{"", "▸ shell b ok", "outB1", "outB2"})
 
-	got = plain(tr.Text("After\n\n", t0))
-	// tool → agent: still no blank
-	eqStrings(t, got, []string{"● After"})
+	// tool → agent: blank, live and printed alike
+	tr.Text("After", t0)
+	assert.Eq(t, ansi.Strip(tr.Live()), "\n● After")
+	got = plain(tr.Text("\n\n", t0))
+	eqStrings(t, got, []string{"", "● After"})
 }
 
 func TestTranscript_HistoryConsecutiveToolGap(t *testing.T) {
