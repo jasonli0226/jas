@@ -280,13 +280,35 @@ func (w *Worktrees) RunSetup(ctx context.Context, path string) (core.CheckResult
 	return res, nil
 }
 
-// Commit stages everything except .jas/tmp and commits with the farm trailers.
-// With nothing to commit it returns the current HEAD.
+// DependencyDirs are installed-dependency and tool-cache dirs a farm never
+// commits when untracked, whatever the repo's .gitignore says: a worker that
+// runs npm install in a repo with no .gitignore must not commit node_modules.
+var DependencyDirs = []string{
+	"node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+	".tox", ".gradle", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
+}
+
+// addArgs stages new and changed files outside DependencyDirs. Pathspec
+// excludes also hide tracked files, so a follow-up `add -u` stages those.
+func addArgs() []string {
+	args := []string{"add", "-A", "--", "."}
+	for _, d := range DependencyDirs {
+		args = append(args, ":(exclude,glob)**/"+d+"/**")
+	}
+	return args
+}
+
+// Commit stages everything except .jas/tmp and untracked DependencyDirs, and
+// commits with the farm trailers. With nothing to commit it returns the
+// current HEAD.
 func (w *Worktrees) Commit(ctx context.Context, path, part, msg string) (string, error) {
 	if err := w.ensureExclude(ctx); err != nil {
 		return "", err
 	}
-	if _, err := w.Git.Run(ctx, path, "add", "-A"); err != nil {
+	if _, err := w.Git.Run(ctx, path, addArgs()...); err != nil {
+		return "", err
+	}
+	if _, err := w.Git.Run(ctx, path, "add", "-u"); err != nil {
 		return "", err
 	}
 	staged, err := w.Git.Run(ctx, path, "diff", "--cached", "--name-only")

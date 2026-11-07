@@ -150,6 +150,30 @@ func TestWorktrees_CommitIdentityAndTrailers(t *testing.T) {
 	}
 }
 
+// Untracked dependency and cache dirs are never committed, even with no
+// .gitignore covering them; tracked files under such a dir still are.
+func TestWorktrees_CommitSkipsDependencyDirs(t *testing.T) {
+	w, _ := newRepo(t)
+	ctx := context.Background()
+	writeFile(t, filepath.Join(w.Main, "vendored", "node_modules", "keep.js"), "v1\n")
+	mustGit(t, w.Git, w.Main, "add", "-A")
+	mustGit(t, w.Git, w.Main, "commit", "-q", "-m", "vendored")
+	base := mustGit(t, w.Git, w.Main, "rev-parse", "HEAD")
+	p, _, _ := w.Create(ctx, "core", base, nil)
+	for _, f := range []string{"node_modules/x/index.js", "client/node_modules/y/a.js", "py/__pycache__/m.pyc",
+		".venv/bin/python", "client/src/App.jsx"} {
+		writeFile(t, filepath.Join(p, f), "x\n")
+	}
+	writeFile(t, filepath.Join(p, "vendored", "node_modules", "keep.js"), "v2\n")
+	if _, err := w.Commit(ctx, p, "core", "feat: app"); err != nil {
+		t.Fatal(err)
+	}
+	files := mustGit(t, w.Git, p, "show", "--name-only", "--format=", "HEAD")
+	if files != "client/src/App.jsx\nvendored/node_modules/keep.js" {
+		t.Fatalf("committed %q", files)
+	}
+}
+
 func TestWorktrees_ParallelCommitsNoLockError(t *testing.T) {
 	w, base := newRepo(t)
 	ctx := context.Background()
