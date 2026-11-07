@@ -683,6 +683,48 @@ func TestRunFarm_WorkerRanCheckFirstArtifactNotBlamed(t *testing.T) {
 	}
 }
 
+// A write outside owns and a failing cross-part check in the same answer go
+// back in one message, so the worker can undo the write and answer BLOCKED:
+// in its one fix round.
+func TestRunFarm_WriteAndCheckFailureInOneFixRound(t *testing.T) {
+	const check = "test -d a && test -d b"
+	var fix string
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return append(twoWriters(ws), final("BLOCKED: needs a"))
+		}
+		dirty, _ := json.Marshal(map[string]string{"command": "echo x > root.lock"})
+		undo, _ := json.Marshal(map[string]string{"command": "rm root.lock"})
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), call("shell", string(dirty)), final("a done"),
+			call("shell", string(undo)), final("BLOCKED: b/ is another part's")}
+	})
+	r.opts.Cfg.PartCheck = check
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(EvPartEnded))
+	}
+	raw, err := os.ReadFile(filepath.Join(r.farmDir(), "parts", "a", "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(raw), "\n") {
+		var ev struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		if json.Unmarshal([]byte(l), &ev) == nil && ev.Type == "user_message" && len(ev.Content) > 0 &&
+			strings.Contains(ev.Content[0].Text, "root.lock") {
+			fix = ev.Content[0].Text
+		}
+	}
+	for _, want := range []string{"root.lock", "test -d a && test -d b", blockedPrefix} {
+		if !strings.Contains(fix, want) {
+			t.Fatalf("fix message lacks %q:\n%s\nchecks %v deferred %v", want, fix, r.events(EvPartCheck), r.events(EvPartCheckDeferred))
+		}
+	}
+}
+
 // BLOCKED: only counts as the answer to a failed check, not as a first answer.
 func TestRunFarm_BlockedFirstAnswerStillChecked(t *testing.T) {
 	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
