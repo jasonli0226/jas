@@ -74,6 +74,8 @@ func farmLine(typ string, m map[string]any) string {
 			return fmt.Sprintf("[%s] part_check passed (%s)", part, dur(m))
 		}
 		return fmt.Sprintf("[%s] part_check failed (%s), %s", part, exitText(m), dur(m))
+	case EvGeneratedRestored:
+		return fmt.Sprintf("[%s] undid generated %s", part, joinAny(m["paths"]))
 	case EvPartCheckDeferred:
 		return fmt.Sprintf("[%s] part_check deferred to the merged check: %v (set part_check: \"\" if parts cannot pass check alone)", part, m["reason"])
 	case EvPartEnded:

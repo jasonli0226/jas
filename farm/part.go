@@ -115,6 +115,10 @@ func (s *Supervisor) reviewTurn(ctx context.Context, w *worker, round int, final
 		res := s.partCheck(ctx, w, round)
 		chk = &res
 	}
+	if err := s.restoreGenerated(ctx, w); err != nil {
+		end := failed(id, ReasonError, core.ExitFailure, err.Error())
+		return turnReview{fail: &end}
+	}
 	viol, err := s.blamedViolations(ctx, w)
 	if err != nil {
 		end := failed(id, ReasonError, core.ExitFailure, err.Error())
@@ -138,6 +142,46 @@ func (s *Supervisor) reviewTurn(ctx context.Context, w *worker, round int, final
 	}
 	end := failed(id, ReasonCheck, core.ExitUnmet, fmt.Sprintf("part_check failed (exit %d)", chk.ExitCode))
 	return turnReview{fix: checkFixMessage(s.Cfg.PartCheck, *chk), fail: &end, checkFailed: true}
+}
+
+// restoreGenerated undoes the worker's changes to generated files outside
+// its write limit (jas regenerates them after the merge) and logs
+// generated_restored when it undid any. No fix round, nothing said to the
+// worker: its prompt warned it up front.
+func (s *Supervisor) restoreGenerated(ctx context.Context, w *worker) error {
+	gen := s.generatedOutside(w.pol.Writes)
+	if len(gen) == 0 {
+		return nil
+	}
+	viol, err := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
+	if err != nil {
+		return err
+	}
+	var undo []string
+	for _, p := range viol {
+		if slices.Contains(gen, p) {
+			undo = append(undo, p)
+		}
+	}
+	if len(undo) == 0 {
+		return nil
+	}
+	if err := s.restorePaths(ctx, w, undo); err != nil {
+		return err
+	}
+	s.event(EvGeneratedRestored, map[string]any{"part": w.part.ID, "paths": undo})
+	return nil
+}
+
+// generatedOutside is the run's generated paths that rules do not cover.
+func (s *Supervisor) generatedOutside(rules []core.WriteRule) []string {
+	var out []string
+	for _, p := range generatedPaths(s.Gen) {
+		if rules != nil && !core.MatchWriteRules(rules, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // blamedViolations returns the writes outside the part's limit that are the
@@ -330,13 +374,14 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 		return err
 	}
 	w.pol = WorkerPolicy(s.Policy, w.role, w.path)
+	gen := s.generatedOutside(w.pol.Writes)
 	w.pool = s.Pools.Part(id, w.role.Budget)
 	w.rec = s.register(w, sid, logPath)
 	if attempt > 1 { // a fresh session has seen none of the board
 		s.Board.ResetDelivery(id)
 	}
 	ws := WorkerSession{
-		Part: w.part, Role: w.role, Root: w.path, System: WorkerPrompt(s.Plan, w.part, w.role, s.baseSHA),
+		Part: w.part, Role: w.role, Root: w.path, System: WorkerPrompt(s.Plan, w.part, w.role, s.baseSHA, gen),
 		SessionID: sid, Log: log, Pool: w.pool, Inject: s.inject(w.part),
 		Policy: w.pol, Meta: WorkerMeta(s.FarmID, id, s.baseSHA, s.Manifest.PlanSHA256),
 		Tools: toolset, Gate: gate, Touched: touchHook(w.rec, w.path),

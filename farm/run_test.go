@@ -892,3 +892,118 @@ func TestRunFarm_GatesHookPerPart(t *testing.T) {
 	}
 	sortedEq(t, got, "a:", "b:")
 }
+
+// withGenerated sets the run's generated list as if farm.yaml listed it.
+func withGenerated(cfg *Config, gen ...Generated) {
+	cfg.Generated, cfg.generatedSet = gen, true
+}
+
+func shellTurn(cmd string) fake.Turn {
+	b, _ := json.Marshal(map[string]string{"command": cmd})
+	return call("shell", string(b))
+}
+
+func (r *runRig) partEvents(typ, part string) []map[string]any {
+	var out []map[string]any
+	for _, ev := range r.events(typ) {
+		if ev["part"] == part {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// A generated file the worker writes outside its owns is undone without a
+// fix round: the script has no turn left for one.
+func TestRunFarm_GeneratedWriteUndoneNoFixRound(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), shellTurn("echo x > root.lock"), final("a done")}
+	})
+	withGenerated(&r.opts.Cfg, Generated{Path: "root.lock", Regenerate: "true"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; ended %v", code, reason, r.events(EvPartEnded))
+	}
+	evs := r.partEvents(EvGeneratedRestored, "a")
+	if len(evs) != 1 || fmt.Sprint(evs[0]["paths"]) != "[root.lock]" {
+		t.Fatalf("generated_restored %v", r.events(EvGeneratedRestored))
+	}
+	if _, err := r.git("cat-file", "-e", branchPrefix+r.farmID()+"/a:root.lock"); err == nil {
+		t.Fatal("root.lock committed on a's branch")
+	}
+}
+
+func TestRunFarm_GeneratedRestoredOnBlocked(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return append(twoWriters(ws), final("BLOCKED: needs a"))
+		}
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), final("a done"),
+			shellTurn("echo x > root.lock"), final("BLOCKED: needs b")}
+	})
+	r.opts.Cfg.PartCheck = "test -d a && test -d b"
+	withGenerated(&r.opts.Cfg, Generated{Path: "root.lock", Regenerate: "true"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; ended %v", code, reason, r.events(EvPartEnded))
+	}
+	if len(r.partEvents(EvPartCheckDeferred, "a")) != 1 || len(r.partEvents(EvGeneratedRestored, "a")) != 1 {
+		t.Fatalf("deferred %v restored %v", r.events(EvPartCheckDeferred), r.events(EvGeneratedRestored))
+	}
+	if _, err := r.git("cat-file", "-e", branchPrefix+r.farmID()+"/a:root.lock"); err == nil {
+		t.Fatal("root.lock committed on a's branch")
+	}
+}
+
+// a.txt is tracked at base (newRepo): a deleted generated file comes back.
+func TestRunFarm_GeneratedDeleteRestored(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), shellTurn("rm a.txt"), final("a done")}
+	})
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "true"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; ended %v", code, reason, r.events(EvPartEnded))
+	}
+	if got, _ := r.git("show", branchPrefix+r.farmID()+"/a:a.txt"); got != "one\ntwo\nthree" {
+		t.Fatalf("a.txt on a's branch = %q", got)
+	}
+}
+
+func TestRunFarm_GeneratedInsideOwnsIsCommitted(t *testing.T) {
+	a := coder("a", "a/**")
+	a.Owns = append(a.Owns, "root.lock")
+	r := newRunRig(t, "true", []Part{a, coder("b", "b/**")}, func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return twoWriters(ws)
+		}
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), writeCall("root.lock", "mine\n"), final("a done")}
+	})
+	withGenerated(&r.opts.Cfg, Generated{Path: "root.lock", Regenerate: "true"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; ended %v", code, reason, r.events(EvPartEnded))
+	}
+	if evs := r.events(EvGeneratedRestored); len(evs) != 0 {
+		t.Fatalf("generated_restored %v", evs)
+	}
+	if got, _ := r.git("show", branchPrefix+r.farmID()+"/a:root.lock"); got != "mine" {
+		t.Fatalf("root.lock on a's branch = %q", got)
+	}
+}
+
+// part_check's own write to a generated file is undone as the check's, not
+// logged again as a generated restore.
+func TestRunFarm_GeneratedWrittenByCheckNotRestoredTwice(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	r.opts.Cfg.PartCheck = "echo y > root.lock"
+	withGenerated(&r.opts.Cfg, Generated{Path: "root.lock", Regenerate: "true"})
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; ended %v", code, reason, r.events(EvPartEnded))
+	}
+	if evs := r.events(EvGeneratedRestored); len(evs) != 0 {
+		t.Fatalf("generated_restored %v", evs)
+	}
+}

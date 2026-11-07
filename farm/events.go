@@ -16,6 +16,7 @@ const (
 	EvIntegrateEnded    = "integrate_ended"
 	EvPartCheck         = "part_check"          // check run on a part's worktree before it is done
 	EvPartCheckDeferred = "part_check_deferred" // the worker said its failing part_check needs other parts
+	EvGeneratedRestored = "generated_restored"  // generated files outside a part's owns undone in its worktree
 	EvIntegrateCheck    = "integrate_check"     // check run after a clean merge, before the verdict
 	EvCheckRan          = core.EvCheckRan
 	EvBudgetStop        = core.EvBudgetStop

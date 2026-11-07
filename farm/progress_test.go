@@ -29,3 +29,10 @@ func TestProgress_NoWidthNoClip(t *testing.T) {
 		t.Fatal("line clipped without a terminal width")
 	}
 }
+
+func TestProgressLine_Generated(t *testing.T) {
+	got := ProgressLine(EvGeneratedRestored, map[string]any{"part": "a", "paths": []any{"root.lock"}})
+	if got != "[a] undid generated root.lock" {
+		t.Fatalf("line %q", got)
+	}
+}
