@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/farm"
 )
@@ -59,6 +60,7 @@ type farmAgent struct {
 	worktree         string
 	after            []string
 	tokens           int
+	hue              int  // index into agentHues
 	num              int  // flip key 1..9; 0 = none
 	needsApproval    bool // an approval prompt from this agent is open
 
@@ -95,7 +97,7 @@ type (
 func newFarmState(run FarmRun, plan farm.Plan, task string, now time.Time, width int) *farmState {
 	f := &farmState{run: run, task: task, started: now, check: "pending"}
 	for i, p := range plan.Parts {
-		a := &farmAgent{id: p.ID, role: p.Role, status: agentQueued, after: p.After, tr: Transcript{Width: width}}
+		a := &farmAgent{id: p.ID, role: p.Role, status: agentQueued, after: p.After, hue: i, tr: Transcript{Width: width}}
 		if i < maxFlipKeys {
 			a.num = i + 1
 		}
@@ -167,7 +169,7 @@ func (f *farmState) apply(typ string, m map[string]any) {
 		}
 	case farm.EvIntegrateStarted:
 		if f.agent(integrateAgent) == nil {
-			f.agents = append(f.agents, &farmAgent{id: integrateAgent, role: "integrator", status: agentRunning,
+			f.agents = append(f.agents, &farmAgent{id: integrateAgent, role: "integrator", status: agentRunning, hue: len(f.agents),
 				num: f.nextNum(), tr: Transcript{Width: f.width}})
 		}
 	case farm.EvIntegrateEnded:
@@ -199,6 +201,25 @@ func (f *farmState) refresh(man farm.Manifest) {
 	if man.TotalTokens > 0 {
 		f.used = man.TotalTokens
 	}
+}
+
+// markStyle colors a status mark: done green, failed red, others plain.
+func markStyle(status string) lipgloss.Style {
+	switch status {
+	case agentDone:
+		return doneStyle
+	case agentFailed:
+		return errStyle
+	}
+	return lipgloss.NewStyle()
+}
+
+// padRight pads a styled string with spaces to n terminal cells.
+func padRight(s string, n int) string {
+	if w := ansi.StringWidth(s); w < n {
+		return s + strings.Repeat(" ", n-w)
+	}
+	return s
 }
 
 func agentStatus(s string) string {
@@ -233,8 +254,8 @@ func (m *Model) farmRows() []string {
 		if a.needsApproval {
 			activity = "⚠ needs approval"
 		}
-		line := fmt.Sprintf("%s %-*s %-10s %-28s %s", key, width, m.clean(a.id), agentMarks[a.status],
-			activity, formatTokens(a.tokens))
+		line := fmt.Sprintf("%s %s %s %-28s %s", key, padRight(agentStyle(a.hue).Render(m.clean(a.id)), width),
+			padRight(markStyle(a.status).Render(agentMarks[a.status]), 10), activity, formatTokens(a.tokens))
 		rows = append(rows, ansi.Truncate(strings.TrimRight(line, " "), m.width, "…"))
 	}
 	return append(rows, totals)

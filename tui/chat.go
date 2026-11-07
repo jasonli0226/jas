@@ -91,6 +91,8 @@ type Model struct {
 	screen       []string     // every block emitted to the screen (test hook)
 	farmReview   *FarmPlan    // a plan under review (or being drafted)
 	farmReplan   *FarmPlan    // a plan waiting for replan feedback in the input
+	farmBusy     string       // what the farm is doing before its rows show: planning, starting; "" idle
+	farmSince    time.Time    // when farmBusy began
 	reply        string       // the last final reply, for /copy
 
 	slashFor    string // input text the / menu cursor belongs to

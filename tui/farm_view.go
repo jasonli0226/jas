@@ -110,7 +110,8 @@ func (m *Model) flip(to string) tea.Cmd {
 		m.held = 0
 	} else {
 		a := m.farm.agent(to)
-		head := dimStyle.Render(fmt.Sprintf("── %s · %s · %s ──", m.clean(a.id), m.clean(a.role), m.clean(a.worktree)))
+		head := dimStyle.Render("── ") + agentStyle(a.hue).Render(m.clean(a.id)) +
+			dimStyle.Render(fmt.Sprintf(" · %s · %s ──", m.clean(a.role), m.clean(a.worktree)))
 		blocks = append([]string{head}, m.fit(a.printed)...)
 		if a.status == agentQueued && len(a.after) > 0 {
 			blocks = append(blocks, dimStyle.Render("waiting for "+m.clean(strings.Join(a.after, ", "))))
@@ -202,11 +203,12 @@ func (m *Model) farmStrip() string {
 		if a.num > 0 {
 			label = fmt.Sprintf("%d %s", a.num, a.id)
 		}
-		label = m.clean(label) + " " + strings.Fields(agentMarks[a.status])[0]
+		style := agentStyle(a.hue)
 		if a.id == m.viewing {
-			label = boldStyle.Render(label)
+			style = style.Bold(true)
 		}
-		parts = append(parts, label)
+		mark := strings.Fields(agentMarks[a.status])[0]
+		parts = append(parts, style.Render(m.clean(label))+" "+markStyle(a.status).Render(mark))
 	}
 	line := strings.Join(parts, "  ")
 	if m.held > 0 {
