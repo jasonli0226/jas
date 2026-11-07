@@ -290,11 +290,13 @@ func TestCheckFixMessage_OffersBlocked(t *testing.T) {
 
 func TestBlockedReason(t *testing.T) {
 	for in, want := range map[string]string{
-		"BLOCKED: needs server/":       "needs server/",
-		"**BLOCKED:** needs server/":   "needs server/",
-		"  blocked: the check needs b": "the check needs b",
-		"Fixed it.":                    "",
-		"Not BLOCKED: fine":            "",
+		"BLOCKED: needs server/":                           "needs server/",
+		"**BLOCKED:** needs server/":                       "needs server/",
+		"  blocked: the check needs b":                     "the check needs b",
+		"Fixed it.":                                        "",
+		"Not BLOCKED: fine":                                "",
+		"The check fails.\n\nBLOCKED: frontend/ is absent": "frontend/ is absent",
+		"reply with one line starting `BLOCKED:` and stop": "",
 	} {
 		if got, ok := blockedReason(in); got != want || ok != (want != "") {
 			t.Errorf("blockedReason(%q) = %q, %v; want %q", in, got, ok, want)

@@ -641,6 +641,48 @@ func TestRunFarm_PartCheckBlockedDefersToMergedCheck(t *testing.T) {
 	}
 }
 
+// A part_check that writes outside the part's owns (npm install --prefix
+// other/ makes other/package-lock.json) is undone and not blamed on the
+// worker, even when the worker reruns the check itself.
+func TestRunFarm_PartCheckArtifactsOutsideOwnsNotBlamed(t *testing.T) {
+	const check = "mkdir -p b && echo lock > b/lock.json && exit 1"
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return append(twoWriters(ws), final("BLOCKED: needs a"))
+		}
+		rerun, _ := json.Marshal(map[string]string{"command": check + " || true"})
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), final("a done"),
+			call("shell", string(rerun)), final("It needs b.\nBLOCKED: b/ is another part's")}
+	})
+	r.opts.Cfg.PartCheck = check
+	code, reason := r.run(context.Background())
+	if code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(EvPartEnded))
+	}
+	br := branchPrefix + r.farmID() + "/a"
+	if out, _ := r.git("ls-tree", "-r", "--name-only", br); strings.Contains(out, "b/lock.json") {
+		t.Fatalf("check artifact committed on a's branch:\n%s", out)
+	}
+}
+
+// The worker running the check before its first answer leaves the same
+// artifact; the supervisor's own run rewrites it, so it is still not blamed.
+func TestRunFarm_WorkerRanCheckFirstArtifactNotBlamed(t *testing.T) {
+	const check = "mkdir -p b && echo lock > b/lock.json && exit 1"
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return append(twoWriters(ws), final("BLOCKED: needs a"))
+		}
+		run, _ := json.Marshal(map[string]string{"command": check + " || true"})
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), call("shell", string(run)), final("a done"),
+			final("BLOCKED: b/ is another part's")}
+	})
+	r.opts.Cfg.PartCheck = check
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(EvPartEnded))
+	}
+}
+
 // BLOCKED: only counts as the answer to a failed check, not as a first answer.
 func TestRunFarm_BlockedFirstAnswerStillChecked(t *testing.T) {
 	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
