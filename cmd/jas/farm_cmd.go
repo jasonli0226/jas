@@ -36,6 +36,7 @@ type planArgs struct {
 	out        string
 	outSet     bool // -o was given
 	allowDirty bool
+	chat       bool // planned from the chat, which has no --allow-dirty
 	trust      bool
 	flags      map[string]string
 }
@@ -241,6 +242,9 @@ func farmPreflight(ctx context.Context, e *env, pa planArgs) (preflighted, error
 		return pf, err
 	}
 	if dirty {
+		if pa.chat {
+			return pf, usageErr("working tree has uncommitted changes; commit them first (a farm plans from HEAD)")
+		}
 		if !pa.allowDirty {
 			return pf, usageErr("working tree has uncommitted changes; commit them or pass --allow-dirty")
 		}
