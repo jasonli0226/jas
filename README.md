@@ -45,7 +45,9 @@ make chat ARGS=--continue       # same, resuming the last session (DIR=... picks
 
 The module path is `github.com/jasonli0226/jas`; once the repo is public,
 `go install github.com/jasonli0226/jas/cmd/jas@latest` works too. The binary
-is static (`CGO_ENABLED=0`), about 7 MB.
+is static (`CGO_ENABLED=0`); its size depends on the target platform, Go
+version and build flags. `make build` and release builds use `-ldflags="-s -w"`
+to strip symbol and debug information; plain `go install ./cmd/jas` does not.
 
 Release builds for Linux (amd64, arm64), macOS (amd64, arm64) and Windows
 (amd64) are attached to each `v*` tag's GitHub release, with
