@@ -108,11 +108,11 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, pre
 		diff = preview()
 	}
 	if diff != nil {
-		header = g.redact(core.Sanitize(t.Name()) + " " + core.Sanitize(diff.Path))
+		header = core.Sanitize(g.redact(t.Name())) + " " + core.Sanitize(g.redact(diff.Path))
 	}
 	reply := make(chan string, 1)
 	g.send(approvalMsg{
-		prompt: g.redact(fmt.Sprintf("approve %s: %s? [y/N/always]", t.Name(), core.SummarizeCall(t.Name(), args))),
+		prompt: fmt.Sprintf("approve %s: %s? [y/N/always]", core.Sanitize(g.redact(t.Name())), core.SummarizeCall(t.Name(), g.redactArgs(args))),
 		header: header,
 		diff:   diff,
 		reply:  reply,
@@ -127,10 +127,10 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, pre
 
 // decide turns the user's answer into a decision, recording an always grant.
 func (g *Gate) decide(t core.Tool, args json.RawMessage, text string) core.Decision {
-	switch normalizeReply(text) {
-	case "y", "yes":
+	switch classifyReply(text) {
+	case replyYes:
 		return core.Granted
-	case "always":
+	case replyAlways:
 		if grant, ok := g.Grants().Add(t.Name(), args); ok {
 			g.send(noticeMsg{g.redact("always: " + core.Sanitize(grant) + " (covers any arguments)")})
 		} else {
@@ -141,16 +141,45 @@ func (g *Gate) decide(t core.Tool, args json.RawMessage, text string) core.Decis
 	return core.Denied
 }
 
-func normalizeReply(text string) string { return strings.ToLower(strings.TrimSpace(text)) }
+// reply is what an answer to an approval prompt means.
+type reply int
 
-// replySteers reports whether an answer is free text: a denial whose text is
-// also queued for the model as steering.
-func replySteers(text string) bool {
-	switch normalizeReply(text) {
-	case "", "y", "yes", "n", "no", "always":
-		return false
+const (
+	replyNo     reply = iota // n, no or empty: deny
+	replyYes                 // y or yes: allow once
+	replyAlways              // always: allow and add a standing grant
+	replyFarm                // farm: a farm part's grant for every part
+	replyFree                // anything else: deny, and the chat steers with it
+)
+
+// classifyReply is the one place approval answers are read.
+func classifyReply(text string) reply {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "", "n", "no":
+		return replyNo
+	case "y", "yes":
+		return replyYes
+	case "always":
+		return replyAlways
+	case "farm":
+		return replyFarm
 	}
-	return true
+	return replyFree
+}
+
+// replySteers reports whether an answer to the main chat's prompt is free
+// text: a denial whose text is also queued for the model as steering. The
+// main prompt offers no farm grant, so "farm" there is free text too.
+func replySteers(text string) bool {
+	r := classifyReply(text)
+	return r == replyFree || r == replyFarm
+}
+
+// redactArgs redacts a call's raw arguments before they are summarized (and
+// sanitized) for a prompt: redact first, then sanitize, as the chat does. A
+// redaction marker holds no quotes or backslashes, so the JSON stays valid.
+func (g *Gate) redactArgs(args json.RawMessage) json.RawMessage {
+	return json.RawMessage(g.redact(string(args)))
 }
 
 // ForPart returns the approval gate for one farm part at level. Its prompts
@@ -195,12 +224,12 @@ func (p *partGate) Allow(ctx context.Context, t core.Tool, args json.RawMessage,
 	}
 	header := ""
 	if diff != nil {
-		header = g.redact("[" + p.part + "] " + core.Sanitize(t.Name()) + " " + core.Sanitize(diff.Path))
+		header = "[" + core.Sanitize(g.redact(p.part)) + "] " + core.Sanitize(g.redact(t.Name())) + " " + core.Sanitize(g.redact(diff.Path))
 	}
 	reply := make(chan string, 1)
 	g.send(approvalMsg{
 		part:   p.part,
-		prompt: g.redact(fmt.Sprintf("[%s] approve %s: %s? [y/N/always/farm]", p.part, t.Name(), core.SummarizeCall(t.Name(), args))),
+		prompt: fmt.Sprintf("[%s] approve %s: %s? [y/N/always/farm]", core.Sanitize(g.redact(p.part)), core.Sanitize(g.redact(t.Name())), core.SummarizeCall(t.Name(), g.redactArgs(args))),
 		header: header, diff: diff, reply: reply,
 	})
 	select {
@@ -213,12 +242,12 @@ func (p *partGate) Allow(ctx context.Context, t core.Tool, args json.RawMessage,
 
 func (p *partGate) decide(t core.Tool, args json.RawMessage, text string) core.Decision {
 	var grants *core.Grants
-	switch normalizeReply(text) {
-	case "y", "yes":
+	switch classifyReply(text) {
+	case replyYes:
 		return core.Granted
-	case "always":
+	case replyAlways:
 		grants = p.grants
-	case "farm":
+	case replyFarm:
 		grants = p.farm
 	default:
 		return core.Denied

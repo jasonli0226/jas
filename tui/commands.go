@@ -53,7 +53,7 @@ const helpText = `commands
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /reload                reload AGENTS.md, skills and project context into this session
   /settings              open settings picker (enums get a value picker)
-  /settings <key> [val]  show or set a setting (default write: local)
+  /settings <key> [val]  show or set a setting (default write: local; global in an untrusted project)
   /settings unset <key>  remove a setting from local (or --global/--project)
   /session               session file, tokens used, context use
   /thinking              show or hide thinking
@@ -82,7 +82,7 @@ keys
   Ctrl-C clear the input; on an empty box stop a running ! command, else twice quits
   !cmd run a shell command; its output goes with your next message · !!cmd keeps it local
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
-  in a picker: type to filter · Up/Down move · Enter choose · Esc cancel
+  in a picker: type to filter · Up/Down move · Enter choose · Esc or Ctrl+C cancel
   in the /model picker: Ctrl+S also sets the default for new sessions
 full manual: docs/manual.md in the jas repo, or ask jas ("how do I …?")`
 
@@ -147,7 +147,7 @@ func levenshtein(a, b string) int {
 func (m *Model) commandNames() []string {
 	names := slices.Collect(maps.Keys(commands))
 	for _, s := range m.b.SkillNames() {
-		names = append(names, "skill:"+core.Sanitize(s))
+		names = append(names, "skill:"+m.clean(s)) // redacted, then sanitized, like every shown text
 	}
 	slices.Sort(names)
 	return names
