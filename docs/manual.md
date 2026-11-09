@@ -387,6 +387,13 @@ tracked files under them still commit. Other build output (`dist/`) is
 committed unless ignored, so workers are told to add a `.gitignore` inside
 their owned paths when they create it.
 
+When the farm ends, a terminal asks `[m]erge`, `[k]eep` (branches only) or
+`[d]iscard` (deletes the farm branches); a failed part asks retry, drop or
+abort. Answer with the word or the start of one (`d`, `disc`, `discard`), in
+any case; text that only begins with a choice, such as `don't`, is asked
+again. An empty final answer, or no terminal, keeps. Merging an unmet farm
+also needs the typed phrase `merge anyway`.
+
 | key | default | does |
 |---|---|---|
 | `check` | detected | command whose exit code is the farm's verdict |

@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/farm"
 )
 
 const farmNeedsYou = "farm needs you · ctrl+0"
@@ -124,15 +125,15 @@ func (m *Model) openFarmAsk() tea.Cmd {
 	return m.ring()
 }
 
-// answerFarmAsk answers the open farm question from the input: a choice by
-// whole word or prefix, or anything for a typed confirm; an unknown answer
-// is asked again.
+// answerFarmAsk answers the open farm question from the input: a choice as
+// farm.MatchChoice names it, or anything for a typed confirm; an unknown
+// answer is asked again.
 func (m *Model) answerFarmAsk() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	q := m.ask
 	ans := text
 	if len(q.choices) > 0 && text != "" {
-		c, ok := matchChoice(strings.ToLower(text), q.choices)
+		c, ok := farm.MatchChoice(text, q.choices)
 		if !ok {
 			m.input.Reset()
 			m.hint = "answer one of: " + strings.Join(q.choices, ", ")
@@ -149,24 +150,6 @@ func (m *Model) answerFarmAsk() tea.Cmd {
 	q.reply <- ans
 	m.restoreInput()
 	return m.openFarmAsk()
-}
-
-// matchChoice returns the one choice ans names (whole word or prefix, either
-// way round), if exactly one does.
-func matchChoice(ans string, choices []string) (string, bool) {
-	var found []string
-	for _, c := range choices {
-		if ans == c {
-			return c, true
-		}
-		if strings.HasPrefix(c, ans) || strings.HasPrefix(ans, c) {
-			found = append(found, c)
-		}
-	}
-	if len(found) == 1 {
-		return found[0], true
-	}
-	return "", false
 }
 
 // cancelFarmAsks answers every farm question with no answer (on quit).

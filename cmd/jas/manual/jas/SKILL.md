@@ -135,7 +135,9 @@ round. Root lockfiles (`generated`, detected by default) are undone in
 part worktrees without a fix round and regenerated once on the merged tree
 before `check`. A clean merge whose `check` fails is
 handed to the integrator. At the failure prompt, answer `retry`, `drop` or
-`abort` (or a prefix); anything else is asked again. Part worktrees live in
+`abort` (or a prefix); at the final prompt, `merge`, `keep` or `discard`
+(or a prefix: `d` discards, `don't` is asked again); anything else is asked
+again. Part worktrees live in
 `.jas/worktrees/<farm-id>/part-<part>` (git-excluded; file tools in the main
 checkout are denied there); `worktree.dir` moves them. Without `--json`, progress prints
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
