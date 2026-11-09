@@ -415,7 +415,12 @@ When the farm ends, a terminal asks `[m]erge`, `[k]eep` (branches only) or
 abort. Answer with the word or the start of one (`d`, `disc`, `discard`), in
 any case; text that only begins with a choice, such as `don't`, is asked
 again. An empty final answer, or no terminal, keeps. Merging an unmet farm
-also needs the typed phrase `merge anyway`.
+also needs the typed phrase `merge anyway`. Merging is refused, keeping the
+branches, when the target branch has commits the check never ran on (it moved
+during the farm, or the plan's `base` was older than its HEAD): the prompt
+says so, `owner_decision` carries the note and `target_head`, and
+`manifest.json` records the `checked_commit` and the `target_head` at the
+verdict. Merge the branch yourself and run the check.
 
 | key | default | does |
 |---|---|---|

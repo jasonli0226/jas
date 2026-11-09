@@ -140,7 +140,8 @@ before `check`. A clean merge whose `check` fails is
 handed to the integrator. At the failure prompt, answer `retry`, `drop` or
 `abort` (or a prefix); at the final prompt, `merge`, `keep` or `discard`
 (or a prefix: `d` discards, `don't` is asked again); anything else is asked
-again. Part worktrees live in
+again. Merging is refused (branches kept) when the target branch moved
+since the check. Part worktrees live in
 `.jas/worktrees/<farm-id>/part-<part>` (git-excluded; file tools in the main
 checkout are denied there); `worktree.dir` moves them. Without `--json`, progress prints
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part

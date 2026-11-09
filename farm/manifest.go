@@ -38,16 +38,20 @@ type PartState struct {
 
 // Manifest is the farm's on-disk summary (manifest.json).
 type Manifest struct {
-	FarmID      string                `json:"farm_id"`
-	PlanSHA256  string                `json:"plan_sha256"`
-	Base        string                `json:"base"`
-	Parts       map[string]*PartState `json:"parts"`
-	Integrator  *PartState            `json:"integrator"`
-	Check       *core.CheckResult     `json:"-"`
-	FinalChoice string                `json:"final_choice"`
-	Reason      string                `json:"reason"`
-	ExitCode    int                   `json:"exit_code"`
-	TotalTokens int                   `json:"total_tokens"`
+	FarmID     string                `json:"farm_id"`
+	PlanSHA256 string                `json:"plan_sha256"`
+	Base       string                `json:"base"`
+	Parts      map[string]*PartState `json:"parts"`
+	Integrator *PartState            `json:"integrator"`
+	Check      *core.CheckResult     `json:"-"`
+	// CheckedCommit is the integrate commit the verdict checked, and
+	// TargetHead the target branch's commit at that time.
+	CheckedCommit string `json:"checked_commit,omitempty"`
+	TargetHead    string `json:"target_head,omitempty"`
+	FinalChoice   string `json:"final_choice"`
+	Reason        string `json:"reason"`
+	ExitCode      int    `json:"exit_code"`
+	TotalTokens   int    `json:"total_tokens"`
 }
 
 // manifestMu serializes Update and Save. It is package-level so Manifest stays
