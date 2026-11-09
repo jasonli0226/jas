@@ -79,7 +79,7 @@ func TestGate_AlwaysStopsRepeatPrompts(t *testing.T) {
 
 	d, err := g.Allow(context.Background(), shell, shellArgs("go test ./core"), nil)
 	assert.NoErr(t, err)
-	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, d, core.AutoGranted) // the standing grant answers; nobody is asked
 	assert.Eq(t, len(msgs), 0)
 }
 
@@ -114,7 +114,7 @@ func TestGate_UngatedNeverPrompts(t *testing.T) {
 	g, msgs := newRecordingGate(core.ShellOnly)
 	d, err := g.Allow(context.Background(), toolNamed(t, "write"), json.RawMessage(`{"path":"a","content":"x"}`), nil)
 	assert.NoErr(t, err)
-	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, d, core.AutoGranted)
 	assert.Eq(t, len(msgs), 0)
 }
 
@@ -171,7 +171,7 @@ func TestGate_ApprovalCarriesDiff(t *testing.T) {
 	g, msgs := newRecordingGate(core.Never)
 	d, err := g.Allow(context.Background(), edit, args, preview)
 	assert.NoErr(t, err)
-	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, d, core.AutoGranted)
 	assert.Eq(t, calls, 0)
 	assert.Eq(t, len(msgs), 0)
 

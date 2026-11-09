@@ -104,6 +104,10 @@ type Decision string
 
 const (
 	Granted     Decision = "granted"
+	// AutoGranted runs a call nobody was asked about: the approve level does
+	// not gate it, or a standing grant covers it. No approval event is
+	// logged for it, so approval events mean someone actually decided.
+	AutoGranted Decision = "auto"
 	Denied      Decision = "denied"
 	Unavailable Decision = "unavailable" // approval needed but no way to ask
 )
@@ -115,9 +119,9 @@ type Gate interface {
 	Allow(ctx context.Context, t Tool, args json.RawMessage, preview func() *Diff) (Decision, error)
 }
 
-// AllowAll grants everything (slice 1).
+// AllowAll grants everything without asking (slice 1).
 type AllowAll struct{}
 
 func (AllowAll) Allow(context.Context, Tool, json.RawMessage, func() *Diff) (Decision, error) {
-	return Granted, nil
+	return AutoGranted, nil
 }

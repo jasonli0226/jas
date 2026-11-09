@@ -218,11 +218,13 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 		r.emitResult(s)
 		return
 	}
-	r.noteLogErr(r.e.Log.Append(EvApproval, map[string]any{
-		"call_id": s.call.ToolUseID, "tool": s.call.Name, "decision": string(d),
-	}))
+	if d != AutoGranted { // only a decision someone made is an approval event
+		r.noteLogErr(r.e.Log.Append(EvApproval, map[string]any{
+			"call_id": s.call.ToolUseID, "tool": s.call.Name, "decision": string(d),
+		}))
+	}
 	switch d {
-	case Granted:
+	case Granted, AutoGranted:
 	case Denied:
 		s.settle(Result{Output: "denied: the user did not approve this call", IsError: true}, statusDenied)
 		r.emitResult(s)

@@ -75,7 +75,7 @@ func Gated(level Level, t Tool) bool {
 // Allow implements Gate.
 func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage, preview func() *Diff) (Decision, error) {
 	if !Gated(a.Level, t) {
-		return Granted, nil
+		return AutoGranted, nil
 	}
 	if !a.Interactive {
 		return Unavailable, nil

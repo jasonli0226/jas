@@ -489,7 +489,7 @@ one bumps `v`.
 | `assistant_message` | text, content, final |
 | `usage` | prompt_tokens, completion_tokens, cached_tokens |
 | `tool_started` | tool, call_id, args, mutating |
-| `approval` | call_id, tool, decision (`granted` \| `denied` \| `unavailable`) |
+| `approval` | call_id, tool, decision (`granted` \| `denied` \| `unavailable`); only when someone was asked, not for calls the approve level or a standing grant lets through |
 | `tool_result` | call_id, tool, status (`ok` \| `error` \| `denied` \| `cancelled` \| `interrupted` \| `not_run`), output; optional diff |
 | `elided` | count, tokens_before, tokens_after |
 | `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens |

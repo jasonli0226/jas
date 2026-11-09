@@ -448,3 +448,27 @@ func TestExec_ToolDeniedResultRecordedDenied(t *testing.T) {
 	assert.Eq(t, res[0].IsError, true)
 	assert.Eq(t, statuses(log)[0], "denied")
 }
+
+func TestExec_AutoGrantedRunsWithoutApprovalEvent(t *testing.T) {
+	for _, c := range []struct {
+		d      Decision
+		logged bool
+	}{{AutoGranted, false}, {Granted, true}} {
+		log := &fakeLog{}
+		w := &fakeTool{name: "write", kind: Mutating}
+		e := newExec(log, gateFunc(func(Tool) (Decision, error) { return c.d, nil }), w)
+		res, err := e.Run(context.Background(), []providers.ContentBlock{call("1", "write")})
+		assert.NoErr(t, err)
+		assert.Eq(t, res[0].IsError, false)
+		assert.Eq(t, w.calls, 1)
+		logged := false
+		for _, r := range log.snapshot() {
+			if r.Typ == EvApproval {
+				logged = true
+			}
+		}
+		if logged != c.logged {
+			t.Errorf("decision %q: approval event logged %v, want %v", c.d, logged, c.logged)
+		}
+	}
+}

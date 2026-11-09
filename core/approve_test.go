@@ -38,12 +38,12 @@ func TestApprover_LadderTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		for name, want := range c.gated {
-			// Not interactive: a gated call is Unavailable, an ungated one Granted.
+			// Not interactive: a gated call is Unavailable, an ungated one AutoGranted.
 			a := &core.Approver{Level: c.level}
 			d, err := a.Allow(context.Background(), toolByName(t, name), json.RawMessage(`{}`), nil)
 			assert.NoErr(t, err)
 			got := d == core.Unavailable
-			if got != want || (!want && d != core.Granted) {
+			if got != want || (!want && d != core.AutoGranted) {
 				t.Errorf("level %d tool %s: decision %q, gated want %v", c.level, name, d, want)
 			}
 		}

@@ -88,7 +88,7 @@ func (g *Gate) Grants() *core.Grants {
 // call's prompt is open.
 func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, preview func() *core.Diff) (core.Decision, error) {
 	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
-		return core.Granted, nil
+		return core.AutoGranted, nil
 	}
 	select {
 	case g.ask <- struct{}{}:
@@ -98,7 +98,7 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, pre
 	defer func() { <-g.ask }()
 	// An answer to the prompt we waited behind may have granted this call.
 	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
-		return core.Granted, nil
+		return core.AutoGranted, nil
 	}
 	var (
 		diff   *core.Diff
@@ -177,7 +177,7 @@ func (p *partGate) covered(t core.Tool, args json.RawMessage) bool {
 // Allow implements core.Gate.
 func (p *partGate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, preview func() *core.Diff) (core.Decision, error) {
 	if p.covered(t, args) {
-		return core.Granted, nil
+		return core.AutoGranted, nil
 	}
 	g := p.g
 	select {
@@ -187,7 +187,7 @@ func (p *partGate) Allow(ctx context.Context, t core.Tool, args json.RawMessage,
 	}
 	defer func() { <-g.ask }()
 	if p.covered(t, args) {
-		return core.Granted, nil
+		return core.AutoGranted, nil
 	}
 	var diff *core.Diff
 	if preview != nil {
