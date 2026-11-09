@@ -54,3 +54,19 @@ func TestReadScope_RootsDenyAtReadRoot(t *testing.T) {
 	assert.Eq(t, p.ReadScope(filepath.Join(skill, "SKILL.md")).Root, skill)
 	assert.Eq(t, p.ReadScope(filepath.Join(p.Root, "a.go")).Root, p.Root)
 }
+
+func TestResolveRead_ExpandsTildeToHome(t *testing.T) {
+	home := realpath(t, t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	skill := filepath.Join(home, ".agents", "skills", "a")
+	assert.NoErr(t, os.MkdirAll(skill, 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("x"), 0o644))
+	p := ExecPolicy{Root: realpath(t, t.TempDir()), ReadRoots: []string{skill}}
+	got, err := p.ResolveRead("~/.agents/skills/a/SKILL.md")
+	assert.NoErr(t, err)
+	assert.Eq(t, got, filepath.Join(skill, "SKILL.md"))
+	if _, err := p.ResolveRead("~/elsewhere"); err == nil {
+		t.Fatal("~ reached outside the read roots")
+	}
+}

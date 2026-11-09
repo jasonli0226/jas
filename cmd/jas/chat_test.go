@@ -357,3 +357,31 @@ func TestChatBackend_RegistersRecord(t *testing.T) {
 	assert.Contains(t, string(raw), `"mode": "chat"`)
 	assert.Contains(t, string(raw), `"state": "ended"`)
 }
+
+func TestChatBackend_SkillFilesKnowTheCatalogForm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	real, err := filepath.EvalSymlinks(home)
+	assert.NoErr(t, err)
+	e := testEnv(t)
+	loc := filepath.Join(real, ".agents", "skills", "deploy", "SKILL.md")
+	e.pc.skills = []skills.Skill{{Name: "deploy", Location: loc}}
+	files := (&chatBackend{e: e}).SkillFiles()
+	assert.Eq(t, files[loc], "deploy")
+	assert.Eq(t, files["~/.agents/skills/deploy/SKILL.md"], "deploy") // how the catalog shows it
+}
+
+func TestChatBackend_SkillPromptWritesHomeAsTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	real, err := filepath.EvalSymlinks(home)
+	assert.NoErr(t, err)
+	e := testEnv(t)
+	e.pc.skills = []skills.Skill{{Name: "deploy", Location: filepath.Join(real, "s", "deploy", "SKILL.md"), Content: []byte("steps")}}
+	p, ok := (&chatBackend{e: e}).SkillPrompt("deploy", "")
+	assert.Eq(t, ok, true)
+	assert.Contains(t, p, "(~/s/deploy/SKILL.md)")
+	assert.NotContains(t, p, real)
+}

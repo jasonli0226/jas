@@ -222,8 +222,11 @@ shadow it freely — a same-named skill in `~/.agents/skills/` wins).
   symlinked out of it is skipped with a warning. A user skill symlinked
   outside your home still loads, with a warning naming where it points
   (read-only tools can open that directory).
-- The skill list in the prompt is capped at 64 KB; skills past the cap are
-  not listed, and a warning names them.
+- The skill list in the prompt is capped at 64 KB; project skills are kept
+  first, then user skills, and those past the cap are not listed (a warning
+  names them). Paths under your home are written `~/…` (read tools expand it).
+- Project skills are found at the project root (the git top level) only, not
+  in directories between it and where jas starts, like `AGENTS.md`.
 - Validation is lenient: a bad name warns, a missing description or broken
   frontmatter skips the skill. `disable-model-invocation: true` hides a skill
   from the model.

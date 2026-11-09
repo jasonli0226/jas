@@ -136,12 +136,13 @@ func buildProjectContext(pt projectTrust, project, user []skills.Skill, redact f
 			warn(w)
 		}
 	}
-	kept, dropped := skills.Fit(pc.skills, skills.MaxCatalogBytes)
+	home := catalogHome()
+	kept, dropped := skills.Fit(pc.skills, skills.MaxCatalogBytes, home)
 	if len(dropped) > 0 {
 		warn(fmt.Sprintf("skill list over %d bytes; not listing %d skills: %s", skills.MaxCatalogBytes, len(dropped), strings.Join(dropped, ", ")))
 	}
 	pc.skills = kept
-	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills)), instructions)
+	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills, home)), instructions)
 	return pc
 }
 
@@ -209,6 +210,19 @@ func currentTrustBundle(root string, denied func(string) bool) []byte {
 	_, content, _ := core.FindContextFile(root)
 	project, _ := skills.Discover(skills.ProjectSources(root), denied)
 	return trustBundle(content, project, readFarmConfig(root), readProjectSettings(root))
+}
+
+// catalogHome is the home directory the skill catalog writes as ~/,
+// symlink-resolved like skill locations; "" (no home) keeps paths absolute.
+func catalogHome() string {
+	h, err := os.UserHomeDir()
+	if err != nil || h == "" {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(h); err == nil {
+		return r
+	}
+	return h
 }
 
 // projectFile is a file under .jas that joins the trust decision.

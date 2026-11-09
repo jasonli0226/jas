@@ -29,8 +29,9 @@ func writeSkill(t *testing.T, base, name, desc, body string) string {
 
 func TestRun_UserSkillListedAndReadable(t *testing.T) {
 	userHome := t.TempDir()
-	loc := writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "demo", "Use when demoing", "SKILL-BODY-4410\n")
-	args, err := json.Marshal(map[string]string{"path": loc})
+	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "demo", "Use when demoing", "SKILL-BODY-4410\n")
+	shown := "~/.agents/skills/demo/SKILL.md" // the catalog writes home as ~/; read expands it
+	args, err := json.Marshal(map[string]string{"path": shown})
 	assert.NoErr(t, err)
 	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
 		{Calls: []fake.Call{{Name: "read", Args: string(args)}}},
@@ -42,7 +43,8 @@ func TestRun_UserSkillListedAndReadable(t *testing.T) {
 	first := systemPrompt(t, bodies()[0])
 	assert.Contains(t, first, "<available_skills>")
 	assert.Contains(t, first, "<name>demo</name>")
-	assert.Contains(t, first, loc)
+	assert.Contains(t, first, "<location>"+shown+"</location>")
+	assert.NotContains(t, first, userHome) // no home path in the prompt
 	assert.NotContains(t, first, "SKILL-BODY-4410") // body loads on demand only
 	assert.Contains(t, string(bodies()[1]), "SKILL-BODY-4410")
 }

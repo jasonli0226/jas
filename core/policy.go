@@ -71,6 +71,7 @@ var errOutsideRoot = errors.New("path outside project root")
 // ReadRoots is allowed too. There the deny floor applies with the read root
 // standing in for the project root, so a skill's .env stays denied.
 func (p ExecPolicy) ResolveRead(path string) (string, error) {
+	path = expandHome(path)
 	resolved, err := p.Resolve(path)
 	if !errors.Is(err, errOutsideRoot) || !filepath.IsAbs(path) {
 		return resolved, err
@@ -87,6 +88,19 @@ func (p ExecPolicy) ResolveRead(path string) (string, error) {
 		return "", err
 	}
 	return abs, nil
+}
+
+// expandHome turns a leading ~/ (how the skill catalog writes home paths)
+// into the home directory; other paths are returned as they are.
+func expandHome(path string) string {
+	rest, ok := strings.CutPrefix(path, "~/")
+	if !ok {
+		return path
+	}
+	if h := homeDir(); h != "" {
+		return filepath.Join(h, filepath.FromSlash(rest))
+	}
+	return path
 }
 
 // ReadScope returns the policy for walking or listing under resolved: p

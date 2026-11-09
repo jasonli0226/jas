@@ -388,8 +388,10 @@ Scanned in this order; on a name clash the first wins:
 | project (needs trust) | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
 | user | `~/.agents/skills/`, `~/.claude/skills/`, `~/.config/jas/skills/` |
 
-Only names and descriptions go in the prompt; the model reads a full
-`SKILL.md` when a task matches. `/skill:<name>` runs one directly.
+Only names and descriptions go in the prompt (capped at 64 KB, project
+skills kept before user skills; home paths written `~/…`, which read tools
+expand); the model reads a full `SKILL.md` when a task matches. Project
+skills are looked for at the project root (the git top level) only. `/skill:<name>` runs one directly.
 `disable-model-invocation: true` hides a skill from the model. jas
 reinstalls its own `jas` skill under `~/.config/jas/skills/` at every start.
 A project skill symlinked outside the project is skipped; a user skill

@@ -546,9 +546,11 @@ func (b *chatBackend) ContextFiles() []tui.ContextFile {
 // SkillFiles maps each skill's SKILL.md path to its name, so the chat can
 // show the model loading one as a skill row.
 func (b *chatBackend) SkillFiles() map[string]string {
-	files := make(map[string]string, len(b.e.pc.skills))
+	home := catalogHome()
+	files := make(map[string]string, 2*len(b.e.pc.skills))
 	for _, s := range b.e.pc.skills {
 		files[s.Location] = s.Name
+		files[skills.DisplayPath(s.Location, home)] = s.Name // the catalog's ~/ form
 	}
 	return files
 }
@@ -560,7 +562,7 @@ func (b *chatBackend) SkillPrompt(name, text string) (string, bool) {
 		return "", false
 	}
 	s := b.e.pc.skills[i]
-	p := fmt.Sprintf("Use the \"%s\" skill for this request. Its instructions (%s):\n\n%s", s.Name, s.Location, strings.TrimSpace(string(s.Content)))
+	p := fmt.Sprintf("Use the \"%s\" skill for this request. Its instructions (%s):\n\n%s", s.Name, skills.DisplayPath(s.Location, catalogHome()), strings.TrimSpace(string(s.Content)))
 	if text = strings.TrimSpace(text); text != "" {
 		p += "\n\n" + text
 	}
