@@ -56,6 +56,24 @@ const (
 // uncommitted changes.
 var errDirtyMain = errors.New("main checkout has uncommitted changes; keeping the branches")
 
+// staleTargetError refuses the owner's merge when the target branch has
+// commits the integrate branch does not contain (it moved during the farm,
+// or the plan's base was older): the check never ran on that combination.
+type staleTargetError struct{ target, head, branch string }
+
+func (e *staleTargetError) Error() string {
+	return fmt.Sprintf("%s moved to %s since the check, which never ran on that combination; keeping the branches (merge %s yourself and run the check)",
+		e.target, shortSHA(e.head), e.branch)
+}
+
+// shortSHA is the first 12 characters of a commit id.
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
 // RunOptions is everything `jas farm run` decided before the farm starts.
 type RunOptions struct {
 	PlanPath, Home, Main string // Home is the jas home (~/.jas or JAS_HOME)
@@ -413,10 +431,14 @@ func (r *farmRun) end(code int, reason string, err error) (int, string, error) {
 func (r *farmRun) finalChoice(branch, reason string) {
 	s := r.s
 	choice, by := r.askChoice(branch, reason)
-	var note string
+	var note, targetHead string
 	if choice == ChoiceMerge {
+		var stale *staleTargetError
 		if err := r.ownerMerge(branch, reason); errors.Is(err, errDirtyMain) {
 			note = err.Error()
+			choice = ChoiceKeep
+		} else if errors.As(err, &stale) {
+			note, targetHead = err.Error(), stale.head
 			choice = ChoiceKeep
 		} else if err != nil {
 			note = "merge failed, keeping the branches: " + err.Error()
@@ -431,6 +453,9 @@ func (r *farmRun) finalChoice(branch, reason string) {
 	ev := map[string]any{"choice": choice, "by": by, "branch": branch}
 	if note != "" {
 		ev["note"] = note // the chat shows decisions only from events
+	}
+	if targetHead != "" {
+		ev["target_head"] = targetHead
 	}
 	s.event(EvOwnerDecision, ev)
 	s.Manifest.Update(func(m *Manifest) { m.FinalChoice = choice })
@@ -447,6 +472,9 @@ func (r *farmRun) askChoice(branch, reason string) (choice, by string) {
 	}
 	target := r.s.target
 	prompt := fmt.Sprintf("farm %s: %s. [m]erge %s into %s, [k]eep unmerged (branches only, %s untouched), [d]iscard? ", r.s.FarmID, reason, branch, target, target)
+	if _, stale, err := r.s.staleTarget(context.Background(), branch); err == nil && stale {
+		prompt = fmt.Sprintf("farm %s: %s. %s moved since the check, so merging is refused. [k]eep unmerged (branches only), [d]iscard? ", r.s.FarmID, reason, target)
+	}
 	for range maxChoicePrompts {
 		ans, ok := r.o.Ask(prompt, finalChoices)
 		if !ok {
@@ -491,6 +519,11 @@ func (r *farmRun) ownerMerge(branch, reason string) error {
 		return err
 	} else if dirty {
 		return errDirtyMain
+	}
+	if head, stale, err := s.staleTarget(context.Background(), branch); err != nil {
+		return err
+	} else if stale {
+		return &staleTargetError{target: s.target, head: head, branch: branch}
 	}
 	msg := fmt.Sprintf("Merge jas farm %s\n\nJas-Farm: %s\n", s.FarmID, s.FarmID)
 	if reason != ReasonOK {

@@ -450,9 +450,32 @@ func Verdict(ctx context.Context, s *Supervisor, dir string) core.CheckResult {
 	if err := core.LogCheck(s.Log, spec, res, s.Redact); err != nil {
 		s.noteErr(fmt.Errorf("farm log: %w", err))
 	}
-	s.Manifest.Update(func(m *Manifest) { m.Check = &res })
+	checked, _ := s.Git.Run(ctx, dir, "rev-parse", "HEAD")
+	target, _ := s.targetHead(ctx)
+	s.Manifest.Update(func(m *Manifest) {
+		m.Check, m.CheckedCommit, m.TargetHead = &res, strings.TrimSpace(checked), target
+	})
 	s.save()
 	return res
+}
+
+// targetHead is the commit the owner's target branch points at now.
+func (s *Supervisor) targetHead(ctx context.Context) (string, error) {
+	out, err := s.Git.Run(ctx, s.Main, "rev-parse", "--verify", "--quiet", "refs/heads/"+s.target+"^{commit}")
+	return strings.TrimSpace(out), err
+}
+
+// staleTarget reports whether the target branch has commits branch does not
+// contain: the check never ran on them, so merging would combine unchecked
+// work. head is the target's commit.
+func (s *Supervisor) staleTarget(ctx context.Context, branch string) (head string, stale bool, err error) {
+	if head, err = s.targetHead(ctx); err != nil {
+		return "", false, fmt.Errorf("resolve %s: %w", s.target, err)
+	}
+	if _, err := s.Git.Run(ctx, s.Main, "merge-base", "--is-ancestor", head, branch); err != nil {
+		return head, true, nil
+	}
+	return head, false, nil
 }
 
 // checkSpec runs cmd in dir (a farm worktree) with its TMPDIR and
