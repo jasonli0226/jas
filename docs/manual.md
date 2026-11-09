@@ -175,8 +175,8 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 | `/compact [focus]` | summarize older messages to free context; `focus` steers the summary |
 | `/reload` | reload `AGENTS.md` / `CLAUDE.md`, skills and project context into this session (same trust rules) |
 | `/settings` | settings picker; closed-set keys get a value picker |
-| `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--project`) |
-| `/settings unset <key>` | remove a setting from local (or `--global` / `--project`) |
+| `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--project`; **global** in an untrusted project, where project and local writes are refused) |
+| `/settings unset <key>` | remove a setting from local (or `--global` / `--project`; global by default in an untrusted project) |
 | `/session` | session file, tokens used, context use |
 | `/thinking` | show or hide the model's thinking |
 | `/approve [level]` | show or set the approval level: `never` \| `shell` \| `mutating` |
@@ -241,6 +241,7 @@ the next start.
 | Enter or `n` | deny |
 | `always` | allow matching calls until jas quits ([always grants](#always-grants)) |
 | any other text | deny, and pass the text to the model as steering |
+| a `/command` | not an answer: the prompt stays open (run the command after) |
 | Esc | deny and stop the run (a farm agent's prompt: deny only) |
 
 A farm agent's prompt is labelled `[part]` and also takes `farm` (allow for

@@ -356,8 +356,11 @@ quit). Once approved, one live row per agent sits under the input (status,
 last activity, tokens) with a totals line, and finished events print into the
 chat. `/farm` prints the dashboard; `/farm run <plan.yaml>` starts an approved
 plan. One farm per window; it needs a trusted project with a `check` and a
-clean working tree. A final **merge** (CLI or chat) is refused while the main
-checkout has uncommitted changes; the branches are kept. **Ctrl+1–9** (or Alt+1–9) flips the window to that agent:
+clean working tree. A final **merge** (CLI or chat) is refused, keeping the
+branches, while the main checkout has uncommitted changes or when the target
+branch has commits the check never ran on. The merged tree's `check` must
+leave committed files unchanged (a check that rewrites them fails); untracked
+build output is fine. **Ctrl+1–9** (or Alt+1–9) flips the window to that agent:
 the screen clears and shows its transcript live, as the main chat does;
 **Ctrl+0** (or Alt+0) comes back. While you watch an agent, main-chat output
 is held (the bottom strip counts it) and printed when you return.
