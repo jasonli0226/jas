@@ -127,8 +127,8 @@ func TestSources_ProjectConfinedThenUser(t *testing.T) {
 	assert.Eq(t, got[0], Source{Dir: filepath.Join(root, ".agents", "skills"), Scope: Project, Confine: root})
 	assert.Eq(t, got[1], Source{Dir: filepath.Join(root, ".claude", "skills"), Scope: Project, Confine: root})
 	user := UserSources("/h", "/c")
-	assert.Eq(t, user[0], Source{Dir: filepath.Join("/h", ".agents", "skills"), Scope: User})
-	assert.Eq(t, user[1], Source{Dir: filepath.Join("/h", ".claude", "skills"), Scope: User})
+	assert.Eq(t, user[0], Source{Dir: filepath.Join("/h", ".agents", "skills"), Scope: User, WarnOutside: "/h"})
+	assert.Eq(t, user[1], Source{Dir: filepath.Join("/h", ".claude", "skills"), Scope: User, WarnOutside: "/h"})
 	assert.Eq(t, user[2], Source{Dir: filepath.Join("/c", "jas", "skills"), Scope: User})
 	assert.Eq(t, len(UserSources("", "")), 0)
 	assert.Eq(t, len(UserSources("/h", "")), 2)
@@ -211,4 +211,29 @@ func TestMerge_ProjectWinsAndDedupes(t *testing.T) {
 	assert.Eq(t, got[1].Scope, Project)
 	assert.Eq(t, len(warns), 1)
 	assert.Contains(t, warns[0], "/u/pdf/SKILL.md shadowed by /p/pdf/SKILL.md")
+}
+
+func TestDiscover_UserSkillOutsideHomeWarns(t *testing.T) {
+	home, outside := realDir(t), realDir(t)
+	src := filepath.Join(home, ".agents", "skills")
+	skillFile(t, src, "local", "name: local\ndescription: d\n")
+	far := skillFile(t, outside, "far", "name: far\ndescription: d\n")
+	if err := os.Symlink(far, filepath.Join(src, "far")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	got, warns := Discover([]Source{{Dir: src, Scope: User, WarnOutside: home}}, noDeny)
+	assert.Eq(t, strings.Join(names(got), ","), "far,local") // still loaded: user skills are the user's
+	assert.Eq(t, len(warns), 1)
+	assert.Contains(t, warns[0], `skill "far" resolves outside your home`)
+	assert.Contains(t, warns[0], far)
+}
+
+func TestUserSources_WarnOutsideHome(t *testing.T) {
+	home := realDir(t)
+	for _, s := range UserSources(home, filepath.Join(home, ".config")) {
+		assert.Eq(t, s.WarnOutside, home)
+	}
+	other := realDir(t) // a config dir outside home (XDG_CONFIG_HOME elsewhere)
+	srcs := UserSources(home, other)
+	assert.Eq(t, srcs[len(srcs)-1].WarnOutside, "")
 }

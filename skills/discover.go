@@ -54,6 +54,11 @@ type Source struct {
 	// resolve inside: a project skill symlinked out of the project would
 	// otherwise make outside directories readable once the project is trusted.
 	Confine string
+	// WarnOutside, when set, is a symlink-resolved directory a skill is
+	// expected under (home, for user skills). A skill resolving elsewhere
+	// still loads, but read-only tools can then open that place, so a
+	// warning names it.
+	WarnOutside string
 }
 
 // Skill is one discovered skill.
@@ -97,6 +102,9 @@ func Discover(sources []Source, denied func(path string) bool) ([]Skill, []strin
 				continue
 			}
 			seen[s.Dir] = true
+			if src.WarnOutside != "" && !within(src.WarnOutside, s.Dir) {
+				warns = append(warns, fmt.Sprintf("skill %q resolves outside your home, to %s; read-only tools can open that directory", s.Name, s.Dir))
+			}
 			if winner, dup := byName[s.Name]; dup {
 				warns = append(warns, fmt.Sprintf("skill %q at %s shadowed by %s", s.Name, s.Location, winner))
 				continue
@@ -281,16 +289,31 @@ func ProjectSources(root string) []Source {
 // cross-agent shared locations under home, then jas's own under the user
 // config dir (its built-in manual), last so a same-named shared skill
 // overrides it. An empty home or config dir contributes nothing.
+//
+// A skill that resolves outside home is warned about. jas's config dir gets
+// that check only when it is itself under home.
 func UserSources(home, config string) []Source {
 	var out []Source
+	realHome := home
+	if r, err := filepath.EvalSymlinks(home); err == nil {
+		realHome = r
+	}
 	if home != "" {
 		out = append(out,
-			Source{Dir: filepath.Join(home, ".agents", "skills"), Scope: User},
-			Source{Dir: filepath.Join(home, ".claude", "skills"), Scope: User},
+			Source{Dir: filepath.Join(home, ".agents", "skills"), Scope: User, WarnOutside: realHome},
+			Source{Dir: filepath.Join(home, ".claude", "skills"), Scope: User, WarnOutside: realHome},
 		)
 	}
 	if config != "" {
-		out = append(out, Source{Dir: filepath.Join(config, "jas", "skills"), Scope: User})
+		src := Source{Dir: filepath.Join(config, "jas", "skills"), Scope: User}
+		realConfig := config
+		if r, err := filepath.EvalSymlinks(config); err == nil {
+			realConfig = r
+		}
+		if home != "" && within(realHome, realConfig) {
+			src.WarnOutside = realHome
+		}
+		out = append(out, src)
 	}
 	return out
 }

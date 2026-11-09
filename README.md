@@ -219,7 +219,9 @@ shadow it freely — a same-named skill in `~/.agents/skills/` wins).
   prompt, so review them before trusting. Until the project
   is trusted its skills are ignored entirely, so they cannot hide a user
   skill of the same name. A project skill must resolve inside the project; one
-  symlinked out of it is skipped with a warning.
+  symlinked out of it is skipped with a warning. A user skill symlinked
+  outside your home still loads, with a warning naming where it points
+  (read-only tools can open that directory).
 - The skill list in the prompt is capped at 64 KB; skills past the cap are
   not listed, and a warning names them.
 - Validation is lenient: a bad name warns, a missing description or broken

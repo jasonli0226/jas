@@ -392,6 +392,9 @@ Only names and descriptions go in the prompt; the model reads a full
 `SKILL.md` when a task matches. `/skill:<name>` runs one directly.
 `disable-model-invocation: true` hides a skill from the model. jas
 reinstalls its own `jas` skill under `~/.config/jas/skills/` at every start.
+A project skill symlinked outside the project is skipped; a user skill
+symlinked outside your home loads with a warning, since read-only tools can
+then open that directory.
 
 ## Farm
 
