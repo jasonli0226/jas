@@ -114,3 +114,19 @@ func TestChatBackend_ReloadAppliesToSession(t *testing.T) {
 	assert.Contains(t, s.System(), "LIVE-SYS-55")
 	assert.Eq(t, strings.HasPrefix(s.System(), "before"), false)
 }
+
+func TestEnv_ReloadTrustChangeLeavesSettingsForNextStart(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	writeJSON(t, filepath.Join(root, ".jas", "config.json"), `{"approve":"never"}`)
+	e := &env{
+		root: root, home: home,
+		red:    newRedactor(""),
+		policy: core.ExecPolicy{Root: root},
+	}
+	notices, _, err := e.reloadContext(func(string) string { return "y" })
+	assert.NoErr(t, err)
+	assert.Eq(t, e.pc.trusted, true)
+	assert.Eq(t, e.settingsTrusted, false)
+	assert.Contains(t, strings.Join(notices, "\n"), "project settings apply at the next start")
+	assert.Contains(t, e.projectWritable("project").Error(), "project not trusted")
+}

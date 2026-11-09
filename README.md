@@ -126,6 +126,10 @@ Precedence: flag > `JAS_*` env var > local > project > global > built-in
 default. Every key `k` has a `JAS_<K>` env var; `JAS_API_KEY` supplies the key
 (use these in CI and containers, where there is no `~/.jas/`). `jas config list`
 and chat `/settings` (picker or typed) show each effective value and its source.
+Project and local files live in the repository, so they apply only once the
+project is trusted (the same prompt as `AGENTS.md`), and endpoints (`base_url`,
+`search_base_url`, `providers.<name>.base_url`) come only from the global file,
+flags or env: a cloned repo cannot point your API key at another server.
 
 ```sh
 jas config set model z-ai/glm-5.3                 # → ~/.jas/config.json (default)

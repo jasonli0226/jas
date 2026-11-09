@@ -300,10 +300,6 @@ func TestTrust_FarmYAMLOnlyRepo(t *testing.T) {
 	assert.Eq(t, loadCtx(t, root, home, false, true, "").trusted, true)
 }
 
-func TestTrust_BundleUnchangedWithoutFarmYAML(t *testing.T) {
-	assert.Eq(t, string(trustBundle([]byte("rules\n"), nil, nil)), "rules\n")
-}
-
 func planRes(goal string) farm.PlannerResult {
 	y := "task: t\nparts:\n  - id: a\n    role: coder\n    goal: " + goal + "\n    owns: [\"core/**\"]\n"
 	p, _ := farm.ParsePlan([]byte(y))

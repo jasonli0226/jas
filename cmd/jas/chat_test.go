@@ -233,6 +233,7 @@ func TestChatBackend_SettingsScopes(t *testing.T) {
 	e := testEnv(t)
 	e.layers = settings.Layers{}
 	e.flags = map[string]string{}
+	e.settingsTrusted = true
 	// Need a buildable config after writes.
 	g, err := settings.File{}.Set("model", "m")
 	assert.NoErr(t, err)
@@ -241,7 +242,7 @@ func TestChatBackend_SettingsScopes(t *testing.T) {
 	g, err = g.Set("base_url", "http://x/v1")
 	assert.NoErr(t, err)
 	assert.NoErr(t, g.Save(settings.GlobalConfigPath(e.home)))
-	e.layers.Global = g
+	e.layers.Global, e.files.Global = g, g
 	b := &chatBackend{e: e}
 	assert.Eq(t, b.DefaultSettingsScope(), "local")
 	assert.NoErr(t, b.SetSetting("", "approve", "shell"))

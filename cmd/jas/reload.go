@@ -36,6 +36,9 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 	e.pc, e.skillList = pc, skillList
 	e.policy.ReadRoots = skillDirs
 	notices = append(notices, formatReloadNotice(pc))
+	if pc.trusted != e.settingsTrusted && len(readProjectSettings(e.root)) > 0 {
+		notices = append(notices, "jas: project trust changed; project settings apply at the next start")
+	}
 	for _, w := range warnings {
 		notices = append(notices, "jas: "+core.Sanitize(e.red.Redact(w)))
 	}

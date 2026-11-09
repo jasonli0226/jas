@@ -10,10 +10,20 @@ import (
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 )
 
 const trustFile = "trust.json"
+
+// trustVersion tags trust entries hashed from the framed trustBundle. Older
+// entries hash raw bytes and never match a tagged one.
+const trustVersion = "v2"
+
+// trustStore is the store of trustBundle approvals under home.
+func trustStore(home string) core.TrustStore {
+	return core.TrustStore{Path: filepath.Join(home, trustFile), Version: trustVersion}
+}
 
 // contextFileMeta is one session_started.context_files entry.
 type contextFileMeta struct {
@@ -39,42 +49,90 @@ type projectContext struct {
 	trusted bool
 }
 
-// loadProjectContext finds the project context file, applies the trust gate
-// and builds the system prompt. One decision covers the context file and
-// every project skill, since both put project-authored instructions in the
-// prompt; user skills need no trust. Project skills join (and on a name
-// clash override) user skills only once trusted. Context file content is
-// redacted and capped, and the skill catalog redacted and size-bounded,
-// before either reaches the prompt.
+// projectTrust is one trust decision and the context file it covered.
+type projectTrust struct {
+	path    string
+	content []byte
+	hasFile bool
+	trusted bool
+}
+
+// loadProjectContext decides project trust and builds the project context.
+// prepare splits the two so project settings can follow the decision.
 func loadProjectContext(root, home string, project, user []skills.Skill, interactive, flagTrust bool,
 	ask func(string) string, redact func(string) string, warn func(string)) (projectContext, error) {
+	pt, err := decideProjectTrust(root, home, project, interactive, flagTrust, ask)
+	if err != nil {
+		return projectContext{}, err
+	}
+	return buildProjectContext(pt, project, user, redact, warn), nil
+}
+
+// decideProjectTrust applies the trust gate. One decision covers the context
+// file, every project skill, .jas/farm.yaml and the project settings files,
+// since each puts project-authored instructions, code or settings in a run.
+func decideProjectTrust(root, home string, project []skills.Skill, interactive, flagTrust bool, ask func(string) string) (projectTrust, error) {
 	path, content, hasFile := core.FindContextFile(root)
-	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: flagTrust}
+	pt := projectTrust{path: path, content: content, hasFile: hasFile, trusted: flagTrust}
 	farmCfg := readFarmConfig(root)
+	settingsFiles := readProjectSettings(root)
+	if !hasFile && len(project) == 0 && farmCfg == nil && len(settingsFiles) == 0 {
+		return pt, nil
+	}
+	store := trustStore(home)
+	bundle := trustBundle(content, project, farmCfg, settingsFiles)
+	if !flagTrust && len(project) == 0 && farmCfg == nil && len(settingsFiles) == 0 {
+		if err := upgradeLegacyTrust(store, root, content, bundle); err != nil {
+			return projectTrust{}, err
+		}
+	}
+	load, err := core.DecideContextFile(trustLabel(path, len(project), farmCfg != nil, settingsFiles), root,
+		bundle, store, interactive, flagTrust, ask)
+	if err != nil {
+		return projectTrust{}, err
+	}
+	pt.trusted = load
+	return pt, nil
+}
+
+// upgradeLegacyTrust re-records trust an older jas stored as an untagged
+// hash of the raw context file. Only a layout holding nothing but the
+// context file qualifies: an old hash of a bundle with skills or farm.yaml
+// was ambiguous and has to be asked again.
+func upgradeLegacyTrust(store core.TrustStore, root string, content, bundle []byte) error {
+	if ok, err := store.Check(root, bundle); err != nil || ok {
+		return err
+	}
+	legacy := core.TrustStore{Path: store.Path}
+	ok, err := legacy.Check(root, content)
+	if err != nil || !ok {
+		return err
+	}
+	return store.Trust(root, bundle)
+}
+
+// buildProjectContext builds the system prompt under the decision pt. User
+// skills need no trust; project skills join (and on a name clash override)
+// them only once trusted. Context file content is redacted and capped, and
+// the skill catalog redacted and size-bounded, before either reaches the
+// prompt.
+func buildProjectContext(pt projectTrust, project, user []skills.Skill, redact func(string) string, warn func(string)) projectContext {
+	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: pt.trusted}
 	instructions := ""
-	if hasFile || len(project) > 0 || farmCfg != nil {
-		store := core.TrustStore{Path: filepath.Join(home, trustFile)}
-		load, err := core.DecideContextFile(trustLabel(path, len(project), farmCfg != nil), root, trustBundle(content, project, farmCfg), store,
-			interactive, flagTrust, ask)
-		if err != nil {
-			return projectContext{}, err
+	if pt.hasFile {
+		pc.files = append(pc.files, contextFileMeta{Path: pt.path, Loaded: pt.trusted, SHA256: core.ContentHash(pt.content)})
+		if pt.trusted {
+			instructions = fmt.Sprintf("Project instructions (%s):\n%s", filepath.Base(pt.path), core.CapContext(redact(string(pt.content))))
 		}
-		pc.trusted = load
-		if hasFile {
-			pc.files = append(pc.files, contextFileMeta{Path: path, Loaded: load, SHA256: core.ContentHash(content)})
-			if load {
-				instructions = fmt.Sprintf("Project instructions (%s):\n%s", filepath.Base(path), core.CapContext(redact(string(content))))
-			}
-		}
-		for _, s := range project {
-			pc.files = append(pc.files, contextFileMeta{Path: s.Location, Loaded: load, SHA256: core.ContentHash(s.Content)})
-		}
-		if load {
-			var clashes []string
-			pc.skills, clashes = skills.Merge(project, user)
-			for _, w := range clashes {
-				warn(w)
-			}
+	}
+	for _, s := range project {
+		pc.files = append(pc.files, contextFileMeta{Path: s.Location, Loaded: pt.trusted, SHA256: core.ContentHash(s.Content)})
+	}
+	if pt.trusted {
+		var clashes []string
+		pc.skills, clashes = skills.Merge(project, user)
+		for _, w := range clashes {
+			warn(w)
 		}
 	}
 	kept, dropped := skills.Fit(pc.skills, skills.MaxCatalogBytes)
@@ -83,11 +141,11 @@ func loadProjectContext(root, home string, project, user []skills.Skill, interac
 	}
 	pc.skills = kept
 	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills)), instructions)
-	return pc, nil
+	return pc
 }
 
 // trustLabel names what the trust prompt covers, e.g. "AGENTS.md and 2 project skills".
-func trustLabel(path string, projectSkills int, farmCfg bool) string {
+func trustLabel(path string, projectSkills int, farmCfg bool, settingsFiles []projectFile) string {
 	var parts []string
 	if path != "" {
 		parts = append(parts, filepath.Base(path))
@@ -102,24 +160,64 @@ func trustLabel(path string, projectSkills int, farmCfg bool) string {
 	if farmCfg {
 		parts = append(parts, ".jas/farm.yaml")
 	}
+	for _, f := range settingsFiles {
+		parts = append(parts, f.name)
+	}
 	return strings.Join(parts, " and ")
 }
 
 // trustBundle is the content the trust store hashes: the context file, then
-// each project skill's location and SKILL.md, length-prefixed so no split of
-// the bytes reads as another. With no project skills it is the context file
-// alone, so trust recorded before skills existed still holds.
-func trustBundle(content []byte, project []skills.Skill, farmCfg []byte) []byte {
-	b := append([]byte{}, content...)
+// each project skill's location and SKILL.md, .jas/farm.yaml and the settings
+// files. Every section is length-prefixed, the context file too, so no split
+// of the bytes reads as another (a context file ending in what looks like a
+// settings section hashes differently from a real settings file).
+func trustBundle(content []byte, project []skills.Skill, farmCfg []byte, settingsFiles []projectFile) []byte {
+	b := fmt.Appendf(nil, "context %d:", len(content))
+	b = append(b, content...)
 	for _, s := range project {
 		b = fmt.Appendf(b, "\x00skill %d:%s %d:", len(s.Location), s.Location, len(s.Content))
 		b = append(b, s.Content...)
 	}
-	if farmCfg != nil { // absent leaves the bytes as they were before farm existed
+	if farmCfg != nil {
 		b = fmt.Appendf(b, "\x00farm.yaml %d:", len(farmCfg))
 		b = append(b, farmCfg...)
 	}
+	for _, f := range settingsFiles {
+		b = fmt.Appendf(b, "\x00%s %d:", f.name, len(f.content))
+		b = append(b, f.content...)
+	}
 	return b
+}
+
+// currentTrustBundle is what the trust prompt would hash for root now.
+func currentTrustBundle(root string, denied func(string) bool) []byte {
+	_, content, _ := core.FindContextFile(root)
+	project, _ := skills.Discover(skills.ProjectSources(root), denied)
+	return trustBundle(content, project, readFarmConfig(root), readProjectSettings(root))
+}
+
+// projectFile is a file under .jas that joins the trust decision.
+type projectFile struct {
+	name    string // as the trust prompt shows it, e.g. ".jas/config.json"
+	content []byte
+}
+
+// readProjectSettings returns the project and local settings files that
+// exist. Both live in the repository (a clone can ship config.local.json
+// too), so either can change the model, approvals or redaction.
+func readProjectSettings(root string) []projectFile {
+	if root == "" {
+		return nil
+	}
+	var out []projectFile
+	for _, p := range []string{settings.ProjectConfigPath(root), settings.LocalConfigPath(root)} {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		out = append(out, projectFile{name: ".jas/" + filepath.Base(p), content: b})
+	}
+	return out
 }
 
 // readFarmConfig returns the project's .jas/farm.yaml, or nil when absent.
@@ -193,5 +291,5 @@ func workerBundleHash(root string) string {
 			project[i].Location = filepath.ToSlash(rel)
 		}
 	}
-	return core.ContentHash(trustBundle(content, project, nil))
+	return core.ContentHash(trustBundle(content, project, nil, nil))
 }
