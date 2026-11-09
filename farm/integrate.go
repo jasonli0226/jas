@@ -198,17 +198,23 @@ func (s *Supervisor) integratorRoleFor() (Role, []string, error) {
 
 // integrateCheck runs check on a cleanly merged integrate worktree and logs
 // integrate_check. ok is true when it passed or no check is set; a pass is
-// kept for Verdict, since nothing changes the tree before it.
+// kept for Verdict, bound to the commit it checked.
 func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.CheckResult, bool) {
 	if strings.TrimSpace(s.Cfg.Check) == "" {
 		return core.CheckResult{}, true
 	}
-	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.Check, path), tools.RunShell)
-	s.event(EvIntegrateCheck, map[string]any{"exit_code": res.ExitCode,
-		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
+	res, changed := s.runTreeCheck(ctx, path)
+	ev := map[string]any{"exit_code": res.ExitCode,
+		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut}
+	if len(changed) > 0 {
+		ev["changed"] = changed
+	}
+	s.event(EvIntegrateCheck, ev)
 	ok := res.ExitCode == 0 && !res.TimedOut
 	if ok {
-		s.mergeCheck = &res
+		if snap, err := s.treeSnapshot(ctx, path); err == nil {
+			s.keepMergeCheck(&res, snap.head)
+		}
 	}
 	return res, ok
 }
@@ -442,10 +448,10 @@ func (s *Supervisor) integratorMessage(leaves []string, conflicts []conflict, fa
 func Verdict(ctx context.Context, s *Supervisor, dir string) core.CheckResult {
 	spec := s.checkSpec(s.Cfg.Check, dir)
 	var res core.CheckResult
-	if s.mergeCheck != nil {
-		res = *s.mergeCheck
+	if kept := s.reusableMergeCheck(ctx, dir); kept != nil {
+		res = *kept
 	} else {
-		res = core.RunCheck(ctx, spec, tools.RunShell)
+		res, _ = s.runTreeCheck(ctx, dir)
 	}
 	if err := core.LogCheck(s.Log, spec, res, s.Redact); err != nil {
 		s.noteErr(fmt.Errorf("farm log: %w", err))
@@ -507,4 +513,101 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+// keepMergeCheck keeps a passing check of commit head for Verdict.
+func (s *Supervisor) keepMergeCheck(res *core.CheckResult, head string) {
+	s.mergeCheck, s.mergeCheckHead = res, head
+}
+
+// reusableMergeCheck is the kept pass when dir is still exactly the commit it
+// checked (same HEAD, no tracked change); otherwise nil and Verdict reruns.
+func (s *Supervisor) reusableMergeCheck(ctx context.Context, dir string) *core.CheckResult {
+	if s.mergeCheck == nil {
+		return nil
+	}
+	snap, err := s.treeSnapshot(ctx, dir)
+	if err != nil || snap.head != s.mergeCheckHead || snap.status != "" {
+		return nil
+	}
+	return s.mergeCheck
+}
+
+// treeState is a worktree's commit and its tracked changes (porcelain, no
+// untracked files: build output a check leaves is not a source change).
+type treeState struct{ head, status string }
+
+func (s *Supervisor) treeSnapshot(ctx context.Context, dir string) (treeState, error) {
+	head, err := s.Git.Run(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return treeState{}, err
+	}
+	st, err := s.Git.Run(ctx, dir, "status", "--porcelain=v1", "--untracked-files=no")
+	if err != nil {
+		return treeState{}, err
+	}
+	// Only trailing newlines go: porcelain lines start with a status column.
+	return treeState{head: strings.TrimSpace(head), status: strings.TrimRight(st, "\n")}, nil
+}
+
+// runTreeCheck runs the farm's check in dir and binds its result to the
+// committed tree it saw: a check that commits or changes tracked files fails
+// (exit 1 if it passed), names the files and has them undone, so a pass
+// always describes a commit and nothing the check wrote is lost unnoticed.
+func (s *Supervisor) runTreeCheck(ctx context.Context, dir string) (res core.CheckResult, changed []string) {
+	before, berr := s.treeSnapshot(ctx, dir)
+	res = core.RunCheck(ctx, s.checkSpec(s.Cfg.Check, dir), tools.RunShell)
+	if berr != nil {
+		s.noteErr(fmt.Errorf("check tree: %w", berr))
+		return res, nil
+	}
+	after, err := s.treeSnapshot(ctx, dir)
+	if err != nil {
+		s.noteErr(fmt.Errorf("check tree: %w", err))
+		return res, nil
+	}
+	if after == before {
+		return res, nil
+	}
+	changed = s.checkChanges(ctx, dir, before, after)
+	if before.status == "" { // the tree was the commit: put it back
+		if _, err := s.Git.Run(ctx, dir, "reset", "-q", "--hard", before.head); err != nil {
+			s.noteErr(fmt.Errorf("undo check changes: %w", err))
+		}
+	}
+	if res.ExitCode == 0 {
+		res.ExitCode = 1
+	}
+	if out := strings.TrimRight(res.Output, "\n"); out != "" {
+		res.Output = out + "\n"
+	}
+	res.Output += fmt.Sprintf("jas: the check changed tracked files: %s "+
+		"(undone; a check must leave committed files unchanged, so commit formatting or generated output instead)\n",
+		strings.Join(changed, ", "))
+	return res, changed
+}
+
+// checkChanges names the tracked files a check changed or committed.
+func (s *Supervisor) checkChanges(ctx context.Context, dir string, before, after treeState) []string {
+	set := map[string]bool{}
+	for _, l := range strings.Split(after.status, "\n") {
+		if len(l) > 3 {
+			set[strings.TrimSpace(l[3:])] = true
+		}
+	}
+	if after.head != before.head {
+		out, _ := s.Git.Run(ctx, dir, "diff", "--name-only", before.head, after.head)
+		for _, f := range strings.Fields(out) {
+			set[f] = true
+		}
+	}
+	files := make([]string, 0, len(set))
+	for f := range set {
+		files = append(files, f)
+	}
+	slices.Sort(files)
+	if len(files) == 0 {
+		files = []string{"(index only)"}
+	}
+	return files
 }

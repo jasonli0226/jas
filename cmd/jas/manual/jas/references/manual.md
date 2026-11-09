@@ -395,7 +395,12 @@ reinstalls its own `jas` skill under `~/.config/jas/skills/` at every start.
 
 Experimental. Farm splits one big task into parts that run in parallel git
 worktrees, merges them, and runs `check` as the verdict. It needs a `check`
-command and a clean tree. Configuration layers: built-in defaults,
+command and a clean tree. On the merged tree `check` must leave committed
+files unchanged: one that edits or commits a tracked file (a formatter, a
+code generator) fails, its changes are undone, and `integrate_check` lists
+them under `changed`, so the integrator can commit the change itself and a
+pass always describes the saved branch. Untracked build output is fine. A
+pass is reused for the verdict only while the tree is still that commit. Configuration layers: built-in defaults,
 `~/.jas/farm.yaml`, then `<root>/.jas/farm.yaml` (trusted projects only).
 A project with no `AGENTS.md`, project skills, `.jas/farm.yaml` or project settings never shows
 the trust prompt, so it stays untrusted: start jas with `--trust-project` to
