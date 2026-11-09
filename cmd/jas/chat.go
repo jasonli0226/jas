@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -74,10 +75,39 @@ func chatCmd(ctx context.Context, args []string) error {
 // chatExit maps the program being killed by a cancelled ctx (a signal) to the
 // interrupted exit code, which report prints nothing for.
 func chatExit(ctx context.Context, err error) error {
-	if ctx.Err() != nil && errors.Is(err, tea.ErrProgramKilled) {
-		return interrupted()
+	return chatExitWarn(ctx, err, func(w string) {
+		if reportRedactor != nil {
+			w = reportRedactor.Redact(w)
+		}
+		fmt.Fprintln(os.Stderr, core.Sanitize("jas: "+w))
+	})
+}
+
+// chatExitWarn is chatExit with the warning sink: errors that came with the
+// kill (closing the session failed, say) are warned about, not dropped.
+func chatExitWarn(ctx context.Context, err error, warn func(string)) error {
+	if ctx.Err() == nil || !errors.Is(err, tea.ErrProgramKilled) {
+		return err
 	}
-	return err
+	for _, e := range flatten(err) {
+		if !errors.Is(e, tea.ErrProgramKilled) {
+			warn(e.Error())
+		}
+	}
+	return interrupted()
+}
+
+// flatten lists the leaves of a tree of errors.Join errors.
+func flatten(err error) []error {
+	j, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return []error{err}
+	}
+	var out []error
+	for _, e := range j.Unwrap() {
+		out = append(out, flatten(e)...)
+	}
+	return out
 }
 
 func interrupted() error {
@@ -177,9 +207,22 @@ func (b *chatBackend) NewSession(model string, ui core.UI, gate core.Gate) (*tui
 	rec.attach(&c, b.e.root)
 	s, err := core.NewSession(c)
 	if err != nil {
-		return nil, errors.Join(err, rec.close(), log.Close())
+		err = errors.Join(err, rec.close(), log.Close())
+		removeUnstartedSession(path)
+		return nil, err
 	}
 	return b.live(provName, path, model, log, s, c.Budget, rec), nil
+}
+
+// removeUnstartedSession deletes a new session's directory when its log never
+// got session_started written (NewSession failed on it), so /resume does not
+// list a session that cannot be replayed. A log with any complete line stays.
+func removeUnstartedSession(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil || bytes.ContainsRune(b, '\n') {
+		return
+	}
+	_ = os.RemoveAll(filepath.Dir(path))
 }
 
 // Resume reopens a saved session. The log is opened first: its lock tells

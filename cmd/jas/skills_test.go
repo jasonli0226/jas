@@ -44,7 +44,7 @@ func TestRun_UserSkillListedAndReadable(t *testing.T) {
 	assert.Contains(t, first, "<available_skills>")
 	assert.Contains(t, first, "<name>demo</name>")
 	assert.Contains(t, first, "<location>"+shown+"</location>")
-	assert.NotContains(t, first, userHome) // no home path in the prompt
+	assert.NotContains(t, first, userHome)          // no home path in the prompt
 	assert.NotContains(t, first, "SKILL-BODY-4410") // body loads on demand only
 	assert.Contains(t, string(bodies()[1]), "SKILL-BODY-4410")
 }
