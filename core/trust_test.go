@@ -159,3 +159,24 @@ func TestCapContext(t *testing.T) {
 		t.Fatalf("not capped: %d", len(big))
 	}
 }
+
+func TestTrustStore_VersionSeparatesFormats(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trust.json")
+	root := t.TempDir()
+	legacy, v2 := core.TrustStore{Path: path}, core.TrustStore{Path: path, Version: "v2"}
+	if err := legacy.Trust(root, []byte("same bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := v2.Check(root, []byte("same bytes")); ok {
+		t.Fatal("a legacy entry matched a v2 check")
+	}
+	if err := v2.Trust(root, []byte("same bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := v2.Check(root, []byte("same bytes")); !ok {
+		t.Fatal("v2 entry not found")
+	}
+	if ok, _ := legacy.Check(root, []byte("same bytes")); ok {
+		t.Fatal("a v2 entry matched a legacy check")
+	}
+}

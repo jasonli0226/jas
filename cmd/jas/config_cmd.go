@@ -42,6 +42,9 @@ func configCmd(args []string) error {
 	if err != nil {
 		return err
 	}
+	// get and list show what a trusted session reads: endpoints only from the
+	// global file (trust itself is decided when a session starts).
+	eff, _ := layers.ForProject(true)
 	cmd := args[0]
 	scope, rest, err := takeConfigScope(args[1:], cmd == "set" || cmd == "unset")
 	if err != nil {
@@ -62,12 +65,18 @@ func configCmd(args []string) error {
 		if len(rest) != 1 {
 			return usageErr("usage: jas config get [--global|--project|--local] <key>")
 		}
-		return configGet(layers, scope, rest[0], scope != "")
+		if scope != "" {
+			return configGet(layers, scope, rest[0], true) // the file as written
+		}
+		return configGet(eff, scope, rest[0], false)
 	case "list":
 		if len(rest) != 0 || scope != "" {
 			return usageErr("usage: jas config list")
 		}
-		configList(layers)
+		configList(eff)
+		if layers.HasProject() {
+			fmt.Println("# project and local config apply only when the project is trusted")
+		}
 		return nil
 	case "init":
 		if len(rest) != 0 || scope != "" {
@@ -107,6 +116,11 @@ func takeConfigScope(args []string, defaultGlobal bool) (settings.Scope, []strin
 
 // configWrite sets or unsets key in the chosen scope and saves that file.
 func configWrite(home, root string, layers settings.Layers, scope settings.Scope, key, value string, unset bool) error {
+	if !unset { // unset stays allowed, to clean an endpoint out of a project file
+		if err := settings.CheckWriteScope(key, scope); err != nil {
+			return usageErr("%v", err)
+		}
+	}
 	path, err := scope.Path(home, root)
 	if err != nil {
 		return usageErr("%v", err)
@@ -121,7 +135,7 @@ func configWrite(home, root string, layers settings.Layers, scope settings.Scope
 	if err != nil {
 		return usageErr("%v", err)
 	}
-	return next.Save(path)
+	return saveSettingsFile(root, home, scope, path, next)
 }
 
 // configGet prints the effective value, or the value stored in scope when

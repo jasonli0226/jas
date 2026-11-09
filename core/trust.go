@@ -20,7 +20,20 @@ const (
 // The file maps an absolute, symlink-resolved project root to the hex sha256
 // of the approved content, so any edit asks again. core does not know where
 // the file lives; the caller passes the path.
-type TrustStore struct{ Path string }
+type TrustStore struct {
+	Path string
+	// Version, when set, prefixes each recorded hash ("v2:<sha256>"), so an
+	// entry hashed in another content format never matches this one.
+	Version string
+}
+
+// recorded is the stored value for content.
+func (s TrustStore) recorded(content []byte) string {
+	if s.Version == "" {
+		return ContentHash(content)
+	}
+	return s.Version + ":" + ContentHash(content)
+}
 
 // ContentHash is the hex sha256 recorded for context content.
 func ContentHash(content []byte) string {
@@ -65,7 +78,7 @@ func (s TrustStore) Check(root string, content []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return m[key] == ContentHash(content), nil
+	return m[key] == s.recorded(content), nil
 }
 
 // Trust records content as approved for root (file mode 0600, atomic).
@@ -78,7 +91,7 @@ func (s TrustStore) Trust(root string, content []byte) error {
 	if err != nil {
 		return err
 	}
-	m[key] = ContentHash(content)
+	m[key] = s.recorded(content)
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

@@ -376,8 +376,15 @@ func (b *chatBackend) SetDefaultModel(model string) error {
 	return nil
 }
 
-// DefaultSettingsScope is the write scope /settings uses when none is given.
-func (b *chatBackend) DefaultSettingsScope() string { return string(settings.ScopeLocal) }
+// DefaultSettingsScope is the write scope /settings uses when none is given:
+// local, or global when this session ignores the project's settings
+// (untrusted) and a local write would do nothing.
+func (b *chatBackend) DefaultSettingsScope() string {
+	if !b.e.settingsTrusted {
+		return string(settings.ScopeGlobal)
+	}
+	return string(settings.ScopeLocal)
+}
 
 // ListSettings returns every plain key's effective value and source, then
 // model overrides, for /settings.
@@ -465,14 +472,20 @@ func (b *chatBackend) writeSetting(scope settings.Scope, key, value string) erro
 	if err != nil {
 		return err
 	}
-	next, err := b.e.layers.File(scope).Set(key, value)
+	if err := settings.CheckWriteScope(key, scope); err != nil {
+		return err
+	}
+	if err := b.e.projectWritable(scope); err != nil {
+		return err
+	}
+	next, err := b.e.files.File(scope).Set(key, value)
 	if err != nil {
 		return err
 	}
-	if err := next.Save(path); err != nil {
+	if err := saveSettingsFile(b.e.root, b.e.home, scope, path, next); err != nil {
 		return err
 	}
-	b.e.layers = b.e.layers.WithFile(scope, next)
+	b.e.setFile(scope, next)
 	return b.reconfigure()
 }
 
@@ -481,14 +494,17 @@ func (b *chatBackend) unsetSetting(scope settings.Scope, key string) error {
 	if err != nil {
 		return err
 	}
-	next, err := b.e.layers.File(scope).Unset(key)
+	if err := b.e.projectWritable(scope); err != nil {
+		return err
+	}
+	next, err := b.e.files.File(scope).Unset(key)
 	if err != nil {
 		return err
 	}
-	if err := next.Save(path); err != nil {
+	if err := saveSettingsFile(b.e.root, b.e.home, scope, path, next); err != nil {
 		return err
 	}
-	b.e.layers = b.e.layers.WithFile(scope, next)
+	b.e.setFile(scope, next)
 	return b.reconfigure()
 }
 

@@ -53,7 +53,7 @@ and `ps`. Use `jas auth add` or `JAS_API_KEY`.
 |---|---|
 | `--continue` | resume this project's newest session |
 | `--name T` | title for the session (as `/name`) |
-| `--trust-project` | load `AGENTS.md` / `CLAUDE.md` and project skills without asking |
+| `--trust-project` | load `AGENTS.md` / `CLAUDE.md`, project skills and project settings without asking |
 
 ### `jas run`
 
@@ -82,7 +82,8 @@ jas config init
 
 `set` and `unset` write global by default. `get` without a scope prints the
 effective value; with a scope, the value stored in that layer. `list` shows
-every effective value and its source. `init` asks for provider, base URL
+every effective value and its source. Endpoint keys are global-only and
+project/local settings need trust: [Settings](#settings). `init` asks for provider, base URL
 (custom only) and model, and writes the global file. Keys:
 [Settings](#settings).
 
@@ -256,6 +257,24 @@ global > built-in default.
 | project (shared, commit it) | `<root>/.jas/config.json` |
 | local (personal, gitignore it) | `<root>/.jas/config.local.json` |
 
+Project and local files sit in the repository, so a clone can ship either.
+They join the project trust prompt (with `AGENTS.md`, project skills and
+`.jas/farm.yaml`) and are ignored until the project is trusted: declined,
+not asked yet, or no terminal without `--trust-project` (headless runs skip
+them with `skipping untrusted .jas/config.json`). A trusted project's files
+apply, including `approve`, `redact_skip_paths` and `provider`; a content
+change asks again, except a change jas itself writes with `jas config set` or
+`/settings` while the project's trust is remembered (`always`). `/reload` can
+change the trust decision, but settings follow it only at the next start.
+
+Endpoints are global-only: `base_url`, `search_base_url` and
+`providers.<name>.base_url` are read only from `~/.jas/config.json`, flags and
+env, never from a project or local file (warned and ignored even when
+trusted), so a repository cannot send your API key or searches elsewhere.
+`jas config set --project` / `--local` refuses them; `unset` still removes one.
+`jas config get` / `list` show what a trusted session uses; `get --project`
+or `--local` shows the file as written.
+
 | key | default | values / notes |
 |---|---|---|
 | `provider` | (custom) | `openrouter` \| `ollama` \| `custom`: the default provider |
@@ -353,7 +372,11 @@ model or the log sees it.
 
 `AGENTS.md` (or `CLAUDE.md`) in the project root goes into the system
 prompt after a one-time trust prompt (stored in `~/.jas/trust.json`; a
-content change asks again). `--trust-project` skips the prompt.
+content change asks again). `--trust-project` skips the prompt. The same
+prompt covers project skills, `.jas/farm.yaml` and the project and local
+settings files ([Settings](#settings)). Trust an older jas recorded carries over when
+the project has only `AGENTS.md` / `CLAUDE.md`; with project skills,
+`.jas/farm.yaml` or settings files it is asked once more.
 
 Skills are [Agent Skills](https://agentskills.io) folders with a `SKILL.md`.
 Scanned in this order; on a name clash the first wins:
@@ -374,7 +397,7 @@ Experimental. Farm splits one big task into parts that run in parallel git
 worktrees, merges them, and runs `check` as the verdict. It needs a `check`
 command and a clean tree. Configuration layers: built-in defaults,
 `~/.jas/farm.yaml`, then `<root>/.jas/farm.yaml` (trusted projects only).
-A project with no `AGENTS.md`, project skills or `.jas/farm.yaml` never shows
+A project with no `AGENTS.md`, project skills, `.jas/farm.yaml` or project settings never shows
 the trust prompt, so it stays untrusted: start jas with `--trust-project` to
 farm there. In the chat, start a farm with `/farm`, not `jas farm` in the
 `shell` tool (no terminal for the plan picker and approvals).

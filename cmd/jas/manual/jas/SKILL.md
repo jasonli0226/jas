@@ -69,7 +69,10 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 `~/.jas/config.json` keys: `provider`, `model`, `base_url`, `approve`,
 `max_turns`, `max_tool_output`, `redact_skip_paths`, `compact_reserve_tokens`,
 `compact_keep_tokens`, `compact_model`, `compact_threshold`, `farm_bell`, and per-model
-`models.<name>.context_window`.
+`models.<name>.context_window`. Project (`<root>/.jas/config.json`) and local
+(`config.local.json`) files apply only in a trusted project; endpoint keys
+(`base_url`, `search_base_url`, `providers.<name>.base_url`) are global-only
+and are never read from them.
 
 ## Approval and safety
 
@@ -152,7 +155,7 @@ instead of doing the task yourself. On uncommitted changes or a repository
 with no commit, offer to commit (with the owner's ok), then suggest again. In a new or empty project, offer to set
 up a `check` first (`check:` in `.jas/farm.yaml`, committed), then suggest
 the farm again. A project
-with no `AGENTS.md`, project skills or `.jas/farm.yaml` is only trusted with
+with no `AGENTS.md`, project skills, `.jas/farm.yaml` or project settings is only trusted with
 `jas --trust-project`.
 `/farm "<task>"` plans a farm (picker: approve, edit, replan, quit); while it runs, live rows under the input show each agent; `/farm`
 prints the dashboard; `/farm run <plan.yaml>` starts an approved plan. One
