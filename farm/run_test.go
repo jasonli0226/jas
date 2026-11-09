@@ -482,6 +482,20 @@ func TestRunFarm_DiscardDeletesBranches(t *testing.T) {
 	}
 }
 
+func TestRunFarm_UnknownFinalAnswerNeverDiscards(t *testing.T) {
+	r := newRunRig(t, "true", twoParts(), twoWriters)
+	r.opts.Ask = scripted("don't", "dunno")
+	if code, _ := r.run(context.Background()); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if out, _ := r.git("branch", "--list", "jas/farm/*"); out == "" {
+		t.Fatal("branches deleted on an answer that is not discard")
+	}
+	if ev := r.last(EvOwnerDecision); ev["choice"] != ChoiceKeep {
+		t.Fatalf("owner_decision %v", ev)
+	}
+}
+
 // scripted answers each Ask with the next answer, then "" (end of input).
 func scripted(answers ...string) func(string, []string) (string, bool) {
 	var mu sync.Mutex

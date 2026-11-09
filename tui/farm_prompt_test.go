@@ -148,6 +148,21 @@ func TestFarmAsk_ReasksUnknownAnswer(t *testing.T) {
 	assert.Eq(t, <-got, "abort")
 }
 
+func TestFarmAsk_TextStartingWithAChoiceIsAskedAgain(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	got := farmAsk(f, "[m]erge, [k]eep or [d]iscard? ", []string{"m", "k", "d"})
+	c.pumpAsk()
+	for _, text := range []string{"don't", "dunno"} {
+		c.submit(text)
+		if c.m.ask == nil {
+			t.Fatalf("%q closed the question", text)
+		}
+		assert.Contains(t, c.m.hint, "answer one of: m, k, d")
+	}
+	c.submit("k")
+	assert.Eq(t, <-got, "k")
+}
+
 func TestFarmBell_OncePerPromptAndOff(t *testing.T) {
 	c, f := farmWithAgents(t, Options{FarmBell: true})
 	got := farmAllow(t, f, "a")

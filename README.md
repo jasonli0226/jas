@@ -358,7 +358,9 @@ with a farm running asks first. An agent's approval prompt opens wherever you
 are, labelled `[part]` (answers: y, N, always for that part, farm for every
 part); your draft is set aside and comes back after. A failure (retry, drop,
 abort) or the final merge/keep/discard waits for the main chat with no turn
-running; meanwhile the strip shows `farm needs you · ctrl+0`. The terminal
+running. Answer with the word or the start of it (`d` or `discard`); text that
+only begins with a choice, such as `don't`, is asked again, and an empty final answer
+keeps. Meanwhile the strip shows `farm needs you · ctrl+0`. The terminal
 bell rings once per such prompt (`jas config set farm_bell false` turns it
 off). When the farm ends, its summary (outcome, branch, final choice, each
 part) prints and is attached to your next message, so you can ask the agent

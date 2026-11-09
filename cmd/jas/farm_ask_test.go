@@ -16,6 +16,8 @@ func askWith(input string, choices []string) (string, bool, string) {
 	return ans, ok, out.String()
 }
 
+var finalChoices = []string{"merge", "keep", "discard"}
+
 func TestFarmAsk_ReasksOnUnknownAnswer(t *testing.T) {
 	ans, ok, out := askWith("end\nabort\n", []string{"retry", "drop", "abort"})
 	assert.Eq(t, ans, "abort")
@@ -27,8 +29,17 @@ func TestFarmAsk_ReasksOnUnknownAnswer(t *testing.T) {
 func TestFarmAsk_AcceptsUniquePrefixAndWord(t *testing.T) {
 	ans, _, _ := askWith("A\n", []string{"retry", "drop", "abort"})
 	assert.Eq(t, ans, "abort")
-	ans, _, _ = askWith("keep\n", []string{"m", "k", "d"})
+	ans, _, _ = askWith("keep\n", finalChoices)
+	assert.Eq(t, ans, "keep")
+	ans, _, _ = askWith("d\n", finalChoices)
+	assert.Eq(t, ans, "discard")
+}
+
+func TestFarmAsk_TextStartingWithAChoiceIsAskedAgain(t *testing.T) {
+	ans, ok, out := askWith("don't\ndunno\nk\n", []string{"m", "k", "d"})
 	assert.Eq(t, ans, "k")
+	assert.Eq(t, ok, true)
+	assert.Eq(t, strings.Count(out, "answer one of: m, k, d"), 2)
 }
 
 func TestFarmAsk_EOFIsNoAnswer(t *testing.T) {

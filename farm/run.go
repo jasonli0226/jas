@@ -42,6 +42,9 @@ const (
 	maxChoicePrompts = 5
 )
 
+// finalChoices are the final prompt's answers; "m", "k" and "d" abbreviate them.
+var finalChoices = []string{ChoiceMerge, ChoiceKeep, ChoiceDiscard}
+
 const (
 	planCopyFile = "plan.yaml"
 	farmLogName  = "farm.jsonl"
@@ -445,12 +448,16 @@ func (r *farmRun) askChoice(branch, reason string) (choice, by string) {
 	target := r.s.target
 	prompt := fmt.Sprintf("farm %s: %s. [m]erge %s into %s, [k]eep unmerged (branches only, %s untouched), [d]iscard? ", r.s.FarmID, reason, branch, target, target)
 	for range maxChoicePrompts {
-		ans, ok := r.o.Ask(prompt, []string{"m", "k", "d"})
+		ans, ok := r.o.Ask(prompt, finalChoices)
 		if !ok {
 			return ChoiceKeep, byNoTTY
 		}
-		switch strings.ToLower(strings.TrimSpace(ans)) {
-		case "m":
+		if strings.TrimSpace(ans) == "" {
+			return ChoiceKeep, byOwner
+		}
+		c, _ := MatchChoice(ans, finalChoices) // any front end: never guess discard
+		switch c {
+		case ChoiceMerge:
 			if reason == ReasonOK {
 				return ChoiceMerge, byOwner
 			}
@@ -460,9 +467,9 @@ func (r *farmRun) askChoice(branch, reason string) (choice, by string) {
 			}
 			fmt.Fprintln(r.o.Stderr, "not merged")
 			r.notMerged = true
-		case "k", "":
+		case ChoiceKeep:
 			return ChoiceKeep, byOwner
-		case "d":
+		case ChoiceDiscard:
 			return ChoiceDiscard, byOwner
 		}
 	}
