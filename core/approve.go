@@ -75,7 +75,7 @@ func Gated(level Level, t Tool) bool {
 // Allow implements Gate.
 func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage, preview func() *Diff) (Decision, error) {
 	if !Gated(a.Level, t) {
-		return Granted, nil
+		return AutoGranted, nil
 	}
 	if !a.Interactive {
 		return Unavailable, nil
@@ -156,7 +156,7 @@ func SummarizeCall(tool string, args json.RawMessage) string {
 		key = "command"
 	}
 	raw, _ := m[key].(string)
-	s := Sanitize(raw)
+	s := SanitizeLine(raw) // the user approves the command as written
 	if s == "" {
 		s = Sanitize(string(args))
 	}
@@ -166,10 +166,16 @@ func SummarizeCall(tool string, args json.RawMessage) string {
 	return s
 }
 
-// Sanitize escapes control and format runes (ESC, backspace, NUL, bidi
-// overrides, ...) and collapses whitespace to single spaces, so untrusted
-// text is safe to print on a terminal.
-func Sanitize(s string) string {
+// SanitizeLine is Sanitize for one line whose spacing matters (a shell
+// command, a grep pattern): newlines and tabs become spaces, but runs of
+// spaces are kept, and only the ends are trimmed.
+func SanitizeLine(s string) string {
+	return strings.TrimSpace(escapeRunes(s))
+}
+
+// escapeRunes writes newlines and tabs as spaces and escapes control and
+// format runes.
+func escapeRunes(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		switch {
@@ -185,5 +191,12 @@ func Sanitize(s string) string {
 			b.WriteRune(r)
 		}
 	}
-	return strings.Join(strings.Fields(b.String()), " ")
+	return b.String()
+}
+
+// Sanitize escapes control and format runes (ESC, backspace, NUL, bidi
+// overrides, ...) and collapses whitespace to single spaces, so untrusted
+// text is safe to print on a terminal.
+func Sanitize(s string) string {
+	return strings.Join(strings.Fields(escapeRunes(s)), " ")
 }

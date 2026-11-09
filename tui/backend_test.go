@@ -96,7 +96,7 @@ func (b *testBackend) config(path, model string, log core.EventLog, ui core.UI, 
 		Provider: b.prov, Model: model, System: core.BuildSystem(core.BasePrompt, ""),
 		Exec: ex, Log: log, UI: ui, Budget: bud, MaxTurns: b.maxTurns,
 		Compact: &core.CompactConfig{Reserve: core.DefaultCompactReserve, Keep: keep},
-		Meta:    map[string]any{"base_url": "http://x", "approve": "never", "root": b.root, "context_files": []string{}},
+		Meta:    map[string]any{"base_url": "http://x", "approve": approveOf(gate), "root": b.root, "context_files": []string{}},
 	}, bud
 }
 
@@ -307,4 +307,13 @@ func TestTestBackend_SessionRoundTrip(t *testing.T) {
 
 func (b *testBackend) Shell(ctx context.Context, command string, out io.Writer) (int, error) {
 	return tools.RunShell(ctx, b.root, command, os.Environ(), out)
+}
+
+// approveOf is the approve level a session's gate runs at, as the real
+// backend records it in session_started.
+func approveOf(gate core.Gate) string {
+	if g, ok := gate.(*Gate); ok {
+		return g.Level().String()
+	}
+	return core.Never.String()
 }

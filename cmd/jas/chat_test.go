@@ -357,3 +357,80 @@ func TestChatBackend_RegistersRecord(t *testing.T) {
 	assert.Contains(t, string(raw), `"mode": "chat"`)
 	assert.Contains(t, string(raw), `"state": "ended"`)
 }
+
+func TestChatBackend_SkillFilesKnowTheCatalogForm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	real, err := filepath.EvalSymlinks(home)
+	assert.NoErr(t, err)
+	e := testEnv(t)
+	loc := filepath.Join(real, ".agents", "skills", "deploy", "SKILL.md")
+	e.pc.skills = []skills.Skill{{Name: "deploy", Location: loc}}
+	files := (&chatBackend{e: e}).SkillFiles()
+	assert.Eq(t, files[loc], "deploy")
+	assert.Eq(t, files["~/.agents/skills/deploy/SKILL.md"], "deploy") // how the catalog shows it
+}
+
+func TestChatBackend_SkillPromptWritesHomeAsTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	real, err := filepath.EvalSymlinks(home)
+	assert.NoErr(t, err)
+	e := testEnv(t)
+	e.pc.skills = []skills.Skill{{Name: "deploy", Location: filepath.Join(real, "s", "deploy", "SKILL.md"), Content: []byte("steps")}}
+	p, ok := (&chatBackend{e: e}).SkillPrompt("deploy", "")
+	assert.Eq(t, ok, true)
+	assert.Contains(t, p, "(~/s/deploy/SKILL.md)")
+	assert.NotContains(t, p, real)
+}
+
+func TestChatExit_KillKeepsCloseErrorAsWarning(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var warned []string
+	err := chatExitWarn(ctx, errors.Join(tea.ErrProgramKilled, errors.New("close session: disk full")),
+		func(w string) { warned = append(warned, w) })
+	var ee *core.ExitError
+	if !errors.As(err, &ee) || ee.Code != core.ExitInterrupted {
+		t.Fatalf("want interrupted, got %v", err)
+	}
+	assert.Eq(t, len(warned), 1)
+	assert.Contains(t, warned[0], "close session: disk full")
+}
+
+func TestRemoveUnstartedSession(t *testing.T) {
+	home := t.TempDir()
+	for _, c := range []struct {
+		name, content string
+		removed       bool
+	}{
+		{"empty", "", true},
+		{"torn", `{"v":1,"id":"e000001","type":"sess`, true},
+		{"started", `{"v":1,"id":"e000001","seq":1,"type":"session_started"}` + "\n", false},
+	} {
+		dir := filepath.Join(home, c.name)
+		assert.NoErr(t, os.MkdirAll(dir, 0o700))
+		path := filepath.Join(dir, eventsFile)
+		assert.NoErr(t, os.WriteFile(path, []byte(c.content), 0o600))
+		removeUnstartedSession(path)
+		_, err := os.Stat(dir)
+		assert.Eq(t, os.IsNotExist(err), c.removed)
+	}
+}
+
+func TestChatCmd_TerminalCheckComesBeforeTrustPrompt(t *testing.T) {
+	proj := t.TempDir()
+	writeAgents(t, proj, "rules")
+	old := isTerminal
+	isTerminal = func(int) bool { return false }
+	defer func() { isTerminal = old }()
+	t.Setenv("JAS_HOME", testutil.TempHome(t))
+	t.Chdir(proj)
+	var code int
+	errOut := captureStderr(t, func() { code = dispatch(context.Background(), nil) })
+	assert.Eq(t, code, core.ExitUsage)
+	assert.Contains(t, errOut, "the chat needs a terminal")
+	assert.NotContains(t, errOut, "trust") // no trust prompt or skip message first
+}

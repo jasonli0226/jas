@@ -113,14 +113,20 @@ func TestChat_ResumeLockedKeepsSession(t *testing.T) {
 }
 
 func TestChat_IdleOnlyCommandsRefusedWhileRunning(t *testing.T) {
-	b := newTestBackend(t, fake.Turn{Block: true})
-	c := newTestChat(t, b)
-	id := c.m.live.ID
-	c.submit("go")
-	c.submit("/new")
-	assert.Contains(t, c.printedText(), "wait for the reply or press Esc first")
-	assert.Eq(t, c.m.live.ID, id)
-	assert.Eq(t, len(c.m.queued), 0)
+	for _, cmd := range []string{"/new", "/model other", "/resume", "/name t", "/compact", "/reload"} {
+		t.Run(cmd, func(t *testing.T) {
+			b := newTestBackend(t, fake.Turn{Block: true})
+			c := newTestChat(t, b)
+			id, model := c.m.live.ID, c.m.live.Model
+			c.submit("go")
+			c.submit(cmd)
+			assert.Contains(t, c.printedText(), "wait for the reply or press Esc first")
+			assert.Eq(t, c.m.live.ID, id)
+			assert.Eq(t, c.m.live.Model, model)
+			assert.Eq(t, c.m.picker == nil, true)
+			assert.Eq(t, len(c.m.queued), 0)
+		})
+	}
 }
 
 func TestChat_SkillCommandSendsPrompt(t *testing.T) {
@@ -610,7 +616,7 @@ func TestChat_ReloadCommand(t *testing.T) {
 	}
 	assert.Contains(t, c.printedText(), "reloaded · AGENTS.md loaded")
 	assert.Eq(t, len(b.reloadAsk), 1)
-	assert.Contains(t, b.reloadAsk[0], "y")
+	assert.Eq(t, b.reloadAsk[0], "y") // the answer the chat gave the trust ask
 }
 
 func TestChat_ReloadRefusedWhileRunning(t *testing.T) {

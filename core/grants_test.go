@@ -175,11 +175,13 @@ func TestGrants_LiteralKeyWords(t *testing.T) {
 
 func TestGrants_DuplicateKeysRejected(t *testing.T) {
 	g := NewGrants(false)
-	g.Add("shell", shellArgs("go test"))
-	g.Add("edit", json.RawMessage(`{}`))
+	_, ok := g.Add("shell", shellArgs("go test"))
+	assert.Eq(t, ok, true)
+	_, ok = g.Add("edit", json.RawMessage(`{}`))
+	assert.Eq(t, ok, true)
 	dup := json.RawMessage(`{"command":"go test","COMMAND":"rm -rf x"}`)
 	assert.Eq(t, g.Covers("shell", dup), false)
-	_, ok := NewGrants(false).Add("shell", dup)
+	_, ok = NewGrants(false).Add("shell", dup)
 	assert.Eq(t, ok, false)
 	dupEdit := json.RawMessage(`{"path":"a","Path":"b"}`)
 	assert.Eq(t, g.Covers("edit", dupEdit), false)

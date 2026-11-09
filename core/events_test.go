@@ -226,3 +226,35 @@ func TestEventLog_AppendIDReturnsWrittenID(t *testing.T) {
 		})
 	}
 }
+
+func TestEventLog_ResumeAfterEventBiggerThanTailChunk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "e.jsonl")
+	l, err := OpenEventLog(path, nil, nil)
+	assert.NoErr(t, err)
+	assert.NoErr(t, l.Append(EvUsage, map[string]any{"n": 1}))
+	assert.NoErr(t, l.Append(EvUsage, map[string]any{"big": strings.Repeat("x", 3*resumeTailChunk)}))
+	assert.NoErr(t, l.Close())
+	appendTo(t, path, `{"v":1,"id":"e000099","seq":99,"type":"us`) // torn by a crash
+
+	l, err = OpenEventLog(path, nil, nil)
+	assert.NoErr(t, err)
+	id, err := l.AppendID(EvUsage, map[string]any{"n": 3})
+	assert.NoErr(t, err)
+	assert.Eq(t, id, "e000003")
+	assert.NoErr(t, l.Close())
+	data, err := os.ReadFile(path)
+	assert.NoErr(t, err)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	var ev map[string]any
+	assert.NoErr(t, json.Unmarshal([]byte(lines[len(lines)-1]), &ev))
+	assert.Eq(t, ev["parent_id"], "e000002")
+}
+
+func appendTo(t *testing.T, path, text string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	assert.NoErr(t, err)
+	_, err = f.WriteString(text)
+	assert.NoErr(t, err)
+	assert.NoErr(t, f.Close())
+}

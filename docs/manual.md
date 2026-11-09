@@ -373,8 +373,10 @@ model or the log sees it.
 `AGENTS.md` (or `CLAUDE.md`) in the project root goes into the system
 prompt after a one-time trust prompt (stored in `~/.jas/trust.json`; a
 content change asks again). `--trust-project` skips the prompt. The same
-prompt covers project skills, `.jas/farm.yaml` and the project and local
-settings files ([Settings](#settings)). Trust an older jas recorded carries over when
+prompt covers project skills (listed by name), `.jas/farm.yaml` and the
+project and local settings files ([Settings](#settings)). For a skill only
+its `SKILL.md` is hashed; files under its `scripts/` or `references/` are
+read on demand and can change without a new prompt. Trust an older jas recorded carries over when
 the project has only `AGENTS.md` / `CLAUDE.md`; with project skills,
 `.jas/farm.yaml` or settings files it is asked once more.
 
@@ -386,10 +388,15 @@ Scanned in this order; on a name clash the first wins:
 | project (needs trust) | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
 | user | `~/.agents/skills/`, `~/.claude/skills/`, `~/.config/jas/skills/` |
 
-Only names and descriptions go in the prompt; the model reads a full
-`SKILL.md` when a task matches. `/skill:<name>` runs one directly.
+Only names and descriptions go in the prompt (capped at 64 KB, project
+skills kept before user skills; home paths written `~/…`, which read tools
+expand); the model reads a full `SKILL.md` when a task matches. Project
+skills are looked for at the project root (the git top level) only. `/skill:<name>` runs one directly.
 `disable-model-invocation: true` hides a skill from the model. jas
 reinstalls its own `jas` skill under `~/.config/jas/skills/` at every start.
+A project skill symlinked outside the project is skipped; a user skill
+symlinked outside your home loads with a warning, since read-only tools can
+then open that directory.
 
 ## Farm
 
@@ -489,7 +496,7 @@ one bumps `v`.
 | `assistant_message` | text, content, final |
 | `usage` | prompt_tokens, completion_tokens, cached_tokens |
 | `tool_started` | tool, call_id, args, mutating |
-| `approval` | call_id, tool, decision (`granted` \| `denied` \| `unavailable`) |
+| `approval` | call_id, tool, decision (`granted` \| `denied` \| `unavailable`); only when someone was asked, not for calls the approve level or a standing grant lets through |
 | `tool_result` | call_id, tool, status (`ok` \| `error` \| `denied` \| `cancelled` \| `interrupted` \| `not_run`), output; optional diff |
 | `elided` | count, tokens_before, tokens_after |
 | `turn_ended` | status, exit_code, reason, turns, prompt_tokens, completion_tokens |

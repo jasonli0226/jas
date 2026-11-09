@@ -275,6 +275,10 @@ func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 func (m *Model) answerApproval() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	m.input.Reset()
+	if strings.HasPrefix(text, "/") { // a command is not an answer: ask again
+		m.hint = "answer the approval first (y, N or always); commands work after"
+		return nil
+	}
 	part := m.approval.part
 	if part == "" && replySteers(text) { // free text to a farm part is just a denial
 		m.live.Session.Steer(text)

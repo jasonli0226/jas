@@ -213,12 +213,20 @@ shadow it freely — a same-named skill in `~/.agents/skills/` wins).
   names both. The same
   folder reached twice (e.g. through a symlink) loads once, silently.
 - Project skills are project-authored instructions, like `AGENTS.md`, so they
-  share its trust prompt; adding or editing one asks again. Until the project
+  share its trust prompt, which names them; adding one or editing its
+  `SKILL.md` asks again. Only `SKILL.md` is hashed: a skill's `scripts/` and
+  `references/` are read on demand by tools and can change without a new
+  prompt, so review them before trusting. Until the project
   is trusted its skills are ignored entirely, so they cannot hide a user
   skill of the same name. A project skill must resolve inside the project; one
-  symlinked out of it is skipped with a warning.
-- The skill list in the prompt is capped at 64 KB; skills past the cap are
-  not listed, and a warning names them.
+  symlinked out of it is skipped with a warning. A user skill symlinked
+  outside your home still loads, with a warning naming where it points
+  (read-only tools can open that directory).
+- The skill list in the prompt is capped at 64 KB; project skills are kept
+  first, then user skills, and those past the cap are not listed (a warning
+  names them). Paths under your home are written `~/…` (read tools expand it).
+- Project skills are found at the project root (the git top level) only, not
+  in directories between it and where jas starts, like `AGENTS.md`.
 - Validation is lenient: a bad name warns, a missing description or broken
   frontmatter skips the skill. `disable-model-invocation: true` hides a skill
   from the model.

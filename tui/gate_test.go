@@ -79,7 +79,7 @@ func TestGate_AlwaysStopsRepeatPrompts(t *testing.T) {
 
 	d, err := g.Allow(context.Background(), shell, shellArgs("go test ./core"), nil)
 	assert.NoErr(t, err)
-	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, d, core.AutoGranted) // the standing grant answers; nobody is asked
 	assert.Eq(t, len(msgs), 0)
 }
 
@@ -114,7 +114,7 @@ func TestGate_UngatedNeverPrompts(t *testing.T) {
 	g, msgs := newRecordingGate(core.ShellOnly)
 	d, err := g.Allow(context.Background(), toolNamed(t, "write"), json.RawMessage(`{"path":"a","content":"x"}`), nil)
 	assert.NoErr(t, err)
-	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, d, core.AutoGranted)
 	assert.Eq(t, len(msgs), 0)
 }
 
@@ -136,14 +136,25 @@ func TestGate_OnePromptAtATime(t *testing.T) {
 	a := nextApproval(t, msgs)
 	ctx, cancel := context.WithCancel(context.Background())
 	second := allowAsync(ctx, g, shell, shellArgs("make"))
-	time.Sleep(20 * time.Millisecond)
-	assert.Eq(t, len(msgs), 0) // the second waits for the first prompt
-	cancel()                   // and gives up on ctx without prompting
+	cancel() // the second, waiting behind the first prompt, gives up on ctx
 	r := <-second
 	assert.Eq(t, r.d, core.Denied)
 	assert.Eq(t, errors.Is(r.err, context.Canceled), true)
 	a.reply <- "y"
 	assert.Eq(t, (<-first).d, core.Granted)
+	assert.Eq(t, len(msgs), 0) // the second never prompted
+}
+
+func TestGate_AlwaysAnswersACallWaitingBehindIt(t *testing.T) {
+	g, msgs := newRecordingGate(core.ShellOnly)
+	shell := toolNamed(t, "shell")
+	first := allowAsync(context.Background(), g, shell, shellArgs("go test ./a"))
+	a := nextApproval(t, msgs)
+	second := allowAsync(context.Background(), g, shell, shellArgs("go test ./b"))
+	a.reply <- "always"
+	assert.Eq(t, (<-first).d, core.Granted)
+	assert.Eq(t, (<-second).d, core.AutoGranted) // covered by the new grant: no second prompt
+	<-msgs                                       // the always notice
 	assert.Eq(t, len(msgs), 0)
 }
 
@@ -171,7 +182,7 @@ func TestGate_ApprovalCarriesDiff(t *testing.T) {
 	g, msgs := newRecordingGate(core.Never)
 	d, err := g.Allow(context.Background(), edit, args, preview)
 	assert.NoErr(t, err)
-	assert.Eq(t, d, core.Granted)
+	assert.Eq(t, d, core.AutoGranted)
 	assert.Eq(t, calls, 0)
 	assert.Eq(t, len(msgs), 0)
 

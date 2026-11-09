@@ -136,7 +136,7 @@ func formatTokens(n int) string {
 	switch {
 	case n < 1000:
 		return fmt.Sprint(n)
-	case n < 1_000_000:
+	case n < 999_950: // above this %.1fk would print 1000.0k
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)

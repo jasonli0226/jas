@@ -195,30 +195,60 @@ func openEventLog(path string, tee io.Writer, redact func(string) string, syncFn
 // returns its seq and id. A trailing partial line (crash mid-write) is ignored
 // and a newline is appended so the next event starts on its own line.
 func resumeState(path string, f *os.File) (int64, string, error) {
-	data, err := os.ReadFile(path)
+	info, err := f.Stat()
 	if err != nil {
 		return 0, "", fmt.Errorf("read event log: %w", err)
 	}
-	if len(data) == 0 {
+	size := info.Size()
+	if size == 0 {
 		return 0, "", nil
 	}
+	// Only the last complete event matters: read back from the end in
+	// growing chunks until one is found (or the whole file was read).
 	var seq int64
 	var id string
-	for _, line := range bytes.Split(data, []byte{'\n'}) {
-		var h struct {
-			ID  string `json:"id"`
-			Seq int64  `json:"seq"`
+	for chunk := int64(resumeTailChunk); ; chunk *= 2 {
+		start := max(size-chunk, 0)
+		data := make([]byte, size-start)
+		if _, err := f.ReadAt(data, start); err != nil && !errors.Is(err, io.EOF) {
+			return 0, "", fmt.Errorf("read event log %s: %w", path, err)
 		}
-		if json.Unmarshal(line, &h) == nil && h.ID != "" && h.Seq > 0 {
-			seq, id = h.Seq, h.ID
+		lines := bytes.Split(data, []byte{'\n'})
+		if start > 0 {
+			lines = lines[1:] // the first line may begin before the chunk
+		}
+		if seq, id = lastEvent(lines); id != "" || start == 0 {
+			break
 		}
 	}
-	if data[len(data)-1] != '\n' {
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, size-1); err != nil {
+		return 0, "", fmt.Errorf("read event log %s: %w", path, err)
+	}
+	if last[0] != '\n' {
 		if _, err := f.Write([]byte{'\n'}); err != nil {
 			return 0, "", fmt.Errorf("repair event log: %w", err)
 		}
 	}
 	return seq, id, nil
+}
+
+// resumeTailChunk is the first read size when resuming a log; it doubles
+// until a complete event fits.
+const resumeTailChunk = 64 << 10
+
+// lastEvent returns the seq and id of the last line that is a complete event.
+func lastEvent(lines [][]byte) (int64, string) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		var h struct {
+			ID  string `json:"id"`
+			Seq int64  `json:"seq"`
+		}
+		if json.Unmarshal(lines[i], &h) == nil && h.ID != "" && h.Seq > 0 {
+			return h.Seq, h.ID
+		}
+	}
+	return 0, ""
 }
 
 func (l *fileLog) run() {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
@@ -86,7 +87,7 @@ func decideProjectTrust(root, home string, project []skills.Skill, interactive, 
 			return projectTrust{}, err
 		}
 	}
-	load, err := core.DecideContextFile(trustLabel(path, len(project), farmCfg != nil, settingsFiles), root,
+	load, err := core.DecideContextFile(trustLabel(path, project, farmCfg != nil, settingsFiles), root,
 		bundle, store, interactive, flagTrust, ask)
 	if err != nil {
 		return projectTrust{}, err
@@ -135,27 +136,42 @@ func buildProjectContext(pt projectTrust, project, user []skills.Skill, redact f
 			warn(w)
 		}
 	}
-	kept, dropped := skills.Fit(pc.skills, skills.MaxCatalogBytes)
+	home := catalogHome()
+	kept, dropped := skills.Fit(pc.skills, skills.MaxCatalogBytes, home)
 	if len(dropped) > 0 {
 		warn(fmt.Sprintf("skill list over %d bytes; not listing %d skills: %s", skills.MaxCatalogBytes, len(dropped), strings.Join(dropped, ", ")))
 	}
 	pc.skills = kept
-	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills)), instructions)
+	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills, home)), instructions)
 	return pc
 }
 
-// trustLabel names what the trust prompt covers, e.g. "AGENTS.md and 2 project skills".
-func trustLabel(path string, projectSkills int, farmCfg bool, settingsFiles []projectFile) string {
+// trustLabelSkills is how many project skill names the trust prompt lists.
+const trustLabelSkills = 5
+
+// trustLabel names what the trust prompt covers, e.g.
+// "AGENTS.md and 2 project skills (deploy, lint)". Skill names are
+// validated lowercase words, so they are safe to print.
+func trustLabel(path string, project []skills.Skill, farmCfg bool, settingsFiles []projectFile) string {
 	var parts []string
 	if path != "" {
 		parts = append(parts, filepath.Base(path))
 	}
-	switch projectSkills {
-	case 0:
-	case 1:
-		parts = append(parts, "1 project skill")
-	default:
-		parts = append(parts, fmt.Sprintf("%d project skills", projectSkills))
+	if n := len(project); n > 0 {
+		names := make([]string, n)
+		for i, s := range project {
+			names[i] = s.Name
+		}
+		slices.Sort(names)
+		list := strings.Join(names, ", ")
+		if n > trustLabelSkills {
+			list = fmt.Sprintf("%s and %d more", strings.Join(names[:trustLabelSkills], ", "), n-trustLabelSkills)
+		}
+		noun := "project skills"
+		if n == 1 {
+			noun = "project skill"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s (%s)", n, noun, list))
 	}
 	if farmCfg {
 		parts = append(parts, ".jas/farm.yaml")
@@ -194,6 +210,19 @@ func currentTrustBundle(root string, denied func(string) bool) []byte {
 	_, content, _ := core.FindContextFile(root)
 	project, _ := skills.Discover(skills.ProjectSources(root), denied)
 	return trustBundle(content, project, readFarmConfig(root), readProjectSettings(root))
+}
+
+// catalogHome is the home directory the skill catalog writes as ~/,
+// symlink-resolved like skill locations; "" (no home) keeps paths absolute.
+func catalogHome() string {
+	h, err := os.UserHomeDir()
+	if err != nil || h == "" {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(h); err == nil {
+		return r
+	}
+	return h
 }
 
 // projectFile is a file under .jas that joins the trust decision.

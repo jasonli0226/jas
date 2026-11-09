@@ -19,12 +19,16 @@ var (
 	hangIndent = "  "
 )
 
+// zwj joins emoji sequences; it is a format rune but cannot move the cursor
+// or reorder text.
+const zwj = '\u200d'
+
 // cleanText drops control and format runes (ESC, bidi overrides, ...) from
-// model-controlled text, keeping newlines and tabs, so it cannot drive the
-// terminal.
+// model-controlled text, keeping newlines, tabs and zero-width joiners, so it
+// cannot drive the terminal.
 func cleanText(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
+		if r == '\n' || r == '\t' || r == zwj {
 			return r
 		}
 		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
@@ -43,6 +47,13 @@ type mdStream struct {
 }
 
 func isFence(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), fence) }
+
+// isClosingFence reports a fence that can close a block: backticks only. A
+// fence line with an info string (```go) inside a block is content.
+func isClosingFence(line string) bool {
+	t := strings.TrimSpace(line)
+	return len(t) >= len(fence) && strings.Trim(t, "`") == ""
+}
 
 // Feed adds a delta and returns the raw text of every block it completed.
 func (m *mdStream) Feed(delta string) []string {
@@ -64,7 +75,7 @@ func (m *mdStream) line(line string) []string {
 	switch {
 	case m.inFence:
 		m.lines = append(m.lines, line)
-		if isFence(line) {
+		if isClosingFence(line) {
 			m.inFence = false
 			done = append(done, m.take())
 		}
@@ -163,7 +174,7 @@ func bold(s string) string {
 // fence still gets one.
 func renderCode(lines []string) string {
 	body := lines[1:]
-	if n := len(body); n > 0 && isFence(body[n-1]) {
+	if n := len(body); n > 0 && isClosingFence(body[n-1]) {
 		body = body[:n-1]
 	}
 	out := make([]string, 0, len(body)+2)

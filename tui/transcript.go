@@ -105,7 +105,7 @@ func (t *Transcript) Reasoning(delta string, now time.Time) []string {
 	var out []string
 	for _, raw := range t.reasoning.Feed(cleanText(delta)) {
 		out = append(out, t.enter(roleAgent)...)
-		out = append(out, dimStyle.Render(raw))
+		out = append(out, perLine(dimStyle, raw))
 	}
 	return out
 }
@@ -220,7 +220,7 @@ func (t *Transcript) Live() string {
 	var parts []string
 	if t.thinking && t.ShowThinking {
 		if p := t.reasoning.Pending(); strings.TrimSpace(p) != "" {
-			parts = append(parts, dimStyle.Render(p))
+			parts = append(parts, perLine(dimStyle, p))
 		}
 	}
 	if p := t.text.Pending(); strings.TrimSpace(p) != "" {
@@ -347,7 +347,7 @@ func (t *Transcript) endThinking(now time.Time) []string {
 	t.thinking = false
 	out := t.enter(roleAgent)
 	if raw, ok := t.reasoning.Flush(); ok && t.ShowThinking {
-		out = append(out, dimStyle.Render(raw))
+		out = append(out, perLine(dimStyle, raw))
 	}
 	secs := max(int(now.Sub(t.thinkFrom)/time.Second), 1)
 	return append(out, dimStyle.Render(fmt.Sprintf("· thought for %ds", secs)))
@@ -398,7 +398,7 @@ func toolRow(tool string, args map[string]any, status, output string, width int)
 
 // statusRow cuts row to width and puts it on a band coloured by status.
 func statusRow(row, status string, width int) string {
-	row = strings.Join(strings.Fields(row), " ")
+	row = core.SanitizeLine(row) // its parts are sanitized; keep their spacing
 	if width > 0 {
 		row = ansi.Truncate(row, width, "…")
 	}
@@ -414,7 +414,7 @@ func statusRow(row, status string, width int) string {
 
 func argString(args map[string]any, key string) string {
 	s, _ := args[key].(string)
-	return core.Sanitize(s)
+	return core.SanitizeLine(s) // keep a command's own spacing
 }
 
 func subject(tool string, args map[string]any) string {
@@ -435,17 +435,25 @@ func subject(tool string, args map[string]any) string {
 	return core.SummarizeCall(tool, raw)
 }
 
+// count is "(1 entry)" or "(n entries)".
+func count(n int, one, many string) string {
+	if n == 1 {
+		return "(1 " + one + ")"
+	}
+	return fmt.Sprintf("(%d %s)", n, many)
+}
+
 func outcome(tool, status, output string) string {
 	switch status {
 	case "ok":
 		n := outputLines(output)
 		switch tool {
 		case "read":
-			return fmt.Sprintf("(%d lines)", n)
+			return count(n, "line", "lines")
 		case "ls":
-			return fmt.Sprintf("(%d entries)", n)
+			return count(n, "entry", "entries")
 		case "grep":
-			return fmt.Sprintf("(%d matches)", n)
+			return count(n, "match", "matches")
 		}
 		return "ok"
 	case "error":

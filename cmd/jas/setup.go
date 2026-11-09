@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/term"
-
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/settings"
@@ -89,7 +87,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	userSkills, uw := skills.Discover(skills.UserSources(userHome, userConfig), denied)
 	early = append(append(early, pw...), uw...)
 	stdin := bufio.NewReader(os.Stdin)
-	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
+	interactive := isTerminal(int(os.Stdin.Fd())) && isTerminal(int(os.Stderr.Fd())) // tests replace isTerminal
 	ask := func(p string) string { return askLine(ctx, stdin, os.Stderr, p) }
 	pt, err := decideProjectTrust(root, home, projectSkills, interactive, trust, ask)
 	if err != nil {

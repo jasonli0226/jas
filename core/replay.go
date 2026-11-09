@@ -226,6 +226,12 @@ func (r *replayer) apply(line int, ev replayLine) {
 		r.st.Title = ev.Title
 	case EvUserMessage:
 		r.flushResults(false)
+		if n := len(r.st.Messages); n > 0 && plainUser(r.st.Messages[n-1]) {
+			// jas stopped before the model answered the previous one: the
+			// live session merged them the same way (Session.addUser).
+			r.st.Messages[n-1].Content = append(r.st.Messages[n-1].Content, fromWire(ev.Content)...)
+			return
+		}
 		r.add(ev.ID, providers.RoleUser, ev.Content)
 	case EvAssistantMessage:
 		r.flushResults(false)

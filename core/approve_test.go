@@ -38,12 +38,12 @@ func TestApprover_LadderTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		for name, want := range c.gated {
-			// Not interactive: a gated call is Unavailable, an ungated one Granted.
+			// Not interactive: a gated call is Unavailable, an ungated one AutoGranted.
 			a := &core.Approver{Level: c.level}
 			d, err := a.Allow(context.Background(), toolByName(t, name), json.RawMessage(`{}`), nil)
 			assert.NoErr(t, err)
 			got := d == core.Unavailable
-			if got != want || (!want && d != core.Granted) {
+			if got != want || (!want && d != core.AutoGranted) {
 				t.Errorf("level %d tool %s: decision %q, gated want %v", c.level, name, d, want)
 			}
 		}
@@ -169,4 +169,12 @@ func TestApprover_PrintsDiffBeforeQuestion(t *testing.T) {
 		t.Fatalf("want diff rows before the question, got %q", s)
 	}
 	assert.Eq(t, strings.HasPrefix(s, "edit a.txt\n"), true)
+}
+
+func TestSanitizeLine_KeepsInnerSpacing(t *testing.T) {
+	assert.Eq(t, core.SanitizeLine("  echo  a\tb\nc\x1b[2J "), `echo  a b c\x1b[2J`)
+}
+
+func TestSummarizeCall_KeepsCommandSpacing(t *testing.T) {
+	assert.Eq(t, core.SummarizeCall("shell", json.RawMessage(`{"command":"grep \"a  b\" x"}`)), `grep "a  b" x`)
 }

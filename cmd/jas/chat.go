@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -74,10 +75,39 @@ func chatCmd(ctx context.Context, args []string) error {
 // chatExit maps the program being killed by a cancelled ctx (a signal) to the
 // interrupted exit code, which report prints nothing for.
 func chatExit(ctx context.Context, err error) error {
-	if ctx.Err() != nil && errors.Is(err, tea.ErrProgramKilled) {
-		return interrupted()
+	return chatExitWarn(ctx, err, func(w string) {
+		if reportRedactor != nil {
+			w = reportRedactor.Redact(w)
+		}
+		fmt.Fprintln(os.Stderr, core.Sanitize("jas: "+w))
+	})
+}
+
+// chatExitWarn is chatExit with the warning sink: errors that came with the
+// kill (closing the session failed, say) are warned about, not dropped.
+func chatExitWarn(ctx context.Context, err error, warn func(string)) error {
+	if ctx.Err() == nil || !errors.Is(err, tea.ErrProgramKilled) {
+		return err
 	}
-	return err
+	for _, e := range flatten(err) {
+		if !errors.Is(e, tea.ErrProgramKilled) {
+			warn(e.Error())
+		}
+	}
+	return interrupted()
+}
+
+// flatten lists the leaves of a tree of errors.Join errors.
+func flatten(err error) []error {
+	j, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return []error{err}
+	}
+	var out []error
+	for _, e := range j.Unwrap() {
+		out = append(out, flatten(e)...)
+	}
+	return out
 }
 
 func interrupted() error {
@@ -177,9 +207,22 @@ func (b *chatBackend) NewSession(model string, ui core.UI, gate core.Gate) (*tui
 	rec.attach(&c, b.e.root)
 	s, err := core.NewSession(c)
 	if err != nil {
-		return nil, errors.Join(err, rec.close(), log.Close())
+		err = errors.Join(err, rec.close(), log.Close())
+		removeUnstartedSession(path)
+		return nil, err
 	}
 	return b.live(provName, path, model, log, s, c.Budget, rec), nil
+}
+
+// removeUnstartedSession deletes a new session's directory when its log never
+// got session_started written (NewSession failed on it), so /resume does not
+// list a session that cannot be replayed. A log with any complete line stays.
+func removeUnstartedSession(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil || bytes.ContainsRune(b, '\n') {
+		return
+	}
+	_ = os.RemoveAll(filepath.Dir(path))
 }
 
 // Resume reopens a saved session. The log is opened first: its lock tells
@@ -546,9 +589,11 @@ func (b *chatBackend) ContextFiles() []tui.ContextFile {
 // SkillFiles maps each skill's SKILL.md path to its name, so the chat can
 // show the model loading one as a skill row.
 func (b *chatBackend) SkillFiles() map[string]string {
-	files := make(map[string]string, len(b.e.pc.skills))
+	home := catalogHome()
+	files := make(map[string]string, 2*len(b.e.pc.skills))
 	for _, s := range b.e.pc.skills {
 		files[s.Location] = s.Name
+		files[skills.DisplayPath(s.Location, home)] = s.Name // the catalog's ~/ form
 	}
 	return files
 }
@@ -560,7 +605,7 @@ func (b *chatBackend) SkillPrompt(name, text string) (string, bool) {
 		return "", false
 	}
 	s := b.e.pc.skills[i]
-	p := fmt.Sprintf("Use the \"%s\" skill for this request. Its instructions (%s):\n\n%s", s.Name, s.Location, strings.TrimSpace(string(s.Content)))
+	p := fmt.Sprintf("Use the \"%s\" skill for this request. Its instructions (%s):\n\n%s", s.Name, skills.DisplayPath(s.Location, catalogHome()), strings.TrimSpace(string(s.Content)))
 	if text = strings.TrimSpace(text); text != "" {
 		p += "\n\n" + text
 	}
