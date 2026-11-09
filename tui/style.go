@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -59,3 +60,14 @@ var (
 	ctxHotStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	codeSpanStyle  = lipgloss.NewStyle().Foreground(violetFg)
 )
+
+// perLine renders s with st one line at a time. lipgloss pads a multi-line
+// string to its widest line, which leaves trailing spaces in copied text;
+// a foreground-only style looks the same either way.
+func perLine(st lipgloss.Style, s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = st.Render(l)
+	}
+	return strings.Join(lines, "\n")
+}

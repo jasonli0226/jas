@@ -166,7 +166,7 @@ func TestTranscript_Spacing(t *testing.T) {
 		"args": map[string]any{"path": "."}}, t0)
 	got = plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "ls",
 		"status": "ok", "output": "a\n"}, t0))
-	eqStrings(t, got, []string{"▸ ls . (1 entries)", "a"})
+	eqStrings(t, got, []string{"▸ ls . (1 entry)", "a"})
 
 	got = plain(tr.Text("After\n\n", t0))
 	eqStrings(t, got, []string{"", "● After"})
@@ -190,7 +190,7 @@ func TestToolRow_Formats(t *testing.T) {
 	}{
 		{"read", "read", "ok", lines, "▸ read core/budget_test.go (212 lines)", map[string]any{"path": "core/budget_test.go"}},
 		{"ls default", "ls", "ok", "a\nb\n", "▸ ls . (2 entries)", nil},
-		{"ls path", "ls", "ok", "a\n", "▸ ls core (1 entries)", map[string]any{"path": "core"}},
+		{"ls path", "ls", "ok", "a\n", "▸ ls core (1 entry)", map[string]any{"path": "core"}},
 		{"grep", "grep", "ok", "a:1\nb:2\nc:3", "▸ grep foo (3 matches)", map[string]any{"pattern": "foo"}},
 		{"shell ok", "shell", "ok", "x", "▸ shell go build ok", map[string]any{"command": "go build"}},
 		{"shell error", "shell", "error", "exit status 1\nmore", "▸ shell go test ./core failed: exit status 1", map[string]any{"command": "go test ./core"}},
@@ -277,7 +277,7 @@ func TestTranscript_ToolStartedShowsRunningRow(t *testing.T) {
 	assert.Eq(t, strings.TrimRight(ansi.Strip(tr.Live()), " "), "▸ read a.go running")
 	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "read",
 		"status": "ok", "output": "x\n"}, t0))
-	eqStrings(t, got, []string{"▸ read a.go (1 lines)"})
+	eqStrings(t, got, []string{"▸ read a.go (1 line)"})
 	assert.Eq(t, tr.Live(), "")
 }
 
@@ -511,7 +511,7 @@ func TestTranscript_ElidedOutputSkipsPreview(t *testing.T) {
 		"args": map[string]any{"path": "."}}, t0)
 	got := plain(tr.Event("tool_result", map[string]any{"call_id": "c1", "tool": "ls",
 		"status": "ok", "output": "[elided: ls 0 lines]"}, t0))
-	eqStrings(t, got, []string{"▸ ls . (1 entries)"})
+	eqStrings(t, got, []string{"▸ ls . (1 entry)"})
 }
 
 func TestTranscript_HistorySetsLastTool(t *testing.T) {
