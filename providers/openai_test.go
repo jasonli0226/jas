@@ -496,6 +496,19 @@ func TestParseChunk_Reasoning(t *testing.T) {
 	}
 }
 
+func TestParseChunk_ReasoningWithContentAndEmptyDeltas(t *testing.T) {
+	evs, err := parseChunk([]byte(`{"choices":[{"delta":{"reasoning":"think","content":"say"}}]}`))
+	assert.NoErr(t, err)
+	assert.Eq(t, len(evs), 2) // reasoning first, then the text, as the stream orders them
+	assert.Eq(t, evs[0], StreamEvent{Reasoning: "think"})
+	assert.Eq(t, evs[1], StreamEvent{Text: "say"})
+	for _, p := range []string{`{"choices":[{"delta":{}}]}`, `{"choices":[{"delta":{"reasoning":"","content":""}}]}`} {
+		evs, err := parseChunk([]byte(p))
+		assert.NoErr(t, err)
+		assert.Eq(t, len(evs), 0)
+	}
+}
+
 // TestOpenAI_RecordedProviderFixtures pins what the adapter reads from real
 // recorded streams: ollama sends the whole call in one chunk and usage in an
 // empty-choices chunk; OpenRouter (DeepSeek upstream) interleaves

@@ -40,7 +40,7 @@ func TestFit_DropsSkillsPastBudget(t *testing.T) {
 	}
 	one := len(Catalog(ss[:1], ""))
 	kept, dropped := Fit(ss, one+entrySize(ss[2], ""), "") // room for a and b only
-	assert.Eq(t, len(kept), 3)                     // a, hidden (costs nothing), b
+	assert.Eq(t, len(kept), 3)                             // a, hidden (costs nothing), b
 	assert.Eq(t, kept[2].Name, "b")
 	assert.Eq(t, strings.Join(dropped, ","), "c")
 	if len(Catalog(kept, "")) > one+entrySize(ss[2], "") {
@@ -56,7 +56,7 @@ func TestFit_DropsUserSkillsBeforeProject(t *testing.T) {
 	}
 	one := len(Catalog(ss[:1], ""))
 	kept, dropped := Fit(ss, one+entrySize(ss[2], ""), "") // room for two
-	assert.Eq(t, strings.Join(names(kept), ","), "a,b")   // name order kept
+	assert.Eq(t, strings.Join(names(kept), ","), "a,b")    // name order kept
 	assert.Eq(t, strings.Join(dropped, ","), "c")
 	kept, dropped = Fit(ss, one, "") // room for one: the project skill
 	assert.Eq(t, strings.Join(names(kept), ","), "b")

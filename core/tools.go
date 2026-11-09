@@ -103,7 +103,7 @@ func (r *Registry) Specs() []providers.ToolSpec {
 type Decision string
 
 const (
-	Granted     Decision = "granted"
+	Granted Decision = "granted"
 	// AutoGranted runs a call nobody was asked about: the approve level does
 	// not gate it, or a standing grant covers it. No approval event is
 	// logged for it, so approval events mean someone actually decided.

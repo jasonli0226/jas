@@ -419,3 +419,18 @@ func TestRemoveUnstartedSession(t *testing.T) {
 		assert.Eq(t, os.IsNotExist(err), c.removed)
 	}
 }
+
+func TestChatCmd_TerminalCheckComesBeforeTrustPrompt(t *testing.T) {
+	proj := t.TempDir()
+	writeAgents(t, proj, "rules")
+	old := isTerminal
+	isTerminal = func(int) bool { return false }
+	defer func() { isTerminal = old }()
+	t.Setenv("JAS_HOME", testutil.TempHome(t))
+	t.Chdir(proj)
+	var code int
+	errOut := captureStderr(t, func() { code = dispatch(context.Background(), nil) })
+	assert.Eq(t, code, core.ExitUsage)
+	assert.Contains(t, errOut, "the chat needs a terminal")
+	assert.NotContains(t, errOut, "trust") // no trust prompt or skip message first
+}
