@@ -177,7 +177,7 @@ func TestReplay_SkipsOversizedLineAndContinues(t *testing.T) {
 
 	st, err := core.Replay(r.logPath)
 	assert.NoErr(t, err)
-	assert.Eq(t, msgSummary(st.Messages), "user:first | user:last")
+	assert.Eq(t, msgSummary(st.Messages), "user:first+last") // consecutive user messages merge
 	assert.Eq(t, len(st.Notices), 1)
 	assert.Contains(t, st.Notices[0], "oversized line 3")
 }
@@ -683,4 +683,46 @@ func TestReplay_ProviderFromLatestEvent(t *testing.T) {
 	assert.Eq(t, st.Model, "q2")
 	assert.Eq(t, st.Provider, "vllm")
 	assert.Eq(t, st.BaseURL, "http://vllm")
+}
+
+// crashAfterUser logs a session whose last event is a user message: jas
+// stopped before the model answered.
+func crashAfterUser(t *testing.T, r *rig, texts ...string) {
+	t.Helper()
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	for _, text := range texts {
+		assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{
+			"content": []map[string]any{{"type": "text", "text": text}}}))
+	}
+	assert.NoErr(t, log.Close())
+}
+
+func TestReplay_MergesConsecutiveUserMessages(t *testing.T) {
+	r := newRig(t, nil)
+	crashAfterUser(t, r, "first", "second")
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, msgSummary(st.Messages), "user:first+second")
+	assert.Eq(t, len(st.MessageIDs), 1)
+}
+
+func TestResumeSession_SendAfterCrashMergesIntoDanglingUser(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "A"}})
+	crashAfterUser(t, r, "lost")
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	log2, err := core.OpenEventLog(r.logPath, nil, nil)
+	assert.NoErr(t, err)
+	c := r.sessionConfig()
+	c.Log, c.Exec.Log = log2, log2
+	s, err := core.ResumeSession(c, st)
+	assert.NoErr(t, err)
+	send(t, s, context.Background(), "again")
+	assert.Eq(t, msgSummary(s.Messages()), "user:lost+again | assistant:A")
+	assert.NoErr(t, s.Close("ok", 0))
+	assert.NoErr(t, log2.Close())
+	st2, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, msgSummary(st2.Messages), "user:lost+again | assistant:A")
 }

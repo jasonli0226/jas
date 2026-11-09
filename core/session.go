@@ -189,7 +189,27 @@ func (s *Session) addUser(text string, steer bool) {
 	}
 	id, err := s.c.Log.AppendID(EvUserMessage, data)
 	s.note(err)
+	if n := len(s.messages); n > 0 && plainUser(s.messages[n-1]) {
+		// A resumed session whose last turn never reached the model: one
+		// user message, not two in a row (some APIs refuse that).
+		s.messages[n-1].Content = append(slices.Clone(s.messages[n-1].Content), content...)
+		return
+	}
 	s.push(providers.Message{Role: providers.RoleUser, Content: content}, id)
+}
+
+// plainUser reports whether m is a user message without tool results, which
+// a following user message can be merged into.
+func plainUser(m providers.Message) bool {
+	if m.Role != providers.RoleUser {
+		return false
+	}
+	for _, b := range m.Content {
+		if b.Type == providers.BlockToolResult {
+			return false
+		}
+	}
+	return true
 }
 
 // push appends a message with the id of its event ("" if it has none).
