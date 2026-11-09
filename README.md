@@ -213,7 +213,10 @@ shadow it freely — a same-named skill in `~/.agents/skills/` wins).
   names both. The same
   folder reached twice (e.g. through a symlink) loads once, silently.
 - Project skills are project-authored instructions, like `AGENTS.md`, so they
-  share its trust prompt; adding or editing one asks again. Until the project
+  share its trust prompt, which names them; adding one or editing its
+  `SKILL.md` asks again. Only `SKILL.md` is hashed: a skill's `scripts/` and
+  `references/` are read on demand by tools and can change without a new
+  prompt, so review them before trusting. Until the project
   is trusted its skills are ignored entirely, so they cannot hide a user
   skill of the same name. A project skill must resolve inside the project; one
   symlinked out of it is skipped with a warning.

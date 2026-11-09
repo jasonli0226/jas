@@ -373,8 +373,10 @@ model or the log sees it.
 `AGENTS.md` (or `CLAUDE.md`) in the project root goes into the system
 prompt after a one-time trust prompt (stored in `~/.jas/trust.json`; a
 content change asks again). `--trust-project` skips the prompt. The same
-prompt covers project skills, `.jas/farm.yaml` and the project and local
-settings files ([Settings](#settings)). Trust an older jas recorded carries over when
+prompt covers project skills (listed by name), `.jas/farm.yaml` and the
+project and local settings files ([Settings](#settings)). For a skill only
+its `SKILL.md` is hashed; files under its `scripts/` or `references/` are
+read on demand and can change without a new prompt. Trust an older jas recorded carries over when
 the project has only `AGENTS.md` / `CLAUDE.md`; with project skills,
 `.jas/farm.yaml` or settings files it is asked once more.
 

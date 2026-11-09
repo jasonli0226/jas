@@ -12,6 +12,7 @@ import (
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
 	"github.com/jasonli0226/jas/providers/fake"
+	"github.com/jasonli0226/jas/skills"
 )
 
 // writeSkill creates <base>/<name>/SKILL.md and returns its resolved path.
@@ -65,7 +66,7 @@ func TestRun_ProjectSkillsNeedTrust(t *testing.T) {
 
 	_, errOut, code := runJasIn(t, proj, env, "run", "q")
 	assert.Eq(t, code, 0)
-	assert.Contains(t, errOut, "skipping untrusted 1 project skill")
+	assert.Contains(t, errOut, "skipping untrusted 1 project skill (proj)")
 	assert.NotContains(t, string(bodies()[0]), "PROJECT-SKILL-9921")
 
 	_, _, code = runJasIn(t, proj, env, "run", "--trust-project", "q")
@@ -84,7 +85,7 @@ func TestRun_AddingProjectSkillInvalidatesTrust(t *testing.T) {
 	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
 	_, errOut, code := runJasIn(t, proj, []string{"JAS_HOME=" + home, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
 	assert.Eq(t, code, 0)
-	assert.Contains(t, errOut, "skipping untrusted AGENTS.md and 1 project skill")
+	assert.Contains(t, errOut, "skipping untrusted AGENTS.md and 1 project skill (late)")
 	assert.NotContains(t, string(bodies()[0]), "RULE-3310")
 }
 
@@ -146,4 +147,18 @@ func TestRun_SkillWarningsEscapeControlBytes(t *testing.T) {
 	assert.Eq(t, code, 0)
 	assert.Contains(t, errOut, `\x1b]0;pwned\x07`)
 	assert.NotContains(t, errOut, "\x1b")
+}
+
+func TestTrustLabel_NamesProjectSkills(t *testing.T) {
+	named := func(names ...string) []skills.Skill {
+		out := make([]skills.Skill, len(names))
+		for i, n := range names {
+			out[i] = skills.Skill{Name: n}
+		}
+		return out
+	}
+	assert.Eq(t, trustLabel("/p/AGENTS.md", named("deploy"), false, nil), "AGENTS.md and 1 project skill (deploy)")
+	assert.Eq(t, trustLabel("", named("b", "a"), true, nil), "2 project skills (a, b) and .jas/farm.yaml")
+	assert.Eq(t, trustLabel("", named("a", "b", "c", "d", "e", "f", "g"), false, nil),
+		"7 project skills (a, b, c, d, e and 2 more)")
 }
