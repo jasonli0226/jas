@@ -137,7 +137,9 @@ then decides). Writes outside `owns`, shell ones too, also go back for that
 round. Root lockfiles (`generated`, detected by default) are undone in
 part worktrees without a fix round and regenerated once on the merged tree
 before `check`. A clean merge whose `check` fails is
-handed to the integrator. At the failure prompt, answer `retry`, `drop` or
+handed to the integrator. A merged-tree `check` that edits or commits tracked
+files fails (changes undone, files listed); untracked build output is fine.
+At the failure prompt, answer `retry`, `drop` or
 `abort` (or a prefix); at the final prompt, `merge`, `keep` or `discard`
 (or a prefix: `d` discards, `don't` is asked again); anything else is asked
 again. Merging is refused (branches kept) when the target branch moved

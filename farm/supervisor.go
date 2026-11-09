@@ -66,8 +66,9 @@ type Supervisor struct {
 
 	// mergeCheck is a passing integrate_check on a clean merge that nothing
 	// changed afterwards; Verdict reuses it instead of running check again.
-	mergeCheck *core.CheckResult
-	Clock      Clock // rate limiter clock; nil is real time
+	mergeCheck     *core.CheckResult
+	mergeCheckHead string // the commit mergeCheck checked
+	Clock          Clock  // rate limiter clock; nil is real time
 	// Gen is the run's generated files (ResolveGenerated): undone in part
 	// worktrees outside a part's owns, regenerated on the merged tree.
 	Gen []Generated
