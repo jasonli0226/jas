@@ -253,7 +253,7 @@ func (f *chatFarmer) Start(ctx context.Context, planPath, model string, level co
 	}
 	opts := farm.RunOptions{
 		PlanPath: planPath, Home: e.home, Main: e.root, Stdout: io.Discard, Stderr: io.Discard,
-		Ask: h.Ask, Cfg: cfg, Trusted: e.pc.trusted, NewSession: farmSession(e),
+		Ask: h.Ask, Cfg: cfg, Trusted: e.pc.trusted, NewSession: f.b.workerSession(e),
 		Policy: e.policy, Redact: e.red.Redact, Watch: hookWatcher{h},
 		Approvals: farm.NewApprovals(strings.NewReader(""), io.Discard, false, level),
 	}

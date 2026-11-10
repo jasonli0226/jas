@@ -56,6 +56,11 @@ type testBackend struct {
 	reloadRoots  []string               // SetReadRoots after Reload; nil leaves roots alone
 	settings     map[string]SettingLine // effective settings for /settings tests
 	setCalls     []string               // "scope key=value" or "unset scope key"
+	profile      string                 // active profile; "" is default
+	profiles     []string               // Profiles; nil is just default
+	profDefaults []string               // profiles stored as the config default, in order
+	profSwitch   ProfileSwitch          // what SwitchProfile reports
+	profErr      error                  // SwitchProfile's error
 }
 
 const testWindow = 100000
@@ -255,6 +260,35 @@ func (b *testBackend) UnsetSetting(scope, key string) error {
 		delete(b.settings, key)
 	}
 	return nil
+}
+
+func (b *testBackend) Profile() string {
+	if b.profile == "" {
+		return "default"
+	}
+	return b.profile
+}
+
+func (b *testBackend) Profiles() []string {
+	if b.profiles == nil {
+		return []string{"default"}
+	}
+	return b.profiles
+}
+
+// SetDefaultProfile records the stored default; the real one writes config.json.
+func (b *testBackend) SetDefaultProfile(name string) error {
+	b.profDefaults = append(b.profDefaults, name)
+	return nil
+}
+
+// SwitchProfile sets the active profile and reports profSwitch, or profErr.
+func (b *testBackend) SwitchProfile(s *core.Session, name string, ask func(string) string) (ProfileSwitch, error) {
+	if b.profErr != nil {
+		return ProfileSwitch{}, b.profErr
+	}
+	b.profile = name
+	return b.profSwitch, nil
 }
 
 // Reload swaps the live session's system prompt (and optional read roots).

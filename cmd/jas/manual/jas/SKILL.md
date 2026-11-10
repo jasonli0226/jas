@@ -81,6 +81,9 @@ Profiles: `--profile <name>` / `JAS_PROFILE` / the `profile` key pick
 global and project config (no endpoint keys, no `profile`), and its
 `AGENTS.md` goes into the prompt before the project's. An unknown name from
 the flag or env is a usage error; from config it warns and uses `default`.
+`/resume` stays on the chat's active profile (the notice names the recorded
+one when it differs); farm workers run on the active profile's `AGENTS.md`
+and skills.
 
 ## Approval and safety
 

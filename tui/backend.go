@@ -64,11 +64,33 @@ type Backend interface {
 	// s under the trust rules. ask is called when trust must be re-confirmed
 	// (nil refuses like a non-interactive skip). Notices describe what loaded.
 	Reload(s *core.Session, ask func(string) string) (notices []string, err error)
+	// Profile is the chat's active profile name.
+	Profile() string
+	// Profiles lists the profiles there are, sorted, default included.
+	Profiles() []string
+	// SetDefaultProfile stores name as profile in the global config, so a new
+	// jas starts on it. The chat calls it from the /profile picker's Ctrl+S.
+	SetDefaultProfile(name string) error
+	// SwitchProfile makes name the chat's active profile and reloads s like
+	// Reload does (profile skills and AGENTS.md, project context, read
+	// roots), keeping the conversation. ask is Reload's trust prompt.
+	SwitchProfile(s *core.Session, name string, ask func(string) string) (ProfileSwitch, error)
 	// Shell runs the owner's ! command in the project root with the owner's
 	// environment, writing stdout and stderr to out. It returns the exit code
 	// and an error with an ExitCode method for a non-zero exit, or why the
 	// command could not run.
 	Shell(ctx context.Context, command string, out io.Writer) (code int, err error)
+}
+
+// ProfileSwitch is what a profile switch changed. Notices describe what
+// loaded. Live holds the new effective values of the live settings
+// (approve, model, hints, farm_bell) that differ from before the switch;
+// Deferred names the other settings whose effective value changed, which
+// wait for /new.
+type ProfileSwitch struct {
+	Notices  []string
+	Live     map[string]string
+	Deferred []string
 }
 
 // Live is one open session.

@@ -423,6 +423,15 @@ that names the profiles there are; one from a config file warns
 `default/` is created when missing; a read-only jas home runs on an empty
 `default`.
 
+The chat's active profile is chat state: `/resume` reopens a session on it,
+not on the profile the session was recorded with, and says so
+(`session was on profile "ds"; continuing on "default"`) when they differ.
+Farm workers run on the session's active profile: its `AGENTS.md` and its
+skills. A worker keeps the profile it started with; in the chat, workers
+started after a profile switch get the new one. A worker whose worktree's
+project context does not match the trusted main checkout drops only the
+project's `AGENTS.md` and skills; the profile's stay.
+
 Skills are [Agent Skills](https://agentskills.io) folders with a `SKILL.md`.
 Scanned in this order; on a name clash the first wins:
 
@@ -547,6 +556,7 @@ one bumps `v`.
 | `session_titled` | title |
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage |
 | `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`) |
+| `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat) |
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |

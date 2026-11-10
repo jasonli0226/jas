@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -166,6 +167,9 @@ type chatBackend struct {
 	e          *env
 	farmerOnce sync.Once
 	farmer     *chatFarmer
+	// workerProf is the profile context farm workers start on, published
+	// after each /reload and profile switch; nil: what the farm started with.
+	workerProf atomic.Pointer[workerProfile]
 }
 
 var _ tui.Backend = (*chatBackend)(nil)
@@ -259,6 +263,9 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 	notices := slices.Clone(st.Notices)
 	if notice != "" {
 		notices = append(notices, notice)
+	}
+	if active := b.e.activeProfile(); st.Profile != "" && st.Profile != active {
+		notices = append(notices, fmt.Sprintf("session was on profile %q; continuing on %q", st.Profile, active))
 	}
 	return b.live(provName, path, model, log, s, c.Budget, rec), notices, nil
 }
@@ -623,10 +630,8 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 	if err != nil {
 		return nil, err
 	}
-	files := make([]map[string]any, len(b.e.pc.files))
-	for i, f := range b.e.pc.files {
-		files[i] = map[string]any{"path": f.Path, "loaded": f.Loaded, "sha256": f.SHA256}
-	}
+	b.publishWorkerProfile()
+	files := contextFilesMeta(b.e.pc.files)
 	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
 		return notices, err
 	}

@@ -42,9 +42,13 @@ type skillMeta struct {
 
 // projectContext is what the project and the skills directories add to a run.
 type projectContext struct {
-	system string         // full system prompt
-	skills []skills.Skill // skills listed to the model
-	files  []contextFileMeta
+	system string // full system prompt
+	// userSystem is the prompt without project context: the user (profile
+	// and built-in) skill catalog and the profile AGENTS.md. A farm worker
+	// whose worktree does not match main's trusted context gets it.
+	userSystem string
+	skills     []skills.Skill // skills listed to the model
+	files      []contextFileMeta
 	// profileAgents is the path of the profile AGENTS.md in files, or "".
 	profileAgents string
 	// trusted is the project trust decision: the context file and project
@@ -153,6 +157,8 @@ func buildProjectContext(pt projectTrust, project, user []skills.Skill, prof pro
 	}
 	pc.skills = kept
 	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills, home)), profileInstructions, instructions)
+	userKept, _ := skills.Fit(user, skills.MaxCatalogBytes, home) // the full list above already warned
+	pc.userSystem = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(userKept, home)), profileInstructions)
 	return pc
 }
 
@@ -307,14 +313,19 @@ func askLine(ctx context.Context, in *bufio.Reader, out io.Writer, prompt string
 // workerContext is the system prompt and trust decision for a farm worker in
 // worktree. The supervisor decided trust once for the main checkout; the
 // worker inherits it only when its context file and project skills hash-equal
-// main's. Otherwise it gets the base prompt with no project context.
+// main's. Otherwise it gets the prompt without project context: the
+// profile AGENTS.md and the user skill catalog stay (the owner wrote them,
+// so they need no trust), the project's AGENTS.md and skills go.
 // .jas/farm.yaml is left out of the comparison: workers never run it, and an
 // uncommitted farm.yaml in main would otherwise strip every worker's context.
 func workerContext(main projectContext, mainRoot, worktree string) (system string, trusted bool) {
 	if main.trusted && workerBundleHash(mainRoot) == workerBundleHash(worktree) {
 		return main.system, true
 	}
-	return core.BuildSystem(core.BasePrompt, ""), false
+	if main.userSystem == "" { // a context built without buildProjectContext
+		return core.BuildSystem(core.BasePrompt, ""), false
+	}
+	return main.userSystem, false
 }
 
 // workerBundleHash hashes what a worker loads from root: the context file and
