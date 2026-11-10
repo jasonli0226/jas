@@ -35,6 +35,7 @@ Each overrides its setting's env var and stored config for one run.
 
 | flag | setting |
 |---|---|
+| `--profile NAME` | `profile` |
 | `--provider P` | `provider` |
 | `--model M` | `model` (plain or `provider/model`) |
 | `--base-url U` | `base_url` |
@@ -285,6 +286,7 @@ or `--local` shows the file as written.
 
 | key | default | values / notes |
 |---|---|---|
+| `profile` | `default` | active profile: `~/.jas/profiles/<name>/`; see Profiles |
 | `provider` | (custom) | `openrouter` \| `ollama` \| `custom`: the default provider |
 | `model` | — | model id, plain or `provider/model` |
 | `base_url` | provider preset | endpoint of the default provider |

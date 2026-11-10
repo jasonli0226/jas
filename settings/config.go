@@ -53,6 +53,7 @@ func (k KeySpec) EnvName() string {
 // Keys lists every plain setting. models.<name>.context_window is a pattern
 // handled by File.Set.
 var Keys = []KeySpec{
+	{Name: "profile", Default: DefaultProfile, Validate: ValidProfileName, Flag: true},
 	{Name: "provider", Options: []string{"openrouter", "ollama", "custom"}, Validate: oneOf("openrouter", "ollama", "custom"), Flag: true},
 	{Name: "model", Validate: nonEmpty, Flag: true},
 	{Name: "base_url", Validate: validURL, Flag: true},
@@ -102,7 +103,8 @@ type Value struct {
 // Effective is the resolved value of every key.
 type Effective map[string]Value
 
-// Resolve merges layers: flag > env > local > project > global > default.
+// Resolve merges layers: flag > env > local > project > profile > global > default.
+// The profile key skips the profile layer (a profile cannot choose itself).
 // An empty string counts as unset in every layer. Stored named providers are
 // exposed as "providers.<name>.base_url" keys for Build (local > project > global).
 func Resolve(flags map[string]string, env func(string) string, layers Layers) Effective {
@@ -114,7 +116,11 @@ func Resolve(flags map[string]string, env func(string) string, layers Layers) Ef
 		case env(k.EnvName()) != "":
 			out[k.Name] = Value{env(k.EnvName()), envSource(k.EnvName())}
 		default:
-			raw, src := pick(layers.Local.Values[k.Name], layers.Project.Values[k.Name], layers.Global.Values[k.Name])
+			profile := layers.Profile.Values[k.Name]
+			if k.Name == "profile" {
+				profile = ""
+			}
+			raw, src := pick(layers.Local.Values[k.Name], layers.Project.Values[k.Name], profile, layers.Global.Values[k.Name], layers.ProfileName)
 			if raw == "" {
 				out[k.Name] = Value{k.Default, SourceDefault}
 			} else {
@@ -122,7 +128,7 @@ func Resolve(flags map[string]string, env func(string) string, layers Layers) Ef
 			}
 		}
 	}
-	// Providers: overlay global → project → local so the most specific wins.
+	// Providers: overlay global → profile → project → local so the most specific wins.
 	type pe struct {
 		url string
 		src Source
@@ -130,6 +136,9 @@ func Resolve(flags map[string]string, env func(string) string, layers Layers) Ef
 	providers := map[string]pe{}
 	for name, p := range layers.Global.Providers {
 		providers[name] = pe{p.BaseURL, SourceFile}
+	}
+	for name, p := range layers.Profile.Providers {
+		providers[name] = pe{p.BaseURL, ProfileSource(layers.ProfileName)}
 	}
 	for name, p := range layers.Project.Providers {
 		providers[name] = pe{p.BaseURL, SourceProject}
