@@ -770,4 +770,43 @@ func TestTakeSettingsScope(t *testing.T) {
 	scope, rest = takeSettingsScope("unset --project model")
 	assert.Eq(t, scope, "project")
 	assert.Eq(t, strings.Join(rest, " "), "unset model")
+	scope, rest = takeSettingsScope("--in-profile approve shell")
+	assert.Eq(t, scope, "profile")
+	assert.Eq(t, strings.Join(rest, " "), "approve shell")
+}
+
+func TestCmdSettings_InProfile(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.submit("/settings --in-profile approve shell")
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "profile approve=shell")
+	assert.Contains(t, c.printedText(), "approve=shell (profile config)")
+	assert.Eq(t, c.m.gate.Level(), core.ShellOnly)
+	c.submit("/settings unset --in-profile approve")
+	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "unset profile approve")
+	assert.Contains(t, c.printedText(), "unset approve from profile config")
+}
+
+func TestCmdSettings_RefusedWhileSwitching(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.m.reloading = true
+	for _, cmd := range []string{"/settings", "/settings approve shell", "/settings model", "/settings unset approve"} {
+		c.m.input.Reset()
+		before := len(c.printedText())
+		c.submit(cmd)
+		assert.Contains(t, c.printedText()[before:], waitNotice)
+	}
+	assert.Eq(t, len(b.setCalls), 0)
+	assert.Eq(t, c.m.picker == nil, true)
+	assert.Eq(t, idleOnly["settings"], false) // still allowed during a run
+}
+
+func TestSkillCommand_RefusedWhileSwitchingBeforeBackend(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.m.reloading = true
+	c.submit("/skill:review x")
+	assert.Contains(t, c.printedText(), waitNotice)
+	assert.Eq(t, b.skillPrompts, 0)
 }

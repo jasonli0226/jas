@@ -181,3 +181,24 @@ func TestPicker_CtrlSProfileSwitchFailureSaysStored(t *testing.T) {
 	c.pumpProfileDone()
 	assert.Contains(t, c.printedText(), "the default profile was stored")
 }
+
+func TestCmdProfile_RefreshesTranscriptSkills(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	b.skillFiles = map[string]string{"/p/ds/skills/demo/SKILL.md": "demo"}
+	c.submit("/profile ds")
+	c.pumpProfileDone()
+	assert.Eq(t, c.m.tr.Skills["/p/ds/skills/demo/SKILL.md"], "demo")
+	assert.Eq(t, c.m.tr.Skills["/skills/review/SKILL.md"], "")
+}
+
+func TestCmdReload_RefreshesTranscriptSkills(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	b.skillFiles = map[string]string{"/new/skills/fresh/SKILL.md": "fresh"}
+	c.submit("/reload")
+	c.pumpAsk()
+	c.submit("y")
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(reloadDoneMsg); return ok })
+	assert.Eq(t, c.m.tr.Skills["/new/skills/fresh/SKILL.md"], "fresh")
+}

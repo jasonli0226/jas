@@ -205,15 +205,22 @@ func saveSettingsFile(root, home string, scope settings.Scope, path string, f se
 // of an untrusted project: the session ignores those files, so the change
 // would silently do nothing.
 func (e *env) projectWritable(scope settings.Scope) error {
-	if scope == settings.ScopeGlobal || e.settingsTrusted {
+	if scope == settings.ScopeGlobal || scope == settings.ScopeProfile || e.settingsTrusted {
 		return nil
 	}
 	return fmt.Errorf("project not trusted, so this session ignores %s config: restart with --trust-project (or answer always) to use it, or set it globally", scope)
 }
 
-// setFile records a settings write and recomputes what the session reads.
+// setFile records a settings write and recomputes what the session reads. A
+// profile write replaces the active profile's layer (and the copy a /reload
+// keeps).
 func (e *env) setFile(scope settings.Scope, f settings.File) {
-	e.files = e.files.WithFile(scope, f)
+	if scope == settings.ScopeProfile {
+		e.files = e.files.WithProfile(e.activeProfile(), f)
+		e.prof.layer = f
+	} else {
+		e.files = e.files.WithFile(scope, f)
+	}
 	e.layers, _ = e.files.ForProject(e.settingsTrusted) // user-only keys were warned about at start
 }
 

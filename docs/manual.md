@@ -201,8 +201,8 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 | `/reload` | reload `AGENTS.md` / `CLAUDE.md`, skills and project context into this session (same trust rules) |
 | `/profile [name]` | switch profile (skills, `AGENTS.md`, settings) in this session; bare `/profile` opens a picker marking the active one. Live settings (`approve`, `model`, `hints`, `farm_bell`) apply now; other changed keys take effect on `/new`. Switching to the active profile just reloads |
 | `/settings` | settings picker; closed-set keys get a value picker |
-| `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--project`; **global** in an untrusted project, where project and local writes are refused). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
-| `/settings unset <key>` | remove a setting from local (or `--global` / `--project`; global by default in an untrusted project) |
+| `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--in-profile` / `--project` / `--local`; **global** in an untrusted project, where project and local writes are refused). `--in-profile` writes the chat's active profile's `config.json` (refused for `provider`, `base_url`, `search_base_url`, `profile` and `providers.*`). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
+| `/settings unset <key>` | remove a setting from local (or `--global` / `--in-profile` / `--project`; global by default in an untrusted project) |
 | `/session` | session file, tokens used, context use |
 | `/thinking` | show or hide the model's thinking |
 | `/approve [level]` | show or set the approval level: `never` \| `shell` \| `mutating` |
@@ -218,8 +218,9 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 | `/quit` | save the session and quit |
 
 `/new`, `/model`, `/name`, `/resume`, `/compact`, `/reload` and `/profile` wait
-until no reply is running; `/new`, `/resume`, `/reload`, `/profile` and a
-farm start also wait while a reload or profile switch is in progress.
+until no reply is running; `/new`, `/resume`, `/reload`, `/profile`,
+`/settings`, `/skill:<name>` and a farm start also wait while a reload or
+profile switch is in progress.
 
 ### Shell commands
 

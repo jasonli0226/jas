@@ -64,6 +64,7 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 | `/approve [level]` | `never` / `shell` / `mutating` |
 | `/allowed` | list and remove always-grants |
 | `/copy` | copy the last reply |
+| `/settings [--global\|--in-profile\|--project\|--local] [unset] <key> [value]` | show, set or unset a setting (default local; `--in-profile`: the active profile's `config.json`) |
 | `/skill:<name> [text]` | run a skill |
 | `/quit` | save the session and quit |
 

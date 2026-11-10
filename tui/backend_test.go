@@ -65,6 +65,8 @@ type testBackend struct {
 	profGate     chan struct{}          // when set, SwitchProfile blocks until it is closed
 	switching    atomic.Bool            // a SwitchProfile is in flight
 	touched      atomic.Int32           // Profile/Profiles calls made while switching
+	skillFiles   map[string]string      // SkillFiles; nil is the review skill
+	skillPrompts int                    // SkillPrompt calls
 }
 
 const testWindow = 100000
@@ -194,6 +196,9 @@ func (b *testBackend) SkillNames() []string { return []string{"review"} }
 // ContextFiles backs the start banner's [Context] section; nil hides it.
 func (b *testBackend) ContextFiles() []ContextFile { return b.ctxFiles }
 func (b *testBackend) SkillFiles() map[string]string {
+	if b.skillFiles != nil {
+		return b.skillFiles
+	}
 	return map[string]string{"/skills/review/SKILL.md": "review"}
 }
 
@@ -207,6 +212,7 @@ func (b *testBackend) Window(string) (int, bool) {
 func (b *testBackend) Farmer() Farmer { return b.farmer }
 
 func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
+	b.skillPrompts++
 	if name != "review" {
 		return "", false
 	}

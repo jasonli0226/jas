@@ -73,6 +73,7 @@ func (m *Model) switchProfile(name string, asDefault bool) tea.Cmd {
 func (m *Model) onProfileDone(msg profileDoneMsg) tea.Cmd {
 	m.reloading = false
 	m.profile = m.b.Profile() // no switch is in flight now: safe to read
+	m.tr.Skills = m.b.SkillFiles()
 	if msg.err != nil {
 		text := "profile: " + m.clean(msg.err.Error())
 		if msg.defaulted {
