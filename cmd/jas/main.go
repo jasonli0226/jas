@@ -17,14 +17,15 @@ import (
 var version = "dev"
 
 const usage = `usage:
-  jas [--continue] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N] [--trust-project]
-  jas run [--json] [--name T] [--model M] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N]
+  jas [--continue] [--name T] [--model M] [--profile NAME] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N] [--trust-project]
+  jas run [--json] [--name T] [--model M] [--profile NAME] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N]
           [--max-tokens N] [--timeout D] [--compact] [--trust-project] "task"
   jas farm plan "task" [-o plan.yaml] [--allow-dirty]
   jas farm run plan.yaml [--json] [--allow-dirty]
   jas farm "task"
   jas farm status|clean|vars
   jas config set|get|unset|list|init
+  jas profile list [--json] | use <name> | new <name> | show [name]
   jas auth add|list|rm|rotate
   jas sessions [--prune]
   jas --version
@@ -59,6 +60,8 @@ func dispatch(ctx context.Context, args []string) int {
 		return report(runCmd(ctx, args[1:]))
 	case "config":
 		return report(configCmd(args[1:]))
+	case "profile":
+		return report(profileCmd(args[1:]))
 	case "auth":
 		return report(authCmd(args[1:]))
 	case "farm":

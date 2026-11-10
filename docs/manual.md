@@ -24,6 +24,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas` | inline chat in this project (needs a terminal); first run onboards |
 | `jas run "task"` | one-shot task, no terminal needed (CI, scripts) |
 | `jas config set\|get\|unset\|list\|init` | settings |
+| `jas profile list\|use\|new\|show` | named bundles of skills, instructions and settings |
 | `jas auth add\|list\|rm\|rotate` | API keys |
 | `jas sessions [--prune]` | other jas sessions working in this repo |
 | `jas farm …` | experimental parallel worktree runner |
@@ -74,19 +75,41 @@ and `ps`. Use `jas auth add` or `JAS_API_KEY`.
 ### `jas config`
 
 ```
-jas config set   [--global|--project|--local] <key> <value>
-jas config get   [--global|--project|--local] <key>
-jas config unset [--global|--project|--local] <key>
+jas config set   [--global|--in-profile|--project|--local] <key> <value>
+jas config get   [--global|--in-profile|--project|--local] <key>
+jas config unset [--global|--in-profile|--project|--local] <key>
 jas config list
 jas config init
 ```
 
 `set` and `unset` write global by default. `get` without a scope prints the
-effective value; with a scope, the value stored in that layer. `list` shows
+effective value; with a scope, the value stored in that layer. `--in-profile`
+writes `~/.jas/profiles/<active>/config.json`, where the active profile is the
+one `JAS_PROFILE` or the `profile` key names; `JAS_PROFILE=ds jas config set
+--in-profile model x` therefore targets the non-active profile `ds` (`config`
+is a subcommand, so there is no `--profile` flag here). A profile file refuses
+`provider`, `base_url`, `search_base_url` and `profile`. `list` shows
 every effective value and its source. Endpoint keys are global-only and
 project/local settings need trust: [Settings](#settings). `init` asks for provider, base URL
 (custom only) and model, and writes the global file. Keys:
 [Settings](#settings).
+
+### `jas profile`
+
+```
+jas profile list [--json]
+jas profile use <name>
+jas profile new <name>
+jas profile show [name]
+```
+
+`list` prints one line per profile, the active one marked `*`
+(`* ds  4 skills`); `--json` prints `[{"name":"ds","active":true,"skills":4}]`.
+`use` sets `profile` in the global config (an unknown name is a usage error).
+`new` creates the empty `~/.jas/profiles/<name>/` (names: a-z, 0-9 and `-`,
+at most 64 characters). `show` prints a profile's path, the settings in its
+`config.json`, whether it has an `AGENTS.md`, and its skills; with no name it
+shows the active one. Details: [Project context and skills](#project-context-and-skills).
 
 ### `jas auth`
 
@@ -258,11 +281,12 @@ every part); `always` there covers that part only.
 ## Settings
 
 Precedence, highest first: flag > `JAS_<KEY>` env var > local > project >
-global > built-in default.
+profile > global > built-in default.
 
 | layer | file |
 |---|---|
 | global | `~/.jas/config.json` |
+| profile (active profile) | `~/.jas/profiles/<name>/config.json` |
 | project (shared, commit it) | `<root>/.jas/config.json` |
 | local (personal, gitignore it) | `<root>/.jas/config.local.json` |
 
@@ -544,5 +568,6 @@ Field-level detail and the resume rules: [design §3](design.md).
 | `<root>/.jas/farm.yaml` | project farm config |
 | `<root>/.jas/sessions/<id>.json` | live session records (`jas sessions`) |
 | `<root>/.jas/worktrees/<farm-id>/part-<part>` | farm worktrees |
+| `~/.jas/profiles/<name>/config.json` | a profile's settings (between global and project) |
 | `~/.jas/profiles/<name>/skills/` | the active profile's skills |
 | `<UserCacheDir>/jas/manual/jas/` | jas's built-in manual skill |

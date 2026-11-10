@@ -14,14 +14,15 @@ import (
 )
 
 const configUsage = `usage:
-  jas config set [--global|--project|--local] <key> <value>
-  jas config get [--global|--project|--local] <key>
-  jas config unset [--global|--project|--local] <key>
+  jas config set [--global|--in-profile|--project|--local] <key> <value>
+  jas config get [--global|--in-profile|--project|--local] <key>
+  jas config unset [--global|--in-profile|--project|--local] <key>
   jas config list
   jas config init
 
 Scopes (Claude-style): global=~/.jas/config.json (default for set/unset),
-project=<root>/.jas/config.json (shared), local=<root>/.jas/config.local.json
+in-profile=~/.jas/profiles/<active>/config.json (the active profile comes from
+JAS_PROFILE or the profile key; no endpoint keys), project=<root>/.jas/config.json (shared), local=<root>/.jas/config.local.json
 (personal). get without a scope prints the effective value. list always shows
 effective values with sources. auth.json and trust.json stay global-only.`
 
@@ -50,20 +51,25 @@ func configCmd(args []string) error {
 	if err != nil {
 		return usageErr("%v", err)
 	}
+	if scope == settings.ScopeProfile {
+		if layers, err = withActiveProfile(home, layers); err != nil {
+			return err
+		}
+	}
 	switch cmd {
 	case "set":
 		if len(rest) != 2 {
-			return usageErr("usage: jas config set [--global|--project|--local] <key> <value>")
+			return usageErr("usage: jas config set [--global|--in-profile|--project|--local] <key> <value>")
 		}
 		return configWrite(home, root, layers, scope, rest[0], rest[1], false)
 	case "unset":
 		if len(rest) != 1 {
-			return usageErr("usage: jas config unset [--global|--project|--local] <key>")
+			return usageErr("usage: jas config unset [--global|--in-profile|--project|--local] <key>")
 		}
 		return configWrite(home, root, layers, scope, rest[0], "", true)
 	case "get":
 		if len(rest) != 1 {
-			return usageErr("usage: jas config get [--global|--project|--local] <key>")
+			return usageErr("usage: jas config get [--global|--in-profile|--project|--local] <key>")
 		}
 		if scope != "" {
 			return configGet(layers, scope, rest[0], true) // the file as written
@@ -87,7 +93,23 @@ func configCmd(args []string) error {
 	return usageErr("unknown config command %q\n%s", cmd, configUsage)
 }
 
-// takeConfigScope pulls --global|--project|--local out of args. When
+// withActiveProfile loads the active profile's config.json into the profile
+// layer. The profile is chosen as a session would (env, then local, project
+// and global config; the project counts as trusted, as for config get/list).
+func withActiveProfile(home string, layers settings.Layers) (settings.Layers, error) {
+	eff, _ := layers.ForProject(true)
+	name, src := settings.ResolveProfile(nil, os.Getenv, eff)
+	prof, warns, err := loadProfile(home, name, src)
+	if err != nil {
+		return layers, err
+	}
+	for _, w := range warns {
+		fmt.Fprintln(os.Stderr, "jas: warning: "+w)
+	}
+	return layers.WithProfile(prof.name, prof.layer), nil
+}
+
+// takeConfigScope pulls --global|--in-profile|--project|--local out of args. When
 // defaultGlobal is set and no flag appears, the write scope is global.
 func takeConfigScope(args []string, defaultGlobal bool) (settings.Scope, []string, error) {
 	var scope settings.Scope
@@ -95,11 +117,11 @@ func takeConfigScope(args []string, defaultGlobal bool) (settings.Scope, []strin
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
-		case "--global", "--project", "--local":
+		case "--global", "--in-profile", "--project", "--local":
 			if scope != "" {
 				return "", nil, fmt.Errorf("multiple scope flags")
 			}
-			s, err := settings.ParseScope(strings.TrimPrefix(a, "--"))
+			s, err := settings.ParseScope(strings.TrimPrefix(strings.TrimPrefix(a, "--"), "in-"))
 			if err != nil {
 				return "", nil, err
 			}
@@ -121,7 +143,7 @@ func configWrite(home, root string, layers settings.Layers, scope settings.Scope
 			return usageErr("%v", err)
 		}
 	}
-	path, err := scope.Path(home, root)
+	path, err := scope.PathFor(home, root, layers.ProfileName)
 	if err != nil {
 		return usageErr("%v", err)
 	}
@@ -134,6 +156,9 @@ func configWrite(home, root string, layers settings.Layers, scope settings.Scope
 	}
 	if err != nil {
 		return usageErr("%v", err)
+	}
+	if scope == settings.ScopeProfile {
+		return next.Save(path) // outside the repository: no trust bundle to refresh
 	}
 	return saveSettingsFile(root, home, scope, path, next)
 }

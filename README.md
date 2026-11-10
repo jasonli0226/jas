@@ -136,6 +136,7 @@ flags or env: a cloned repo cannot point your API key at another server.
 jas config set model z-ai/glm-5.3                 # → ~/.jas/config.json (default)
 jas config set --project approve shell             # → <root>/.jas/config.json
 jas config set --local max_turns 80                # → <root>/.jas/config.local.json
+jas config set --in-profile model z-ai/glm-5.3     # → ~/.jas/profiles/<active>/config.json
 jas config set base_url https://openrouter.ai/api/v1
 jas config set models.my-local.context_window 32768
 jas config get model                               # effective value

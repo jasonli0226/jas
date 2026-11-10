@@ -20,7 +20,8 @@ flags, keys, defaults, exit codes and event fields, read
 | `jas run "<task>"` | one-shot agent run (the CI path) |
 | `jas --continue`, `jas --name <title>` | reopen, name a saved session |
 | `jas sessions` | list this repo's sessions, across worktrees |
-| `jas config get/set/unset/list`, `jas config init` | settings in `~/.jas/config.json` |
+| `jas config get/set/unset/list`, `jas config init` | settings in `~/.jas/config.json` (`--in-profile`: the active profile's `config.json`) |
+| `jas profile list/use/new/show` | profiles: skills, `AGENTS.md`, settings under `~/.jas/profiles/<name>/` |
 | `jas auth add <provider>` | store a key in `~/.jas/auth.json` (0600) |
 | `jas farm …` | experimental parallel worktree runner (below) |
 

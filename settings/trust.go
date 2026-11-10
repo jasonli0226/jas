@@ -71,6 +71,9 @@ func withoutUserOnly(f File, src Source) (File, []string) {
 // CheckWriteScope refuses a user-only key outside the global config, where
 // a session would never read it.
 func CheckWriteScope(key string, scope Scope) error {
+	if scope == ScopeProfile && (UserOnly(key) || slices.Contains(profileForbiddenKeys, key)) {
+		return fmt.Errorf("%s cannot be set in a profile: sessions ignore it there (use global config)", key)
+	}
 	if scope == ScopeGlobal || !UserOnly(key) {
 		return nil
 	}
