@@ -551,7 +551,9 @@ func (b *chatBackend) unsetSetting(scope settings.Scope, key string) error {
 	return b.reconfigure()
 }
 
-// reconfigure rebuilds e.cfg from flags + env + layers after a settings write.
+// reconfigure rebuilds e.cfg, and the exec policy's settings-driven fields,
+// from flags + env + layers after a settings write. Sessions copy both at
+// start, so the change reaches the next /new.
 func (b *chatBackend) reconfigure() error {
 	cfg, err := settings.Resolve(b.e.flags, os.Getenv, b.e.layers).Build()
 	if err != nil {
@@ -562,6 +564,7 @@ func (b *chatBackend) reconfigure() error {
 		return err
 	}
 	b.e.cfg, b.e.level = cfg, level
+	b.e.policy.MaxOutput, b.e.policy.RedactSkip = cfg.MaxToolOutput, cfg.RedactSkipPaths
 	return nil
 }
 

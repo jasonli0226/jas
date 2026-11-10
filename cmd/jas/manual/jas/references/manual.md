@@ -175,7 +175,7 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 | `/compact [focus]` | summarize older messages to free context; `focus` steers the summary |
 | `/reload` | reload `AGENTS.md` / `CLAUDE.md`, skills and project context into this session (same trust rules) |
 | `/settings` | settings picker; closed-set keys get a value picker |
-| `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--project`; **global** in an untrusted project, where project and local writes are refused) |
+| `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--project`; **global** in an untrusted project, where project and local writes are refused). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
 | `/settings unset <key>` | remove a setting from local (or `--global` / `--project`; global by default in an untrusted project) |
 | `/session` | session file, tokens used, context use |
 | `/thinking` | show or hide the model's thinking |
@@ -215,8 +215,8 @@ message). `!` commands run in the main chat only, not in a farm agent view.
 
 When a command would help, the chat shows a one-line `tip:` in place of the
 status line until your next key press. Each tip shows at most once per chat;
-`/settings hints false` (or `jas config set hints false`) turns them off from
-the next start.
+`/settings hints false` turns them off at once (`jas config set hints false`
+from the next start).
 
 | when | tip |
 |---|---|

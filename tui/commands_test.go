@@ -666,6 +666,48 @@ func TestChat_SettingsListSetUnset(t *testing.T) {
 	assert.Eq(t, b.setCalls[len(b.setCalls)-1], "unset global model")
 }
 
+// /settings model switches the live session like /model, not only the
+// config file: the next request goes out on the new model.
+func TestChat_SettingsModelSwitchesLiveSession(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.submit("/settings model m2")
+	assert.Eq(t, c.m.live.Model, "m2")
+	assert.Eq(t, c.m.model, "m2")
+	log, err := os.ReadFile(c.m.live.Path)
+	assert.NoErr(t, err)
+	assert.Contains(t, string(log), "model_changed")
+}
+
+// A /settings model on another provider keeps the live session on its
+// model (the provider is wired at start) but /new opens on the new one.
+func TestChat_SettingsModelAcrossProvidersWaitsForNew(t *testing.T) {
+	b := newTestBackend(t)
+	b.provider = "vllm"
+	c := newTestChat(t, b)
+	c.m.live.Provider = "openrouter"
+	c.submit("/settings model m2")
+	assert.Contains(t, c.printedText(), "runs on vllm")
+	assert.Eq(t, c.m.live.Model, "m")
+	assert.Eq(t, c.m.model, "m2")
+}
+
+func TestChat_SettingsHintsAndFarmBellApplyLive(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.m.o.Hints, c.m.o.FarmBell = true, true
+	c.submit("/settings hints false")
+	c.submit("/settings farm_bell false")
+	assert.Eq(t, c.m.o.Hints, false)
+	assert.Eq(t, c.m.o.FarmBell, false)
+	assert.NotContains(t, c.printedText(), "takes effect on /new")
+}
+
+// Keys read when a session starts say so instead of silently waiting.
+func TestChat_SettingsSessionStartKeyNamesNew(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.submit("/settings max_turns 5")
+	assert.Contains(t, c.printedText(), "max_turns takes effect on /new")
+}
+
 func TestChat_SettingsPickerEnumSet(t *testing.T) {
 	b := newTestBackend(t)
 	b.settings = map[string]SettingLine{
