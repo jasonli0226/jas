@@ -45,7 +45,8 @@ modifier), Up/Down recalls input, `/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in
 progress (`working…`, or `thinking…` while the model reasons).
 A start banner (version, key hints, loaded context files and skills; a
-context file the trust decision declined is marked `not loaded`) shows
+context file the trust decision declined is marked `not loaded`; the active
+profile's `AGENTS.md`, loaded before the project's, is listed first) shows
 when the chat opens fresh and again on `/new`; resuming (`--continue`,
 `/resume`) does not show it.
 
@@ -73,6 +74,12 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 (`config.local.json`) files apply only in a trusted project; endpoint keys
 (`base_url`, `search_base_url`, `providers.<name>.base_url`) are global-only
 and are never read from them.
+
+Profiles: `--profile <name>` / `JAS_PROFILE` / the `profile` key pick
+`~/.jas/profiles/<name>/` (default `default`). Its `config.json` sits between
+global and project config (no endpoint keys, no `profile`), and its
+`AGENTS.md` goes into the prompt before the project's. An unknown name from
+the flag or env is a usage error; from config it warns and uses `default`.
 
 ## Approval and safety
 
@@ -107,8 +114,7 @@ and are never read from them.
 A skill is a directory holding a `SKILL.md` whose frontmatter has a `name`
 and `description`. Scanned, in order: project `<root>/.agents/skills` and
 `<root>/.claude/skills` (behind the project trust prompt), then user: the
-active profile's `~/.jas/profiles/<name>/skills` (the `default` profile for
-now) and jas's built-in manual under `<UserCacheDir>/jas/manual` (this
+active profile's `~/.jas/profiles/<name>/skills` and jas's built-in manual under `<UserCacheDir>/jas/manual` (this
 manual). `~/.agents/skills`, `~/.claude/skills` and `~/.config/jas/skills`
 are no longer read.
 Only name and description reach the system prompt; the model reads the full

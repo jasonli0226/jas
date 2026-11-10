@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
-	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 )
 
@@ -20,19 +19,25 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 	if err := syncManualSkills(); err != nil {
 		warn("manual skills: " + err.Error())
 	}
-	e.policy = profilePolicy(e.policy, e.home, settings.DefaultProfile)
+	name := e.activeProfile()
+	e.policy = profilePolicy(e.policy, e.home, name)
+	prof := e.prof
+	prof.name = name
+	if prof.agentsPath, prof.agents, err = readProfileAgents(e.home, name); err != nil {
+		warn(err.Error())
+	}
 	projectSkills, pw := skills.Discover(skills.ProjectSources(e.root), e.policy.Denied)
 	userSkills, uw := discoverUserSkills(e.policy, e.home)
 	for _, w := range append(pw, uw...) {
 		warn(w)
 	}
 	interactive := ask != nil
-	pc, err := loadProjectContext(e.root, e.home, projectSkills, userSkills, interactive, e.trust, ask, e.red.Redact, warn)
+	pc, err := loadProjectContext(e.root, e.home, projectSkills, userSkills, prof, interactive, e.trust, ask, e.red.Redact, warn)
 	if err != nil {
 		return nil, nil, err
 	}
 	skillList, skillDirs := listedSkills(pc.skills)
-	e.pc, e.skillList = pc, skillList
+	e.pc, e.skillList, e.prof = pc, skillList, prof
 	e.policy.ReadRoots = skillDirs
 	notices = append(notices, formatReloadNotice(pc))
 	if pc.trusted != e.settingsTrusted && len(readProjectSettings(e.root)) > 0 {
@@ -50,6 +55,9 @@ func formatReloadNotice(pc projectContext) string {
 	parts := []string{"reloaded"}
 	sawCtx := false
 	for _, f := range pc.files {
+		if pc.profileAgents != "" && f.Path == pc.profileAgents {
+			continue // the profile's file: the notice describes the project's
+		}
 		base := filepath.Base(f.Path)
 		if base != "AGENTS.md" && base != "CLAUDE.md" {
 			continue

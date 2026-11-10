@@ -390,6 +390,15 @@ read on demand and can change without a new prompt. Trust an older jas recorded 
 the project has only `AGENTS.md` / `CLAUDE.md`; with project skills,
 `.jas/farm.yaml` or settings files it is asked once more.
 
+The active profile's `AGENTS.md` (`~/.jas/profiles/<name>/AGENTS.md`) needs
+no trust and goes into the prompt before the project's file, so on a
+conflict the project's later text wins; a missing file adds nothing. An
+unknown profile from `--profile` or `JAS_PROFILE` is a usage error (exit 2)
+that names the profiles there are; one from a config file warns
+(`profile "ds" (from …) not found; using default`) and runs on `default`.
+`default/` is created when missing; a read-only jas home runs on an empty
+`default`.
+
 Skills are [Agent Skills](https://agentskills.io) folders with a `SKILL.md`.
 Scanned in this order; on a name clash the first wins:
 
@@ -499,7 +508,7 @@ one bumps `v`.
 
 | type | payload |
 |---|---|
-| `session_started` | model, provider, base_url, approve, root, context files, skills, context window; optional title |
+| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present), skills, context window; optional title |
 | `session_resumed` | as `session_started`, on each reopen |
 | `user_message` | content; `steer: true` for steering text |
 | `turn_started` | — |

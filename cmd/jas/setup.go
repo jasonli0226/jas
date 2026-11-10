@@ -37,6 +37,9 @@ type env struct {
 	interactive     bool
 	trust           bool // --trust-project: reload keeps auto-trusting
 	provider        providers.Provider
+	profile         string          // active profile name
+	profileSrc      settings.Source // the layer that chose it
+	prof            profileState
 }
 
 // authKeys returns every secret the auth file can put in a request: literal
@@ -75,15 +78,15 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	}
 	// Trust is decided before any setting is resolved: project and local
 	// config live in the repository, so they apply only once it is trusted.
+	// Project skills join that decision; user skills wait for the profile,
+	// which project config can choose.
 	var early []string // printed once the redactor exists
 	deny := denyPatterns(home)
-	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: deny}, home, settings.DefaultProfile)
 	if err := syncManualSkills(); err != nil {
 		early = append(early, "manual skills: "+err.Error())
 	}
-	projectSkills, pw := skills.Discover(skills.ProjectSources(root), policy.Denied)
-	userSkills, uw := discoverUserSkills(policy, home)
-	early = append(append(early, pw...), uw...)
+	projectSkills, pw := skills.Discover(skills.ProjectSources(root), core.ExecPolicy{Root: root, Deny: deny}.Denied)
+	early = append(early, pw...)
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := isTerminal(int(os.Stdin.Fd())) && isTerminal(int(os.Stderr.Fd())) // tests replace isTerminal
 	ask := func(p string) string { return askLine(ctx, stdin, os.Stderr, p) }
@@ -91,8 +94,20 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	if err != nil {
 		return nil, err
 	}
+	layers, _ := files.ForProject(pt.trusted) // warned below, once the profile layer is in
+	name, profileSrc := settings.ResolveProfile(flags, os.Getenv, layers)
+	settings.EnsureDefaultProfile(home)
+	prof, profW, err := loadProfile(home, name, profileSrc)
+	if err != nil {
+		return nil, err
+	}
+	early = append(early, profW...)
+	files = files.WithProfile(prof.name, prof.layer)
 	layers, lw := files.ForProject(pt.trusted)
 	early = append(early, lw...)
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: deny}, home, prof.name)
+	userSkills, uw := discoverUserSkills(policy, home)
+	early = append(early, uw...)
 
 	cfg, err := settings.Resolve(flags, os.Getenv, layers).Build()
 	if err != nil {
@@ -118,13 +133,14 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	for _, w := range append(early, cfg.Warnings...) {
 		warn(w)
 	}
-	pc := buildProjectContext(pt, projectSkills, userSkills, red.Redact, warn)
+	pc := buildProjectContext(pt, projectSkills, userSkills, prof, red.Redact, warn)
 	skillList, skillDirs := listedSkills(pc.skills)
 	policy.ReadRoots = skillDirs
 	return &env{
 		cfg: cfg, layers: layers, files: files, settingsTrusted: pt.trusted, flags: flags, level: level, key: key, auth: auth, root: root, home: home, red: red,
 		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
+		profile:  prof.name, profileSrc: profileSrc, prof: prof,
 	}, nil
 }
 
@@ -210,7 +226,7 @@ func (e *env) warnUnknownWindow(model string) {
 func (e *env) sessionMeta(model string) map[string]any {
 	window, known := e.window(model)
 	return map[string]any{
-		"provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
+		"profile": e.activeProfile(), "provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
 }

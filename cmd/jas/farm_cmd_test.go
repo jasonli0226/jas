@@ -273,7 +273,7 @@ func loadCtx(t *testing.T, root, home string, interactive, flagTrust bool, input
 	t.Helper()
 	in := bufio.NewReader(strings.NewReader(input))
 	ask := func(p string) string { return askLine(context.Background(), in, &bytes.Buffer{}, p) }
-	pc, err := loadProjectContext(root, home, nil, nil, interactive, flagTrust, ask, func(s string) string { return s }, func(string) {})
+	pc, err := loadProjectContext(root, home, nil, nil, profileState{}, interactive, flagTrust, ask, func(s string) string { return s }, func(string) {})
 	assert.NoErr(t, err)
 	return pc
 }
