@@ -56,5 +56,5 @@ planning, `farm init`, interactive `/farm`.
   setting, chat command, exit code or event, or a stale copy), `README.md`
   when the overview changes, and the built-in manual skill
   `cmd/jas/manual/jas/SKILL.md` in the same commit — the manual is embedded
-  (`//go:embed`) and re-installed under `~/.config/jas/skills/` at every
+  (`//go:embed`) and re-installed under `<UserCacheDir>/jas/manual/` at every
   start, so stale text ships until the next binary.

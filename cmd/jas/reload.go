@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 )
 
@@ -20,10 +20,9 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 	if err := syncManualSkills(); err != nil {
 		warn("manual skills: " + err.Error())
 	}
-	userHome, _ := os.UserHomeDir()
-	userConfig, _ := os.UserConfigDir()
+	e.policy = profilePolicy(e.policy, e.home, settings.DefaultProfile)
 	projectSkills, pw := skills.Discover(skills.ProjectSources(e.root), e.policy.Denied)
-	userSkills, uw := skills.Discover(skills.UserSources(userHome, userConfig), e.policy.Denied)
+	userSkills, uw := discoverUserSkills(e.policy, e.home)
 	for _, w := range append(pw, uw...) {
 		warn(w)
 	}

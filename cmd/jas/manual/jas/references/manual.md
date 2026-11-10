@@ -396,14 +396,14 @@ Scanned in this order; on a name clash the first wins:
 | scope | directories |
 |---|---|
 | project (needs trust) | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
-| user | `~/.agents/skills/`, `~/.claude/skills/`, `~/.config/jas/skills/` |
+| user | `~/.jas/profiles/<name>/skills/` (the active profile), then the built-in manual under `<UserCacheDir>/jas/manual/` (`~/.cache/jas/manual/` on Linux) |
 
 Only names and descriptions go in the prompt (capped at 64 KB, project
 skills kept before user skills; home paths written `~/…`, which read tools
 expand); the model reads a full `SKILL.md` when a task matches. Project
 skills are looked for at the project root (the git top level) only. `/skill:<name>` runs one directly.
 `disable-model-invocation: true` hides a skill from the model. jas
-reinstalls its own `jas` skill under `~/.config/jas/skills/` at every start.
+reinstalls its own `jas` skill under `<UserCacheDir>/jas/manual/` at every start; a same-named profile or project skill overrides it. `~/.agents/skills/`, `~/.claude/skills/` and `~/.config/jas/skills/` are no longer read.
 A project skill symlinked outside the project is skipped; a user skill
 symlinked outside your home loads with a warning, since read-only tools can
 then open that directory.
@@ -535,4 +535,5 @@ Field-level detail and the resume rules: [design §3](design.md).
 | `<root>/.jas/farm.yaml` | project farm config |
 | `<root>/.jas/sessions/<id>.json` | live session records (`jas sessions`) |
 | `<root>/.jas/worktrees/<farm-id>/part-<part>` | farm worktrees |
-| `~/.config/jas/skills/jas/` | jas's built-in manual skill |
+| `~/.jas/profiles/<name>/skills/` | the active profile's skills |
+| `<UserCacheDir>/jas/manual/jas/` | jas's built-in manual skill |

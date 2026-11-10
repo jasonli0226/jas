@@ -120,18 +120,12 @@ func TestDiscover_KeepsContentForTrust(t *testing.T) {
 	assert.Eq(t, string(got[0].Content), "---\nname: x\ndescription: d\n---\n# body\n")
 }
 
-func TestSources_ProjectConfinedThenUser(t *testing.T) {
+func TestSources_ProjectConfined(t *testing.T) {
 	root := realDir(t)
 	got := ProjectSources(root)
 	assert.Eq(t, len(got), 2)
 	assert.Eq(t, got[0], Source{Dir: filepath.Join(root, ".agents", "skills"), Scope: Project, Confine: root})
 	assert.Eq(t, got[1], Source{Dir: filepath.Join(root, ".claude", "skills"), Scope: Project, Confine: root})
-	user := UserSources("/h", "/c")
-	assert.Eq(t, user[0], Source{Dir: filepath.Join("/h", ".agents", "skills"), Scope: User, WarnOutside: "/h"})
-	assert.Eq(t, user[1], Source{Dir: filepath.Join("/h", ".claude", "skills"), Scope: User, WarnOutside: "/h"})
-	assert.Eq(t, user[2], Source{Dir: filepath.Join("/c", "jas", "skills"), Scope: User})
-	assert.Eq(t, len(UserSources("", "")), 0)
-	assert.Eq(t, len(UserSources("/h", "")), 2)
 }
 
 func TestDiscover_NestedFolders(t *testing.T) {
@@ -228,12 +222,33 @@ func TestDiscover_UserSkillOutsideHomeWarns(t *testing.T) {
 	assert.Contains(t, warns[0], far)
 }
 
-func TestUserSources_WarnOutsideHome(t *testing.T) {
+func TestProfileSources_Shape(t *testing.T) {
+	assert.Eq(t, ProfileSources("/p/skills", "")[0], Source{Dir: "/p/skills", Scope: User})
 	home := realDir(t)
-	for _, s := range UserSources(home, filepath.Join(home, ".config")) {
-		assert.Eq(t, s.WarnOutside, home)
-	}
-	other := realDir(t) // a config dir outside home (XDG_CONFIG_HOME elsewhere)
-	srcs := UserSources(home, other)
-	assert.Eq(t, srcs[len(srcs)-1].WarnOutside, "")
+	assert.Eq(t, len(ProfileSources("/p/skills", home)), 1)
+	assert.Eq(t, ProfileSources("/p/skills", home)[0], Source{Dir: "/p/skills", Scope: User, WarnOutside: home})
+	assert.Eq(t, BuiltinSources("/m")[0], Source{Dir: "/m", Scope: User})
+	assert.Eq(t, len(BuiltinSources("")), 0)
+}
+
+func TestProfileSources_OnlyProfileDir(t *testing.T) {
+	home, profile, manual := realDir(t), realDir(t), realDir(t)
+	skillFile(t, filepath.Join(home, ".agents", "skills"), "shared", "name: shared\ndescription: d\n")
+	skillFile(t, filepath.Join(home, ".claude", "skills"), "claude", "name: claude\ndescription: d\n")
+	skillFile(t, profile, "mine", "name: mine\ndescription: d\n")
+	skillFile(t, manual, "jas", "name: jas\ndescription: d\n")
+	srcs := append(ProfileSources(profile, home), BuiltinSources(manual)...)
+	got, _ := Discover(srcs, noDeny)
+	assert.Eq(t, strings.Join(names(got), ","), "jas,mine")
+}
+
+func TestBuiltinSources_Overridden(t *testing.T) {
+	profile, manual := realDir(t), realDir(t)
+	mine := skillFile(t, profile, "jas", "name: jas\ndescription: mine\n")
+	skillFile(t, manual, "jas", "name: jas\ndescription: builtin\n")
+	got, warns := Discover(append(ProfileSources(profile, ""), BuiltinSources(manual)...), noDeny)
+	assert.Eq(t, len(got), 1)
+	assert.Eq(t, got[0].Description, "mine")
+	assert.Eq(t, len(warns), 1)
+	assert.Contains(t, warns[0], "shadowed by "+filepath.Join(mine, "SKILL.md"))
 }

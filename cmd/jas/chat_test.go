@@ -387,11 +387,11 @@ func TestChatBackend_SkillFilesKnowTheCatalogForm(t *testing.T) {
 	real, err := filepath.EvalSymlinks(home)
 	assert.NoErr(t, err)
 	e := testEnv(t)
-	loc := filepath.Join(real, ".agents", "skills", "deploy", "SKILL.md")
+	loc := filepath.Join(real, ".jas", "profiles", "default", "skills", "deploy", "SKILL.md")
 	e.pc.skills = []skills.Skill{{Name: "deploy", Location: loc}}
 	files := (&chatBackend{e: e}).SkillFiles()
 	assert.Eq(t, files[loc], "deploy")
-	assert.Eq(t, files["~/.agents/skills/deploy/SKILL.md"], "deploy") // how the catalog shows it
+	assert.Eq(t, files["~/.jas/profiles/default/skills/deploy/SKILL.md"], "deploy") // how the catalog shows it
 }
 
 func TestChatBackend_SkillPromptWritesHomeAsTilde(t *testing.T) {

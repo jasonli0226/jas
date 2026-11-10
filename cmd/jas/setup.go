@@ -77,14 +77,12 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	// config live in the repository, so they apply only once it is trusted.
 	var early []string // printed once the redactor exists
 	deny := denyPatterns(home)
-	denied := core.ExecPolicy{Root: root, Deny: deny}.Denied
-	userHome, _ := os.UserHomeDir()     // no home: user skills are skipped
-	userConfig, _ := os.UserConfigDir() // no config dir: manual skills are skipped
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: deny}, home, settings.DefaultProfile)
 	if err := syncManualSkills(); err != nil {
 		early = append(early, "manual skills: "+err.Error())
 	}
-	projectSkills, pw := skills.Discover(skills.ProjectSources(root), denied)
-	userSkills, uw := skills.Discover(skills.UserSources(userHome, userConfig), denied)
+	projectSkills, pw := skills.Discover(skills.ProjectSources(root), policy.Denied)
+	userSkills, uw := discoverUserSkills(policy, home)
 	early = append(append(early, pw...), uw...)
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := isTerminal(int(os.Stdin.Fd())) && isTerminal(int(os.Stderr.Fd())) // tests replace isTerminal
@@ -113,7 +111,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 		return nil, usageErr("%v", err)
 	}
 
-	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: deny}
+	policy.MaxOutput, policy.RedactSkip = cfg.MaxToolOutput, cfg.RedactSkipPaths
 	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
 	reportRedactor = red
 	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
@@ -128,6 +126,22 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
 	}, nil
+}
+
+// profilePolicy sets the read exception for the named profile's skills: its
+// skills directory and the exact home deny pattern the lift drops.
+func profilePolicy(p core.ExecPolicy, home, profile string) core.ExecPolicy {
+	p.ProfileSkills = filepath.Join(settings.ProfileDir(home, profile), "skills")
+	p.HomeDeny = homeDenyPattern(home)
+	return p
+}
+
+// discoverUserSkills finds the user-level skills: the active profile's, then
+// the built-in manual. Both are read under the profile read scope, which
+// lifts the jas home deny for the profile's skills directory only.
+func discoverUserSkills(policy core.ExecPolicy, home string) ([]skills.Skill, []string) {
+	srcs := append(skills.ProfileSources(policy.ProfileSkills, home), skills.BuiltinSources(manualDir())...)
+	return skills.Discover(srcs, policy.ProfileScope().Denied)
 }
 
 // denyPatterns are the paths no tool or skill discovery may read.

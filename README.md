@@ -192,9 +192,9 @@ pi, Claude Code and opencode work as they are. jas scans, in order:
 | Scope | Directories |
 |---|---|
 | project | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
-| user | `~/.agents/skills/`, `~/.claude/skills/`, `~/.config/jas/skills/` (Windows/macOS: `%AppData%`/`~/Library/Application Support` under `jas/skills`) |
+| user | `~/.jas/profiles/<name>/skills/` (the active profile), then the built-in manual under `<UserCacheDir>/jas/manual/` |
 
-Skills may sit in nested folders (e.g. `~/.agents/skills/team/review/SKILL.md`):
+Skills may sit in nested folders (e.g. `~/.jas/profiles/default/skills/team/review/SKILL.md`):
 a folder with a `SKILL.md` is a skill and is not searched further; hidden
 folders and `node_modules` are skipped, and the search stops 5 levels down.
 
@@ -207,11 +207,11 @@ skill directories (the deny floor still applies there); `write`, `edit` and
 same marker above your message.
 
 jas installs its own manual as the user skill `jas` under
-`~/.config/jas/skills/` (refreshed from the binary at every start; delete or
-shadow it freely — a same-named skill in `~/.agents/skills/` wins).
+`<UserCacheDir>/jas/manual/` (refreshed from the binary at every start;
+shadow it with a same-named skill in your profile or project).
 
 - On a name clash the first skill found wins, in the table's order: project
-  before user, `.agents` before `.claude`, jas's config dir last. A warning
+  before user, `.agents` before `.claude`, the built-in manual last. A warning
   names both. The same
   folder reached twice (e.g. through a symlink) loads once, silently.
 - Project skills are project-authored instructions, like `AGENTS.md`, so they

@@ -27,17 +27,28 @@ func writeSkill(t *testing.T, base, name, desc, body string) string {
 	return r
 }
 
-func TestRun_UserSkillListedAndReadable(t *testing.T) {
+// jasEnv is the env for a run whose HOME is userHome and whose JAS_HOME is
+// <userHome>/.jas, so profile skills show as ~/.jas/... in the catalog.
+func jasEnv(userHome, url string) []string {
+	return []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_HOME=" + filepath.Join(userHome, ".jas"),
+		"JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}
+}
+
+func profileSkills(userHome string) string {
+	return filepath.Join(userHome, ".jas", "profiles", "default", "skills")
+}
+
+func TestRun_ProfileSkillListedAndReadable(t *testing.T) {
 	userHome := t.TempDir()
-	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "demo", "Use when demoing", "SKILL-BODY-4410\n")
-	shown := "~/.agents/skills/demo/SKILL.md" // the catalog writes home as ~/; read expands it
+	writeSkill(t, profileSkills(userHome), "demo", "Use when demoing", "SKILL-BODY-4410\n")
+	shown := "~/.jas/profiles/default/skills/demo/SKILL.md" // the catalog writes home as ~/; read expands it
 	args, err := json.Marshal(map[string]string{"path": shown})
 	assert.NoErr(t, err)
 	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
 		{Calls: []fake.Call{{Name: "read", Args: string(args)}}},
 		{Text: "done"},
 	})
-	_, errOut, code := runJas(t, []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
+	_, errOut, code := runJas(t, jasEnv(userHome, url), "run", "q")
 	assert.Eq(t, code, 0)
 	assert.NotContains(t, errOut, "skill")
 	first := systemPrompt(t, bodies()[0])
@@ -47,6 +58,18 @@ func TestRun_UserSkillListedAndReadable(t *testing.T) {
 	assert.NotContains(t, first, userHome)          // no home path in the prompt
 	assert.NotContains(t, first, "SKILL-BODY-4410") // body loads on demand only
 	assert.Contains(t, string(bodies()[1]), "SKILL-BODY-4410")
+}
+
+func TestRun_HomeAgentsSkillsIgnored(t *testing.T) {
+	userHome := t.TempDir()
+	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "legacy", "LEGACY-SKILL-5521", "body")
+	writeSkill(t, filepath.Join(userHome, ".claude", "skills"), "claude-legacy", "LEGACY-CLAUDE-5522", "body")
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	_, _, code := runJas(t, jasEnv(userHome, url), "run", "q")
+	assert.Eq(t, code, 0)
+	sys := systemPrompt(t, bodies()[0])
+	assert.NotContains(t, sys, "LEGACY-SKILL-5521")
+	assert.NotContains(t, sys, "LEGACY-CLAUDE-5522")
 }
 
 // systemPrompt decodes the system message from a recorded request body.
@@ -93,9 +116,9 @@ func TestRun_AddingProjectSkillInvalidatesTrust(t *testing.T) {
 
 func TestRun_SessionStartedListsSkills(t *testing.T) {
 	userHome := t.TempDir()
-	loc := writeSkill(t, filepath.Join(userHome, ".claude", "skills"), "meta", "d", "b")
+	loc := writeSkill(t, profileSkills(userHome), "meta", "d", "b")
 	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
-	out, _, code := runJas(t, []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "--json", "q")
+	out, _, code := runJas(t, jasEnv(userHome, url), "run", "--json", "q")
 	assert.Eq(t, code, 0)
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 		var m map[string]any
@@ -104,7 +127,7 @@ func TestRun_SessionStartedListsSkills(t *testing.T) {
 			continue
 		}
 		sk := m["skills"].([]any)
-		// meta plus jas's own manual, installed under the config dir.
+		// meta plus jas's own manual, installed under the cache dir.
 		assert.Eq(t, len(sk), 2)
 		var meta map[string]any
 		for _, e := range sk {
@@ -126,9 +149,9 @@ func TestRun_SessionStartedListsSkills(t *testing.T) {
 func TestRun_UntrustedProjectSkillDoesNotHideUserSkill(t *testing.T) {
 	proj, userHome := t.TempDir(), t.TempDir()
 	writeSkill(t, filepath.Join(proj, ".agents", "skills"), "foo", "PROJECT-FOO", "body")
-	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "foo", "USER-FOO-6612", "body")
+	writeSkill(t, profileSkills(userHome), "foo", "USER-FOO-6612", "body")
 	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
-	_, errOut, code := runJasIn(t, proj, []string{"HOME=" + userHome, "USERPROFILE=" + userHome, "JAS_MODEL=m", "JAS_API_KEY=test-key-77", "JAS_BASE_URL=" + url}, "run", "q")
+	_, errOut, code := runJasIn(t, proj, jasEnv(userHome, url), "run", "q")
 	assert.Eq(t, code, 0)
 	assert.NotContains(t, errOut, "shadowed")
 	sys := systemPrompt(t, bodies()[0])
