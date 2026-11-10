@@ -18,6 +18,9 @@ jas is a single static Go binary for day-to-day coding with a receipt:
   `.jas/scenario.yaml` runtime policy and `jas bootstrap` to draft one from
   an existing repo (design §8, v2). Spec-driven scaffold (`jas spec`) is
   proposed.
+- **profiles** — named bundles of skills, `AGENTS.md` and settings under
+  `~/.jas/profiles/<name>/`; pick one with `--profile` or `JAS_PROFILE`, or
+  switch live in the chat with `/profile` (see the [manual](docs/manual.md#profiles)).
 - **visible** — every step is a versioned JSONL event (audit + resume)
 - **CI-ready** — `jas run --json`, stable exit codes, secrets deny/redact
 - **lean** — cache-friendly prompts, parallel reads, capped and elided tool

@@ -14,7 +14,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 [Providers and models](#providers-and-models) ·
 [Approvals](#approvals) · [Tools](#tools) ·
 [Project context and skills](#project-context-and-skills) ·
-[Farm](#farm) · [Exit codes](#exit-codes) · [Event log](#event-log) ·
+[Profiles](#profiles) · [Farm](#farm) · [Exit codes](#exit-codes) · [Event log](#event-log) ·
 [Files](#files)
 
 ## Commands
@@ -109,7 +109,7 @@ jas profile show [name]
 `new` creates the empty `~/.jas/profiles/<name>/` (names: a-z, 0-9 and `-`,
 at most 64 characters). `show` prints a profile's path, the settings in its
 `config.json`, whether it has an `AGENTS.md`, and its skills; with no name it
-shows the active one. Details: [Project context and skills](#project-context-and-skills).
+shows the active one. Details: [Profiles](#profiles).
 
 ### `jas auth`
 
@@ -313,7 +313,7 @@ or `--local` shows the file as written.
 
 | key | default | values / notes |
 |---|---|---|
-| `profile` | `default` | active profile: `~/.jas/profiles/<name>/`; see Profiles |
+| `profile` | `default` | active profile: `~/.jas/profiles/<name>/`; see [Profiles](#profiles) |
 | `provider` | (custom) | `openrouter` \| `ollama` \| `custom`: the default provider |
 | `model` | — | model id, plain or `provider/model` |
 | `base_url` | provider preset | endpoint of the default provider |
@@ -401,7 +401,8 @@ Docker recipes.
 | `suggest_farm` | chat only: show the drafted task and ask `plan this farm? [yes/no/change]` (change asks what should change and sends your answer to the agent, which revises the task and suggests it again; empty asks again); where a farm cannot run (untrusted project, no `check`, uncommitted changes, no commit yet) it tells the agent why and to ask you first | — |
 
 File tools are confined to the project and a deny floor (secrets, `~/.jas`,
-session files). Read-only calls in a row run in parallel; each mutating call
+session files); the one opening in `~/.jas` is read access to the active
+profile's `skills/` folder. Read-only calls in a row run in parallel; each mutating call
 waits for the ones before it. Output is redacted (keys, tokens) before the
 model or the log sees it.
 
@@ -422,24 +423,6 @@ finds none there but some in `~/.agents/skills`, `~/.claude/skills` or
 `<config dir>/jas/skills` prints a one-time notice naming them and the new
 folder (remembered in `.skills-notice` in the profile directory).
 
-The active profile's `AGENTS.md` (`~/.jas/profiles/<name>/AGENTS.md`) needs
-no trust and goes into the prompt before the project's file, so on a
-conflict the project's later text wins; a missing file adds nothing. An
-unknown profile from `--profile` or `JAS_PROFILE` is a usage error (exit 2)
-that names the profiles there are; one from a config file warns
-(`profile "ds" (from …) not found; using default`) and runs on `default`.
-`default/` is created when missing; a read-only jas home runs on an empty
-`default`.
-
-The chat's active profile is chat state: `/resume` reopens a session on it,
-not on the profile the session was recorded with, and says so
-(`session was on profile "ds"; continuing on "default"`) when they differ.
-Farm workers run on the session's active profile: its `AGENTS.md` and its
-skills. A worker keeps the profile it started with; in the chat, workers
-started after a profile switch get the new one. A worker whose worktree's
-project context does not match the trusted main checkout drops only the
-project's `AGENTS.md` and skills; the profile's stay.
-
 Skills are [Agent Skills](https://agentskills.io) folders with a `SKILL.md`.
 Scanned in this order; on a name clash the first wins:
 
@@ -457,6 +440,49 @@ reinstalls its own `jas` skill under `<UserCacheDir>/jas/manual/` at every start
 A project skill symlinked outside the project is skipped; a user skill
 symlinked outside the jas home loads with a warning, since read-only tools can
 then open that directory.
+
+## Profiles
+
+A profile is a named bundle under `~/.jas/profiles/<name>/`: a `config.json`
+(settings), an `AGENTS.md` (instructions) and a `skills/` folder. Use one per
+context (work, data science, a client) and switch without touching the
+project. The profile `default` always exists (created when missing; a
+read-only jas home runs on an empty one). Manage them with
+[`jas profile`](#jas-profile) and `jas config --in-profile`.
+
+**Choosing.** `--profile` > `JAS_PROFILE` > `profile` in local config >
+project config > global config > `default`. A project's `profile` counts only
+once the project is trusted. An unknown name from the flag or env is a usage
+error (exit 2) naming the profiles there are; from a config file it warns
+(`profile "ds" (from …) not found; using default`) and runs on `default`.
+
+**Settings.** The profile's `config.json` is one layer: flag > env > local >
+project > **profile** > global > defaults ([Settings](#settings)). A profile
+cannot set `provider`, `base_url`, `search_base_url`, `profile` or
+`providers.*`; those keys are dropped with a warning, so endpoints stay in
+`~/.jas/config.json` and a profile cannot choose itself.
+
+**Instructions.** The profile's `AGENTS.md` needs no trust and goes into the
+prompt before the project's file, so on a conflict the project's later text
+wins; a missing file adds nothing.
+
+**Skills.** User skills come only from the active profile's `skills/` plus
+the built-in manual ([Project context and skills](#project-context-and-skills)).
+The one-time notice about old skill folders is described there.
+
+**In the chat.** `/profile [name]` (bare: a picker marking the active one)
+switches in place: the conversation is kept, the profile's `AGENTS.md` and
+skills reload, live settings (`approve`, `model`, `hints`, `farm_bell`) apply
+now and other changed keys wait for `/new`. The switch sticks for the chat
+(not saved); Ctrl+S in the picker also stores it as the default. `/resume`
+reopens a session on the chat's active profile, not the recorded one, and says
+so (`session was on profile "ds"; continuing on "default"`) when they differ.
+
+**Farm.** Workers run on the session's active profile, with its `AGENTS.md`
+and skills. A worker keeps the profile it started with; in the chat, workers
+started after a switch get the new one. A worker whose worktree's project
+context does not match the trusted main checkout drops only the project's
+`AGENTS.md` and skills; the profile's stay.
 
 ## Farm
 
@@ -587,5 +613,6 @@ Field-level detail and the resume rules: [design §3](design.md).
 | `<root>/.jas/sessions/<id>.json` | live session records (`jas sessions`) |
 | `<root>/.jas/worktrees/<farm-id>/part-<part>` | farm worktrees |
 | `~/.jas/profiles/<name>/config.json` | a profile's settings (between global and project) |
+| `~/.jas/profiles/<name>/AGENTS.md` | a profile's instructions |
 | `~/.jas/profiles/<name>/skills/` | the active profile's skills |
 | `<UserCacheDir>/jas/manual/jas/` | jas's built-in manual skill |

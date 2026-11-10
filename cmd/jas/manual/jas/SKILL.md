@@ -94,7 +94,7 @@ and skills.
   TTY exits 5.
 - Deny floor, always on for file tools: `.env*`, `secrets/**`, `*.pem`,
   `id_rsa*`, `*.p12`, `.git-credentials`, `~/.aws/**`, `~/.ssh/**`,
-  `~/.jas/**`.
+  `~/.jas/**` (reads of the active profile's `skills/` folder are allowed).
 - The `shell` tool is not sandboxed: confinement and the deny floor do not
   filter it. Secrets are redacted from tool output and logs. Review untrusted
   work with `--approve=shell`, or run jas under bubblewrap/Docker.

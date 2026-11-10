@@ -361,8 +361,9 @@ type Tool interface {
   context files are **skipped with a warning** unless `--trust-project` is
   passed. v2 extends the same gate to scenarios (§11).
 - **Skills (shipped after v1):** a skill = `SKILL.md` per the agentskills.io
-  spec, discovered in `.agents/skills` and `.claude/skills` (project, then
-  user), listed in the system prompt (pi's `<available_skills>` block) and
+  spec, discovered in the project's `.agents/skills` and `.claude/skills`, then
+  the active profile's `~/.jas/profiles/<name>/skills` and the built-in manual
+  (§10 config layers), listed in the system prompt (pi's `<available_skills>` block) and
   loaded on demand with the `read` tool, which may open listed skill
   directories (`ExecPolicy.ReadRoots`). Project skills share the context
   file's trust prompt. Optional tool manifests stay v3. Research:
@@ -690,13 +691,25 @@ fallback there. jas does the same from v1 with plain subcommands and chat `/sett
 
 ```
 CLI flag > JAS_* env vars > <project>/.jas/config.local.json
-         > <project>/.jas/config.json > ~/.jas/config.json > built-in defaults
+         > <project>/.jas/config.json > ~/.jas/profiles/<name>/config.json
+         > ~/.jas/config.json > built-in defaults
 ```
 
+The **profile layer** is the active profile's `config.json`, between project
+and global. The profile is chosen by `--profile` > `JAS_PROFILE` > local >
+project > global > `default` (project only once trusted). A profile cannot set
+`provider`, `base_url`, `search_base_url`, `profile` or `providers.*`: those
+are dropped with a warning, so endpoints stay global-only. The profile's
+`AGENTS.md` loads before the project's, and its `skills/` folder is the only
+user skill source besides jas's built-in manual (installed under
+`<UserCacheDir>/jas/manual/`); `~/.agents/skills`, `~/.claude/skills` and
+`~/.config/jas/skills` are no longer read. Spec:
+`docs/superpowers/specs/2026-11-11-profiles-design.md`.
+
 `jas config list` and chat `/settings` label each value with its source
-(`flag`, `env JAS_*`, `local config`, `project config`, `global config`,
+(`flag`, `env JAS_*`, `local config`, `project config`, `profile config (<name>)`, `global config`,
 `default`). CLI `jas config set|unset` defaults to **global** for compat;
-`/settings` defaults to **local**. Scope flags: `--global|--project|--local`.
+`/settings` defaults to **local**. Scope flags: `--global|--in-profile|--project|--local`.
 
 **Scenario / policy resolution** (§8.1; later) stays separate from prefs.
 Maps merge key-by-key; lists use pi's `+name`/`-name` add/remove semantics.
@@ -885,9 +898,9 @@ jas learn --auto "topic"                         # non-interactive → pending q
 
 Flow: agent researches (§12.1 tools) → drafts `SKILL.md` + `references/` per the
 agentskills.io spec (same as pi, so skills interop across Claude Code/Hermes)
-→ shows the draft for approval → saves to `~/.agents/skills/<name>/` or project
-`.agents/skills/<name>/` (the directories jas already scans; `~/.jas/**` is in
-the deny floor, so tools could not read skills kept there). The skill is then advertised to future sessions
+→ shows the draft for approval → saves to the active profile's `skills/` or project
+`.agents/skills/<name>/` (the directories jas scans; reads are lifted past the
+`~/.jas/**` deny floor only under the active profile's `skills/`). The skill is then advertised to future sessions
 (name + description only; full instructions load on demand — pi's model).
 
 Guardrails:
