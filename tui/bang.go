@@ -23,16 +23,16 @@ type bangRun struct {
 	cancel  context.CancelFunc
 }
 
-// bangDoneMsg reports a finished ! command. local is a !! command, whose
-// output never reaches the agent.
+// bangDoneMsg reports a finished ! command. run.Local is a !! command, whose
+// output never reaches the agent. logErr is a failure to log it.
 type bangDoneMsg struct {
-	command   string
-	output    string
-	code      int
-	err       error
-	cancelled bool
-	local     bool
+	run    core.ShellRun
+	logErr error
 }
+
+// bangWaitNotice refuses a session switch while a ! command runs, so the
+// command's log entry lands in the session it ran in.
+const bangWaitNotice = "a ! command is running · wait for it or press Ctrl+C"
 
 // isBang reports whether submitted text is a ! command.
 func isBang(text string) bool { return strings.HasPrefix(text, "!") }
@@ -66,42 +66,79 @@ func (m *Model) runBang(text string) tea.Cmd {
 	m.input.Reset()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.bang = &bangRun{command: command, cancel: cancel}
-	b, send := m.b, m.send
+	b, send, redact, session := m.b, m.send, m.o.Redact, m.live.Session
 	go func() {
 		defer cancel()
 		out := &capped{max: bangCapture}
 		code, err := b.Shell(ctx, command, out)
-		send(bangDoneMsg{
-			command: command, output: out.String(), code: code, err: err,
-			cancelled: ctx.Err() != nil, local: local,
-		})
+		run := shellRun(command, out, code, err, ctx.Err() != nil, local, redact)
+		// Logged here, not in Update: the session log forwards events to the
+		// chat's queue, and posting from inside Update would hang it.
+		send(bangDoneMsg{run: run, logErr: session.RecordShell(run)})
 	}()
 	return nil
+}
+
+// shellRun is a finished command as it is logged, redacted.
+func shellRun(command string, out *capped, code int, err error, cancelled, local bool, redact func(string) string) core.ShellRun {
+	r := core.ShellRun{
+		Command: redact(command), Output: redact(out.String()),
+		Cancelled: cancelled, Truncated: out.dropped, Local: local,
+	}
+	var exitErr interface{ ExitCode() int }
+	switch {
+	case errors.As(err, &exitErr):
+		r.ExitCode = code
+	case err != nil:
+		r.Error = redact(err.Error())
+	}
+	return r
+}
+
+// shellOutput is a logged command's row status and its output with a closing
+// note when it did not end ok.
+func shellOutput(r core.ShellRun) (status, output string) {
+	status, output = "ok", r.Output
+	note := ""
+	switch {
+	case r.Cancelled:
+		status, note = "cancelled", "[cancelled]"
+	case r.Error != "":
+		status, note = "error", "[could not run: "+r.Error+"]"
+	case r.ExitCode != 0:
+		status, note = "error", fmt.Sprintf("[exit status %d]", r.ExitCode)
+	}
+	if note != "" {
+		output = strings.TrimLeft(strings.TrimRight(output, "\n")+"\n"+note, "\n")
+	}
+	return status, output
+}
+
+// pendingBangNotes are the notes a resumed session's next message carries:
+// the ! commands it logged after its last message.
+func pendingBangNotes(runs []core.ShellRun) []string {
+	var notes []string
+	for _, r := range runs {
+		_, output := shellOutput(r)
+		notes = append(notes, bangNote(r.Command, output))
+	}
+	return notes
 }
 
 // onBangDone prints the command's row and output, and holds a ! command's
 // output for the next message.
 func (m *Model) onBangDone(msg bangDoneMsg) tea.Cmd {
 	m.bang = nil
-	output := m.o.Redact(msg.output)
-	status, note := "ok", ""
-	var exitErr interface{ ExitCode() int }
-	switch {
-	case msg.cancelled:
-		status, note = "cancelled", "[cancelled]"
-	case errors.As(msg.err, &exitErr):
-		status, note = "error", fmt.Sprintf("[exit status %d]", msg.code)
-	case msg.err != nil:
-		status, note = "error", "[could not run: "+m.o.Redact(msg.err.Error())+"]"
+	r := msg.run
+	status, output := shellOutput(r)
+	if !r.Local {
+		m.bangNotes = append(m.bangNotes, bangNote(r.Command, output))
 	}
-	if note != "" {
-		output = strings.TrimRight(output, "\n") + "\n" + note
-		output = strings.TrimLeft(output, "\n")
+	blocks := m.tr.Shell(r.Command, status, output, r.Local)
+	if msg.logErr != nil {
+		blocks = append(blocks, errStyle.Render("event log error: "+m.clean(msg.logErr.Error())))
 	}
-	if !msg.local {
-		m.bangNotes = append(m.bangNotes, bangNote(m.o.Redact(msg.command), output))
-	}
-	return m.print(m.tr.Shell(m.o.Redact(msg.command), status, output, msg.local)...)
+	return m.print(blocks...)
 }
 
 // bangNote is how a command's output reaches the agent (pi's format).

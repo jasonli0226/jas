@@ -45,6 +45,9 @@ type ReplayState struct {
 	// Interrupted lists tool calls with no logged result, which replay
 	// answered with interruptedOutput. ResumeSession logs them as results.
 	Interrupted []InterruptedCall
+	// PendingShell lists the ! commands logged after the last user message:
+	// their output was waiting for the next message when the session stopped.
+	PendingShell []ShellRun
 }
 
 // InterruptedCall is a tool call that never logged a result. Status is
@@ -71,6 +74,13 @@ type replayLine struct {
 	// compaction payload
 	Summary     string `json:"summary"`
 	FirstKeptID string `json:"first_kept_id"`
+	// shell_ran payload (Output above is shared)
+	Command   string `json:"command"`
+	ExitCode  int    `json:"exit_code"`
+	Error     string `json:"error"`
+	Cancelled bool   `json:"cancelled"`
+	Truncated bool   `json:"truncated"`
+	Local     bool   `json:"local"`
 }
 
 // logScanner reads newline-delimited lines with a bufio.Reader so a line
@@ -225,6 +235,7 @@ func (r *replayer) apply(line int, ev replayLine) {
 	case EvSessionTitled:
 		r.st.Title = ev.Title
 	case EvUserMessage:
+		r.st.PendingShell = nil // the message carried them
 		r.flushResults(false)
 		if n := len(r.st.Messages); n > 0 && plainUser(r.st.Messages[n-1]) {
 			// jas stopped before the model answered the previous one: the
@@ -252,6 +263,13 @@ func (r *replayer) apply(line int, ev replayLine) {
 	case EvInjected:
 		if len(r.order) > 0 && ev.Text != "" {
 			r.injected = append(r.injected, ev.Text)
+		}
+	case EvShellRan:
+		if !ev.Local {
+			r.st.PendingShell = append(r.st.PendingShell, ShellRun{
+				Command: ev.Command, Output: ev.Output, ExitCode: ev.ExitCode,
+				Error: ev.Error, Cancelled: ev.Cancelled, Truncated: ev.Truncated,
+			})
 		}
 	}
 }

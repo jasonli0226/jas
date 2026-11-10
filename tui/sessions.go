@@ -140,6 +140,7 @@ func (m *Model) onSession(msg sessionMsg) tea.Cmd {
 		blocks = append(blocks, errStyle.Render("event log error: "+m.clean(msg.closeErr.Error())))
 	}
 	m.live, m.closer, m.gen, m.model = msg.live, &sessionCloser{live: msg.live}, msg.gen, msg.live.Model
+	m.bangNotes = pendingBangNotes(msg.live.Session.PendingShell()) // the old session's stay in its log
 	var known bool
 	m.window, known = m.b.Window(msg.live.Model)
 	m.branch = gitBranch(m.o.Root)

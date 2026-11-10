@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -159,4 +160,64 @@ func TestBang_AgentCopyCapped(t *testing.T) {
 		t.Fatalf("agent copy not capped: %d bytes", len(got))
 	}
 	assert.Contains(t, got, "truncated")
+}
+
+// Each finished command is logged at once, ! and !! alike; !! is marked local.
+func TestBang_LoggedWhenItFinishes(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	c.submit("! echo logged-out")
+	c.pumpBang()
+	c.submit("!! echo private-out")
+	c.pumpBang()
+	raw, err := os.ReadFile(c.m.live.Path)
+	assert.NoErr(t, err)
+	log := string(raw)
+	assert.Contains(t, log, `"type":"shell_ran"`)
+	assert.Contains(t, log, `"command":"echo logged-out"`)
+	assert.Contains(t, log, `"output":"logged-out\n"`)
+	assert.Contains(t, log, `"command":"echo private-out","exit_code":0,"local":true`)
+}
+
+// Output the agent has not seen stays with its session: /new leaves it
+// behind, and resuming that session attaches it to the next message again.
+func TestBang_PendingOutputFollowsItsSession(t *testing.T) {
+	b := newTestBackend(t, fake.Turn{Text: "ok"}, fake.Turn{Text: "new"}, fake.Turn{Text: "back"})
+	c := newTestChat(t, b)
+	c.submit("first-message")
+	c.pump()
+	first := c.m.live
+	c.submit("! echo carry-me")
+	c.pumpBang()
+	c.submit("!! echo keep-local")
+	c.pumpBang()
+	c.submit("/new")
+	c.submit("fresh")
+	c.pump()
+	assert.NotContains(t, requestText(b.prov.Requests[1]), "carry-me")
+	c.submit("/resume")
+	c.typeText("first-message")
+	c.key("enter")
+	assert.Eq(t, c.m.live.Path, first.Path)
+	c.submit("again")
+	c.pump()
+	got := requestText(b.prov.Requests[2])
+	assert.Contains(t, got, "Ran `echo carry-me`")
+	assert.NotContains(t, got, "keep-local")
+}
+
+// /new and /resume wait for a running ! command, so its log entry lands in
+// the session it ran in.
+func TestBang_SessionSwitchWaitsForCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sleep")
+	}
+	c := newTestChat(t, newTestBackend(t))
+	cur := c.m.live
+	c.submit("! sleep 30")
+	c.submit("/new")
+	assert.Contains(t, c.printedText(), bangWaitNotice)
+	assert.Eq(t, c.m.live, cur)
+	c.key("ctrl+c") // clears the draft
+	c.key("ctrl+c") // cancels the command
+	c.pumpBang()
 }
