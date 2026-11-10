@@ -43,19 +43,20 @@ func configCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	// get and list show what a trusted session reads: endpoints only from the
-	// global file (trust itself is decided when a session starts).
-	eff, _ := layers.ForProject(true)
 	cmd := args[0]
 	scope, rest, err := takeConfigScope(args[1:], cmd == "set" || cmd == "unset")
 	if err != nil {
 		return usageErr("%v", err)
 	}
-	if scope == settings.ScopeProfile {
-		if layers, err = withActiveProfile(home, layers); err != nil {
+	writing := cmd == "set" || cmd == "unset"
+	if scope == settings.ScopeProfile || cmd == "get" || cmd == "list" {
+		if layers, err = withActiveProfile(home, layers, writing); err != nil {
 			return err
 		}
 	}
+	// get and list show what a trusted session reads: endpoints only from the
+	// global file (trust itself is decided when a session starts).
+	eff, _ := layers.ForProject(true)
 	switch cmd {
 	case "set":
 		if len(rest) != 2 {
@@ -96,9 +97,14 @@ func configCmd(args []string) error {
 // withActiveProfile loads the active profile's config.json into the profile
 // layer. The profile is chosen as a session would (env, then local, project
 // and global config; the project counts as trusted, as for config get/list).
-func withActiveProfile(home string, layers settings.Layers) (settings.Layers, error) {
+// A write refuses a profile that does not exist, even one named by config,
+// rather than fall back to default.
+func withActiveProfile(home string, layers settings.Layers, writing bool) (settings.Layers, error) {
 	eff, _ := layers.ForProject(true)
 	name, src := settings.ResolveProfile(nil, os.Getenv, eff)
+	if writing && name != settings.DefaultProfile && !profileExists(home, name) {
+		return layers, usageErr("profile %q (from %s) not found; create it with jas profile new %s", name, src, name)
+	}
 	prof, warns, err := loadProfile(home, name, src)
 	if err != nil {
 		return layers, err

@@ -101,8 +101,9 @@ func TestConfig_InProfileRefusesEndpoint(t *testing.T) {
 	env, home := profileEnv(t, "JAS_PROFILE=ds")
 	assert.NoErr(t, os.MkdirAll(filepath.Join(home, "profiles", "ds"), 0o700))
 	for _, k := range []string{"base_url", "provider", "search_base_url", "profile"} {
-		_, _, code := runJas(t, env, "config", "set", "--in-profile", k, "v")
+		_, se, code := runJas(t, env, "config", "set", "--in-profile", k, "v")
 		assert.Eq[any](t, code, core.ExitUsage)
+		assert.Contains(t, se, "cannot be set in a profile")
 	}
 }
 
@@ -117,4 +118,32 @@ func ok(t *testing.T, cond bool, msg ...string) {
 	if !cond {
 		t.Fatalf("assertion failed: %s", strings.Join(msg, " "))
 	}
+}
+
+func TestConfig_GetListShowProfileLayer(t *testing.T) {
+	env, home := profileEnv(t, "JAS_PROFILE=ds")
+	assert.NoErr(t, os.MkdirAll(filepath.Join(home, "profiles", "ds"), 0o700))
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "profiles", "ds", "config.json"), []byte(`{"model":"x"}`), 0o600))
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"model":"g"}`), 0o600))
+	env = append(env, "JAS_MODEL=") // let the file layers show
+	out, se, code := runJas(t, env, "config", "get", "model")
+	assert.Eq(t, code, 0)
+	assert.Eq(t, strings.TrimSpace(out), "x")
+	_ = se
+	out, _, code = runJas(t, env, "config", "list")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "model  x  (profile config (ds))")
+}
+
+func TestConfig_InProfileConfigNamedMissingProfile(t *testing.T) {
+	env, home := profileEnv(t)
+	assert.NoErr(t, os.MkdirAll(home, 0o700))
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"profile":"ghost"}`), 0o600))
+	for _, args := range [][]string{{"set", "--in-profile", "model", "x"}, {"unset", "--in-profile", "model"}} {
+		_, se, code := runJas(t, env, append([]string{"config"}, args...)...)
+		assert.Eq[any](t, code, core.ExitUsage)
+		assert.Contains(t, se, `profile "ghost"`)
+	}
+	_, err := os.Stat(filepath.Join(home, "profiles", "default", "config.json"))
+	ok(t, os.IsNotExist(err))
 }
