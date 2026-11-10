@@ -3,10 +3,29 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
+	"github.com/jasonli0226/jas/internal/testutil"
+	"github.com/jasonli0226/jas/providers/fake"
 )
+
+func TestManualSkill_InstalledToCacheDir(t *testing.T) {
+	cache := t.TempDir()
+	userHome := t.TempDir()
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	env := append(jasEnv(userHome, url), "XDG_CACHE_HOME="+cache,
+		"LocalAppData="+cache) // Linux, Windows (macOS uses HOME)
+	if runtime.GOOS == "darwin" {
+		cache = filepath.Join(userHome, "Library", "Caches")
+	}
+	_, _, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	_, err := os.Stat(filepath.Join(cache, "jas", "manual", "jas", "SKILL.md"))
+	assert.NoErr(t, err)
+	assert.Contains(t, systemPrompt(t, bodies()[0]), "<name>jas</name>")
+}
 
 func TestInstallManualSkills(t *testing.T) {
 	root := t.TempDir()

@@ -22,8 +22,9 @@ type picker struct {
 	mark       string // drawn before every label, not filtered on
 	items      []pickItem
 	filter     string
-	cursor     int  // index into visible()
-	canDefault bool // Ctrl+S also offers the choice as a default
+	cursor     int                  // index into visible()
+	canDefault bool                 // Ctrl+S also offers the choice as a default
+	onDefault  func(string) tea.Cmd // what Ctrl+S runs on the highlighted value
 }
 
 type pickResult int

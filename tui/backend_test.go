@@ -56,6 +56,17 @@ type testBackend struct {
 	reloadRoots  []string               // SetReadRoots after Reload; nil leaves roots alone
 	settings     map[string]SettingLine // effective settings for /settings tests
 	setCalls     []string               // "scope key=value" or "unset scope key"
+	profile      string                 // active profile; "" is default
+	profiles     []string               // Profiles; nil is just default
+	profDefaults []string               // profiles stored as the config default, in order
+	profSwitch   ProfileSwitch          // what SwitchProfile reports
+	profErr      error                  // SwitchProfile's error
+	profDefErr   error                  // SetDefaultProfile's error
+	profGate     chan struct{}          // when set, SwitchProfile blocks until it is closed
+	switching    atomic.Bool            // a SwitchProfile is in flight
+	touched      atomic.Int32           // Profile/Profiles calls made while switching
+	skillFiles   map[string]string      // SkillFiles; nil is the review skill
+	skillPrompts int                    // SkillPrompt calls
 }
 
 const testWindow = 100000
@@ -185,6 +196,9 @@ func (b *testBackend) SkillNames() []string { return []string{"review"} }
 // ContextFiles backs the start banner's [Context] section; nil hides it.
 func (b *testBackend) ContextFiles() []ContextFile { return b.ctxFiles }
 func (b *testBackend) SkillFiles() map[string]string {
+	if b.skillFiles != nil {
+		return b.skillFiles
+	}
 	return map[string]string{"/skills/review/SKILL.md": "review"}
 }
 
@@ -198,6 +212,7 @@ func (b *testBackend) Window(string) (int, bool) {
 func (b *testBackend) Farmer() Farmer { return b.farmer }
 
 func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
+	b.skillPrompts++
 	if name != "review" {
 		return "", false
 	}
@@ -255,6 +270,49 @@ func (b *testBackend) UnsetSetting(scope, key string) error {
 		delete(b.settings, key)
 	}
 	return nil
+}
+
+func (b *testBackend) Profile() string {
+	if b.switching.Load() {
+		b.touched.Add(1)
+	}
+	if b.profile == "" {
+		return "default"
+	}
+	return b.profile
+}
+
+func (b *testBackend) Profiles() []string {
+	if b.switching.Load() {
+		b.touched.Add(1)
+	}
+	if b.profiles == nil {
+		return []string{"default"}
+	}
+	return b.profiles
+}
+
+// SetDefaultProfile records the stored default; the real one writes config.json.
+func (b *testBackend) SetDefaultProfile(name string) error {
+	if b.profDefErr != nil {
+		return b.profDefErr
+	}
+	b.profDefaults = append(b.profDefaults, name)
+	return nil
+}
+
+// SwitchProfile sets the active profile and reports profSwitch, or profErr.
+func (b *testBackend) SwitchProfile(s *core.Session, name string, ask func(string) string) (ProfileSwitch, error) {
+	b.switching.Store(true)
+	if b.profGate != nil {
+		<-b.profGate
+	}
+	b.switching.Store(false)
+	if b.profErr != nil {
+		return ProfileSwitch{}, b.profErr
+	}
+	b.profile = name
+	return b.profSwitch, nil
 }
 
 // Reload swaps the live session's system prompt (and optional read roots).

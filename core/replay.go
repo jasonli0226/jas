@@ -41,6 +41,7 @@ type ReplayState struct {
 	Provider   string   // provider of the last session_started/session_resumed/model_changed that has one
 	Root       string   // session_started.root
 	Title      string   // last session_titled title, else session_started.title
+	Profile    string   // the profile the session was last on (session_started/session_resumed profile, profile_changed to)
 	Notices    []string // e.g. "ignored unreadable line 41"
 	// Interrupted lists tool calls with no logged result, which replay
 	// answered with interruptedOutput. ResumeSession logs them as results.
@@ -66,6 +67,8 @@ type replayLine struct {
 	Provider string      `json:"provider"`
 	Root     string      `json:"root"`
 	Title    string      `json:"title"`
+	Profile  string      `json:"profile"` // session_started, session_resumed
+	To       string      `json:"to"`      // profile_changed
 	Content  []wireBlock `json:"content"`
 	CallID   string      `json:"call_id"`
 	Status   string      `json:"status"`
@@ -217,6 +220,14 @@ func (r *replayer) setEndpoint(ev replayLine) {
 	}
 }
 
+// setProfile records the profile an event put the session on; "" (a log
+// from before profiles) leaves it alone.
+func (r *replayer) setProfile(name string) {
+	if name != "" {
+		r.st.Profile = name
+	}
+}
+
 func (r *replayer) apply(line int, ev replayLine) {
 	switch ev.Type {
 	case EvSessionStarted:
@@ -226,9 +237,13 @@ func (r *replayer) apply(line int, ev replayLine) {
 		r.started = true
 		r.setModel(ev.Model)
 		r.setEndpoint(ev)
+		r.setProfile(ev.Profile)
 	case EvSessionResumed:
 		r.setModel(ev.Model)
 		r.setEndpoint(ev)
+		r.setProfile(ev.Profile)
+	case EvProfileChanged:
+		r.setProfile(ev.To)
 	case EvModelChanged:
 		r.setModel(ev.Model)
 		r.setEndpoint(ev)

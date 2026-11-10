@@ -24,6 +24,26 @@ func TestFormatReloadNotice(t *testing.T) {
 	assert.Eq(t, formatReloadNotice(pc), "reloaded · AGENTS.md not loaded · 2 skills")
 }
 
+func TestFormatReloadNotice_SkipsProfileAgents(t *testing.T) {
+	prof := "/h/profiles/default/AGENTS.md"
+	pc := projectContext{files: []contextFileMeta{{Path: prof, Loaded: true}}, profileAgents: prof}
+	assert.Eq(t, formatReloadNotice(pc), "reloaded · no project context file · 0 skills")
+	pc.files = append(pc.files, contextFileMeta{Path: "/p/AGENTS.md", Loaded: false})
+	assert.Eq(t, formatReloadNotice(pc), "reloaded · AGENTS.md not loaded · 0 skills")
+}
+
+func TestEnv_ReloadContextRereadsProfileAgents(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	dir := filepath.Join(home, "profiles", "ds")
+	assert.NoErr(t, os.MkdirAll(dir, 0o700))
+	assert.NoErr(t, os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("RELOADED-PROFILE-1203"), 0o600))
+	e := &env{root: root, home: home, profile: "ds", red: newRedactor(""), policy: core.ExecPolicy{Root: root}}
+	notices, _, err := e.reloadContext(nil)
+	assert.NoErr(t, err)
+	assert.Contains(t, e.pc.system, "RELOADED-PROFILE-1203")
+	assert.Contains(t, notices[0], "no project context file")
+}
+
 func TestEnv_ReloadContextLoadsAgents(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	text := "RELOAD-RULE-9910"

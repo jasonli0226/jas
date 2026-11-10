@@ -63,6 +63,8 @@ func (m *Model) farmer() (Farmer, tea.Cmd) {
 	switch {
 	case f == nil:
 		why = "farms are not available in this chat"
+	case m.reloading:
+		why = "a reload or profile switch is in progress · wait for it"
 	case m.farm.running():
 		why = "a farm is already running in this window (one at a time); /farm shows it"
 	case m.farmReview != nil || m.farmReplan != nil:

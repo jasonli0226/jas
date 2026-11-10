@@ -285,35 +285,24 @@ func ProjectSources(root string) []Source {
 	}
 }
 
-// UserSources lists the user skills directories, in the same order: the
-// cross-agent shared locations under home, then jas's own under the user
-// config dir (its built-in manual), last so a same-named shared skill
-// overrides it. An empty home or config dir contributes nothing.
-//
-// A skill that resolves outside home is warned about. jas's config dir gets
-// that check only when it is itself under home.
-func UserSources(home, config string) []Source {
-	var out []Source
-	realHome := home
-	if r, err := filepath.EvalSymlinks(home); err == nil {
+// ProfileSources lists the active profile's skills directory, the only
+// user-level place skills are read from besides the built-in manual. A skill
+// resolving outside jasHome is warned about; an empty jasHome disables that
+// check.
+func ProfileSources(profileSkills, jasHome string) []Source {
+	realHome := jasHome
+	if r, err := filepath.EvalSymlinks(jasHome); err == nil && jasHome != "" {
 		realHome = r
 	}
-	if home != "" {
-		out = append(out,
-			Source{Dir: filepath.Join(home, ".agents", "skills"), Scope: User, WarnOutside: realHome},
-			Source{Dir: filepath.Join(home, ".claude", "skills"), Scope: User, WarnOutside: realHome},
-		)
+	return []Source{{Dir: profileSkills, Scope: User, WarnOutside: realHome}}
+}
+
+// BuiltinSources lists jas's built-in manual skills directory. Put it after
+// the profile and project sources so a same-named skill overrides it. An
+// empty dir contributes nothing.
+func BuiltinSources(manualDir string) []Source {
+	if manualDir == "" {
+		return nil
 	}
-	if config != "" {
-		src := Source{Dir: filepath.Join(config, "jas", "skills"), Scope: User}
-		realConfig := config
-		if r, err := filepath.EvalSymlinks(config); err == nil {
-			realConfig = r
-		}
-		if home != "" && within(realHome, realConfig) {
-			src.WarnOutside = realHome
-		}
-		out = append(out, src)
-	}
-	return out
+	return []Source{{Dir: manualDir, Scope: User}}
 }

@@ -13,6 +13,7 @@ import (
 
 // statusInfo is what the status line under the input box shows.
 type statusInfo struct {
+	Profile string // active profile, "" hides the field
 	Model   string
 	Level   core.Level
 	Prompt  int // prompt tokens of the last request
@@ -41,6 +42,9 @@ func (s statusInfo) Render(width int) string {
 		folder += " (" + core.Sanitize(s.Branch) + ")"
 	}
 	head := fmt.Sprintf("%s · %s · ", core.Sanitize(s.Model), s.Level)
+	if s.Profile != "" {
+		head = core.Sanitize(s.Profile) + " · " + head
+	}
 	tail := fmt.Sprintf(" · ↑%s ↓%s · %s", formatTokens(s.In), formatTokens(s.Out), folder)
 	if s.Title != "" {
 		tail += " · " + core.Sanitize(s.Title)

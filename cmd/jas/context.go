@@ -42,9 +42,15 @@ type skillMeta struct {
 
 // projectContext is what the project and the skills directories add to a run.
 type projectContext struct {
-	system string         // full system prompt
-	skills []skills.Skill // skills listed to the model
-	files  []contextFileMeta
+	system string // full system prompt
+	// userSystem is the prompt without project context: the user (profile
+	// and built-in) skill catalog and the profile AGENTS.md. A farm worker
+	// whose worktree does not match main's trusted context gets it.
+	userSystem string
+	skills     []skills.Skill // skills listed to the model
+	files      []contextFileMeta
+	// profileAgents is the path of the profile AGENTS.md in files, or "".
+	profileAgents string
 	// trusted is the project trust decision: the context file and project
 	// skills were loaded (or --trust-project was given). farm config follows it.
 	trusted bool
@@ -60,13 +66,13 @@ type projectTrust struct {
 
 // loadProjectContext decides project trust and builds the project context.
 // prepare splits the two so project settings can follow the decision.
-func loadProjectContext(root, home string, project, user []skills.Skill, interactive, flagTrust bool,
+func loadProjectContext(root, home string, project, user []skills.Skill, prof profileState, interactive, flagTrust bool,
 	ask func(string) string, redact func(string) string, warn func(string)) (projectContext, error) {
 	pt, err := decideProjectTrust(root, home, project, interactive, flagTrust, ask)
 	if err != nil {
 		return projectContext{}, err
 	}
-	return buildProjectContext(pt, project, user, redact, warn), nil
+	return buildProjectContext(pt, project, user, prof, redact, warn), nil
 }
 
 // decideProjectTrust applies the trust gate. One decision covers the context
@@ -113,12 +119,20 @@ func upgradeLegacyTrust(store core.TrustStore, root string, content, bundle []by
 }
 
 // buildProjectContext builds the system prompt under the decision pt. User
-// skills need no trust; project skills join (and on a name clash override)
-// them only once trusted. Context file content is redacted and capped, and
-// the skill catalog redacted and size-bounded, before either reaches the
-// prompt.
-func buildProjectContext(pt projectTrust, project, user []skills.Skill, redact func(string) string, warn func(string)) projectContext {
+// skills and the profile AGENTS.md need no trust (the owner writes them);
+// project skills join (and on a name clash override) them only once trusted.
+// The profile section comes before the project one, so on a conflict the
+// project's later text wins. Context file content is redacted and capped,
+// and the skill catalog redacted and size-bounded, before either reaches
+// the prompt.
+func buildProjectContext(pt projectTrust, project, user []skills.Skill, prof profileState, redact func(string) string, warn func(string)) projectContext {
 	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: pt.trusted}
+	profileInstructions := ""
+	if prof.agentsPath != "" {
+		pc.profileAgents = prof.agentsPath
+		pc.files = append(pc.files, contextFileMeta{Path: prof.agentsPath, Loaded: true, SHA256: core.ContentHash(prof.agents)})
+		profileInstructions = "Profile instructions (" + profileAgentsFile + "):\n" + core.CapContext(redact(string(prof.agents)))
+	}
 	instructions := ""
 	if pt.hasFile {
 		pc.files = append(pc.files, contextFileMeta{Path: pt.path, Loaded: pt.trusted, SHA256: core.ContentHash(pt.content)})
@@ -142,7 +156,9 @@ func buildProjectContext(pt projectTrust, project, user []skills.Skill, redact f
 		warn(fmt.Sprintf("skill list over %d bytes; not listing %d skills: %s", skills.MaxCatalogBytes, len(dropped), strings.Join(dropped, ", ")))
 	}
 	pc.skills = kept
-	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills, home)), instructions)
+	pc.system = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(pc.skills, home)), profileInstructions, instructions)
+	userKept, _ := skills.Fit(user, skills.MaxCatalogBytes, home) // the full list above already warned
+	pc.userSystem = core.BuildSystem(core.BasePrompt, redact(skills.Catalog(userKept, home)), profileInstructions)
 	return pc
 }
 
@@ -297,14 +313,19 @@ func askLine(ctx context.Context, in *bufio.Reader, out io.Writer, prompt string
 // workerContext is the system prompt and trust decision for a farm worker in
 // worktree. The supervisor decided trust once for the main checkout; the
 // worker inherits it only when its context file and project skills hash-equal
-// main's. Otherwise it gets the base prompt with no project context.
+// main's. Otherwise it gets the prompt without project context: the
+// profile AGENTS.md and the user skill catalog stay (the owner wrote them,
+// so they need no trust), the project's AGENTS.md and skills go.
 // .jas/farm.yaml is left out of the comparison: workers never run it, and an
 // uncommitted farm.yaml in main would otherwise strip every worker's context.
 func workerContext(main projectContext, mainRoot, worktree string) (system string, trusted bool) {
 	if main.trusted && workerBundleHash(mainRoot) == workerBundleHash(worktree) {
 		return main.system, true
 	}
-	return core.BuildSystem(core.BasePrompt, ""), false
+	if main.userSystem == "" { // a context built without buildProjectContext
+		return core.BuildSystem(core.BasePrompt, ""), false
+	}
+	return main.userSystem, false
 }
 
 // workerBundleHash hashes what a worker loads from root: the context file and

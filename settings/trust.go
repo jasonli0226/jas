@@ -25,15 +25,15 @@ func UserOnly(key string) bool {
 // which are dropped with one warning each. l itself is not changed, so the
 // files can still be written back as they are.
 func (l Layers) ForProject(trusted bool) (Layers, []string) {
+	profile, warnings := withoutProfileForbidden(l.Profile, l.ProfileName)
 	if !trusted {
-		return Layers{Global: l.Global}, nil
+		return Layers{Global: l.Global, Profile: profile, ProfileName: l.ProfileName}, warnings
 	}
-	var warnings []string
 	project, w := withoutUserOnly(l.Project, SourceProject)
 	warnings = append(warnings, w...)
 	local, w := withoutUserOnly(l.Local, SourceLocal)
 	warnings = append(warnings, w...)
-	return Layers{Global: l.Global, Project: project, Local: local}, warnings
+	return Layers{Global: l.Global, Profile: profile, ProfileName: l.ProfileName, Project: project, Local: local}, warnings
 }
 
 // HasProject reports whether the project or local file sets anything.
@@ -71,6 +71,9 @@ func withoutUserOnly(f File, src Source) (File, []string) {
 // CheckWriteScope refuses a user-only key outside the global config, where
 // a session would never read it.
 func CheckWriteScope(key string, scope Scope) error {
+	if scope == ScopeProfile && (UserOnly(key) || slices.Contains(profileForbiddenKeys, key)) {
+		return fmt.Errorf("%s cannot be set in a profile: sessions ignore it there (use global config)", key)
+	}
 	if scope == ScopeGlobal || !UserOnly(key) {
 		return nil
 	}

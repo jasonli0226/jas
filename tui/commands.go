@@ -34,6 +34,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"resume":   (*Model).cmdResume,
 	"compact":  (*Model).startCompact,
 	"reload":   (*Model).cmdReload,
+	"profile":  (*Model).cmdProfile,
 	"settings": (*Model).cmdSettings,
 	"farm":     (*Model).cmdFarm,
 }
@@ -42,7 +43,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 // Session.SetModel, Session.SetTitle, Session.SetSystem, Session.Messages,
 // Session.Compact and Live.Close off a session while its Send is running, and
 // what keeps the generation steady during a run.
-var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true, "reload": true}
+var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true, "reload": true, "profile": true}
 
 const helpText = `commands
   /help                  this list
@@ -52,9 +53,11 @@ const helpText = `commands
   /resume                continue a recent session in this project (grants and level reset)
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /reload                reload AGENTS.md, skills and project context into this session
+  /profile [name]        switch profile (skills, AGENTS.md, settings)
   /settings              open settings picker (enums get a value picker)
-  /settings <key> [val]  show or set a setting (default write: local; global in an untrusted project)
-  /settings unset <key>  remove a setting from local (or --global/--project)
+  /settings <key> [val]  show or set a setting (default write: local; global in an untrusted project;
+                         --global, --in-profile (the active profile), --project or --local picks the file)
+  /settings unset <key>  remove a setting from local (or --global/--in-profile/--project)
   /session               session file, tokens used, context use
   /thinking              show or hide thinking
   /approve [level]       approval level: never | shell | mutating
@@ -83,7 +86,7 @@ keys
   !cmd run a shell command; its output goes with your next message · !!cmd keeps it local
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc or Ctrl+C cancel
-  in the /model picker: Ctrl+S also sets the default for new sessions
+  in the /model and /profile pickers: Ctrl+S also sets the default for new sessions
 full manual: docs/manual.md in the jas repo, or ask jas ("how do I …?")`
 
 // parseCommand splits "/name arg..." at the first whitespace. ok is false
@@ -168,6 +171,7 @@ var commandDesc = map[string]string{
 	"resume":   "continue a recent session",
 	"compact":  "summarize older messages",
 	"reload":   "reload AGENTS.md and skills",
+	"profile":  "switch profile",
 	"settings": "open settings picker",
 	"farm":     "plan or show a farm",
 }
@@ -257,12 +261,12 @@ func (m *Model) unknownCommand(name string) tea.Cmd {
 // skillCommand sends the skill's prompt as the user message, shown as typed
 // under the skill marker.
 func (m *Model) skillCommand(skill, arg, text string) tea.Cmd {
+	if m.running() || m.reloading { // before SkillPrompt: a switch owns the backend
+		return m.notice(waitNotice)
+	}
 	prompt, ok := m.b.SkillPrompt(skill, arg)
 	if !ok {
 		return m.unknownCommand("skill:" + skill)
-	}
-	if m.running() {
-		return m.notice(waitNotice)
 	}
 	m.input.Reset()
 	return m.startRun(prompt, m.tr.SkillUser(skill, text))
@@ -323,7 +327,7 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	if res == pickOpen {
 		return nil
 	}
-	onPick, onCancel := m.onPick, m.onPickCancel
+	onPick, onCancel, onDefault := m.onPick, m.onPickCancel, m.picker.onDefault
 	m.picker, m.onPick, m.onPickCancel = nil, nil, nil
 	switch res {
 	case pickCancelled:
@@ -333,7 +337,9 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case pickChosen:
 		return onPick(value)
 	case pickSetDefault:
-		return m.setDefaultModel(value)
+		if onDefault != nil {
+			return onDefault(value)
+		}
 	}
 	return nil
 }
@@ -369,6 +375,7 @@ func (m *Model) cmdReload(string) tea.Cmd {
 
 func (m *Model) onReloadDone(msg reloadDoneMsg) tea.Cmd {
 	m.reloading = false
+	m.tr.Skills = m.b.SkillFiles() // the reload may have changed the skills
 	if msg.err != nil {
 		return m.print(errStyle.Render("reload: " + m.clean(msg.err.Error())))
 	}
@@ -380,9 +387,13 @@ func (m *Model) onReloadDone(msg reloadDoneMsg) tea.Cmd {
 
 // cmdSettings opens a settings picker, or shows/sets/unsets layered settings.
 // Default write scope is local (<project>/.jas/config.local.json). Scope flags:
-// --global, --project, --local. Bare /settings opens a filterable picker;
+// --global, --in-profile (the active profile's config.json), --project,
+// --local. Refused while a reload or profile switch owns the backend. Bare /settings opens a filterable picker;
 // closed-set keys open a second value picker; free-text keys prefill the input.
 func (m *Model) cmdSettings(arg string) tea.Cmd {
+	if m.reloading {
+		return m.notice(waitNotice)
+	}
 	scope, rest := takeSettingsScope(arg)
 	if len(rest) == 0 {
 		m.openSettingsPicker()
@@ -390,7 +401,7 @@ func (m *Model) cmdSettings(arg string) tea.Cmd {
 	}
 	if rest[0] == "unset" {
 		if len(rest) != 2 {
-			return m.print(errStyle.Render("usage: /settings unset [--global|--project|--local] <key>"))
+			return m.print(errStyle.Render("usage: /settings unset [--global|--in-profile|--project|--local] <key>"))
 		}
 		if err := m.b.UnsetSetting(scope, rest[1]); err != nil {
 			return m.print(errStyle.Render(m.clean(err.Error())))
@@ -408,7 +419,7 @@ func (m *Model) cmdSettings(arg string) tea.Cmd {
 		return m.notice(fmt.Sprintf("%s  %s  (%s)", line.Key, line.Value, line.Source))
 	}
 	if len(rest) != 2 {
-		return m.print(errStyle.Render("usage: /settings [--global|--project|--local] <key> <value>"))
+		return m.print(errStyle.Render("usage: /settings [--global|--in-profile|--project|--local] <key> <value>"))
 	}
 	return m.applySetting(scope, rest[0], rest[1])
 }
@@ -506,12 +517,15 @@ func (m *Model) applyLive(key, value string) tea.Cmd {
 	return nil
 }
 
-// takeSettingsScope pulls --global|--project|--local from the /settings arg.
+// takeSettingsScope pulls --global|--in-profile|--project|--local from the
+// /settings arg; --in-profile is the "profile" scope.
 func takeSettingsScope(arg string) (scope string, rest []string) {
 	for _, tok := range strings.Fields(arg) {
 		switch tok {
 		case "--global", "--project", "--local":
 			scope = strings.TrimPrefix(tok, "--")
+		case "--in-profile":
+			scope = "profile"
 		default:
 			rest = append(rest, tok)
 		}
@@ -556,6 +570,7 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 	}
 	m.openPicker("model", items, m.setModel)
 	m.picker.canDefault = true
+	m.picker.onDefault = m.setDefaultModel
 	return nil
 }
 

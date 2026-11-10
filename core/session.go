@@ -336,6 +336,25 @@ func (s *Session) SetReadRoots(roots []string) {
 	s.c.Exec.Policy.ReadRoots = slices.Clone(roots)
 }
 
+// SetProfileSkills replaces the executor's profile read exception (the
+// active profile's skills directory) after a profile switch. A nil executor
+// is a no-op.
+func (s *Session) SetProfileSkills(dir string) {
+	if s.c.Exec == nil {
+		return
+	}
+	s.c.Exec.Policy.ProfileSkills = dir
+}
+
+// LogProfileChanged logs profile_changed with data (from, to, the reloaded
+// context files and skills, settings deferred to /new).
+func (s *Session) LogProfileChanged(data map[string]any) error {
+	if err := s.c.Log.Append(EvProfileChanged, data); err != nil {
+		return fmt.Errorf("event log: %w", err)
+	}
+	return nil
+}
+
 // NormalizeTitle collapses whitespace to single spaces and cuts the title to
 // maxTitleRunes.
 func NormalizeTitle(title string) string {

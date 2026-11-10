@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,44 +20,105 @@ import (
 // otherwise they act through the shell tool's best-effort filter.
 var DenyFloor = []string{
 	".env*", "**/.env", "**/.env.*", "secrets/**", "**/secrets/**", "**/*.pem", "**/id_rsa*",
-	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**", "~/.jas/**",
+	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**", JasHomeFloor,
 }
+
+// JasHomeFloor is the deny floor entry for the jas home (auth, config,
+// trust). Read scopes inside the active profile's skills lift it there.
+const JasHomeFloor = "~/.jas/**"
 
 // checkDeny returns the policy error when the resolved path is denied.
 func (p ExecPolicy) checkDeny(original, resolved string) error {
 	if p.Denied(resolved) {
-		return fmt.Errorf("path denied by policy: %s", original)
+		return fmt.Errorf("%w: %s", errDenied, original)
 	}
 	return nil
 }
 
+var errDenied = errors.New("path denied by policy")
+
 // Denied reports whether abs, or what it resolves to through symlinks, matches
-// the deny floor or the policy's extra patterns.
+// the deny floor or the policy's extra patterns. On a lifted scope, a
+// spelling of abs that resolves inside the active profile's skills is
+// checked as lifted (a symlinked jas home or $HOME spells it differently),
+// while the resolved path is always checked on its own.
 func (p ExecPolicy) Denied(abs string) bool {
-	match := p.DenyMatcher()
-	if match(abs) {
+	match := p.denyMatch()
+	r, err := filepath.EvalSymlinks(abs)
+	into := err == nil && match.lift.holds(filepath.Clean(r))
+	if match.check(abs, into) {
 		return true
 	}
-	r, err := filepath.EvalSymlinks(abs)
-	return err == nil && match(r)
+	return err == nil && match.check(r, false)
 }
 
 // DenyMatcher returns a lexical check for absolute paths with the root and
 // home computed once. Use it when walking a tree: WalkDir does not follow
 // symlinks, so no resolution is needed. Denied also resolves symlinks.
+//
+// On a read scope from readRoot or ProfileScope (liftHome), a path inside
+// the active profile's skills (as spelled or as resolved, see profileLift)
+// is checked without JasHomeFloor and HomeDeny; every other pattern still
+// applies. The base policy, and so Resolve and DeniedToken, never lifts
+// anything.
 func (p ExecPolicy) DenyMatcher() func(abs string) bool {
+	m := p.denyMatch()
+	return func(abs string) bool { return m.check(abs, false) }
+}
+
+// denyMatcher is DenyMatcher's state: the patterns with and without the
+// jas home floor and where the lift applies.
+type denyMatcher struct {
+	root, home, project string
+	pats, lifted        []string
+	lift                lift
+}
+
+func (p ExecPolicy) denyMatch() denyMatcher {
 	root, err := filepath.EvalSymlinks(p.Root)
 	if err != nil {
 		root = p.Root
 	}
-	home := homeDir()
-	pats := append(append([]string{}, DenyFloor...), p.Deny...)
-	return func(abs string) bool { return matchDeny(pats, root, home, filepath.Clean(abs)) }
+	m := denyMatcher{root: root, home: homeDir(), pats: append(append([]string{}, DenyFloor...), p.Deny...)}
+	if !p.liftHome {
+		return m
+	}
+	if l, _ := p.profileLift(); l.resolved != "" {
+		m.lift, m.lifted, m.project = l, withoutHomeDeny(m.pats, p.HomeDeny), p.projectRoot
+	}
+	return m
+}
+
+// check matches abs, lifted when it lies in the profile skills or force is
+// set (Denied: abs resolves there).
+func (m denyMatcher) check(abs string, force bool) bool {
+	abs = filepath.Clean(abs)
+	use := m.pats
+	if m.lifted != nil && (force || m.lift.holds(abs)) {
+		use = m.lifted
+	}
+	if m.project != "" && matchDeny(use, m.project, m.home, abs) {
+		return true
+	}
+	return matchDeny(use, m.root, m.home, abs)
+}
+
+// withoutHomeDeny returns pats without JasHomeFloor and homeDeny.
+func withoutHomeDeny(pats []string, homeDeny string) []string {
+	out := make([]string, 0, len(pats))
+	for _, pat := range pats {
+		if pat == JasHomeFloor || (homeDeny != "" && pat == homeDeny) {
+			continue
+		}
+		out = append(out, pat)
+	}
+	return out
 }
 
 // DeniedToken applies Denied to a shell word: ~ and relative forms are
 // expanded first. Best-effort only; the shell can always build paths it hides.
 func (p ExecPolicy) DeniedToken(tok string) bool {
+	p.liftHome = false // the shell filter keeps the full floor
 	home := homeDir()
 	if tok == "~" || strings.HasPrefix(tok, "~/") {
 		tok = home + tok[1:]

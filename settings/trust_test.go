@@ -80,3 +80,14 @@ func TestHasProject(t *testing.T) {
 	assert.Eq(t, projectLayers().HasProject(), true)
 	assert.Eq(t, Layers{Local: File{Models: map[string]ModelOverride{"m": {ContextWindow: 1}}}}.HasProject(), true)
 }
+
+func TestCheckWriteScope_ProfileRefusesForbiddenKeys(t *testing.T) {
+	for _, k := range []string{"provider", "base_url", "search_base_url", "profile", "providers.x.base_url"} {
+		if err := CheckWriteScope(k, ScopeProfile); err == nil {
+			t.Errorf("%s allowed in profile scope", k)
+		}
+	}
+	if err := CheckWriteScope("model", ScopeProfile); err != nil {
+		t.Errorf("model refused: %v", err)
+	}
+}

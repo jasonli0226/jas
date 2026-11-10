@@ -37,6 +37,9 @@ type env struct {
 	interactive     bool
 	trust           bool // --trust-project: reload keeps auto-trusting
 	provider        providers.Provider
+	profile         string          // active profile name
+	profileSrc      settings.Source // the layer that chose it
+	prof            profileState
 }
 
 // authKeys returns every secret the auth file can put in a request: literal
@@ -75,17 +78,15 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	}
 	// Trust is decided before any setting is resolved: project and local
 	// config live in the repository, so they apply only once it is trusted.
+	// Project skills join that decision; user skills wait for the profile,
+	// which project config can choose.
 	var early []string // printed once the redactor exists
 	deny := denyPatterns(home)
-	denied := core.ExecPolicy{Root: root, Deny: deny}.Denied
-	userHome, _ := os.UserHomeDir()     // no home: user skills are skipped
-	userConfig, _ := os.UserConfigDir() // no config dir: manual skills are skipped
 	if err := syncManualSkills(); err != nil {
 		early = append(early, "manual skills: "+err.Error())
 	}
-	projectSkills, pw := skills.Discover(skills.ProjectSources(root), denied)
-	userSkills, uw := skills.Discover(skills.UserSources(userHome, userConfig), denied)
-	early = append(append(early, pw...), uw...)
+	projectSkills, pw := skills.Discover(skills.ProjectSources(root), core.ExecPolicy{Root: root, Deny: deny}.Denied)
+	early = append(early, pw...)
 	stdin := bufio.NewReader(os.Stdin)
 	interactive := isTerminal(int(os.Stdin.Fd())) && isTerminal(int(os.Stderr.Fd())) // tests replace isTerminal
 	ask := func(p string) string { return askLine(ctx, stdin, os.Stderr, p) }
@@ -93,8 +94,21 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	if err != nil {
 		return nil, err
 	}
+	layers, _ := files.ForProject(pt.trusted) // warned below, once the profile layer is in
+	name, profileSrc := settings.ResolveProfile(flags, os.Getenv, layers)
+	settings.EnsureDefaultProfile(home)
+	prof, profW, err := loadProfile(home, name, profileSrc)
+	if err != nil {
+		return nil, err
+	}
+	early = append(early, profW...)
+	files = files.WithProfile(prof.name, prof.layer)
 	layers, lw := files.ForProject(pt.trusted)
 	early = append(early, lw...)
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: deny}, home, prof.name)
+	userSkills, uw := discoverUserSkills(policy, home)
+	early = append(early, uw...)
+	early = append(early, skillsMigrationWarning(home, prof.name, policy.ProfileSkills, userSkills)...)
 
 	cfg, err := settings.Resolve(flags, os.Getenv, layers).Build()
 	if err != nil {
@@ -113,21 +127,50 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 		return nil, usageErr("%v", err)
 	}
 
-	policy := core.ExecPolicy{Root: root, MaxOutput: cfg.MaxToolOutput, RedactSkip: cfg.RedactSkipPaths, Deny: deny}
+	policy.MaxOutput, policy.RedactSkip = cfg.MaxToolOutput, cfg.RedactSkipPaths
 	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
 	reportRedactor = red
 	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
 	for _, w := range append(early, cfg.Warnings...) {
 		warn(w)
 	}
-	pc := buildProjectContext(pt, projectSkills, userSkills, red.Redact, warn)
+	pc := buildProjectContext(pt, projectSkills, userSkills, prof, red.Redact, warn)
 	skillList, skillDirs := listedSkills(pc.skills)
 	policy.ReadRoots = skillDirs
 	return &env{
 		cfg: cfg, layers: layers, files: files, settingsTrusted: pt.trusted, flags: flags, level: level, key: key, auth: auth, root: root, home: home, red: red,
 		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
+		profile:  prof.name, profileSrc: profileSrc, prof: prof,
 	}, nil
+}
+
+// profilePolicy sets the read exception for the named profile's skills: its
+// skills directory and the exact home deny pattern the lift drops.
+func profilePolicy(p core.ExecPolicy, home, profile string) core.ExecPolicy {
+	p.ProfileSkills = filepath.Join(settings.ProfileDir(home, profile), "skills")
+	p.HomeDeny = homeDenyPattern(home)
+	return p
+}
+
+// discoverUserSkills finds the user-level skills: the active profile's, then
+// the built-in manual. Both are read under the profile read scope, which
+// lifts the jas home deny for the profile's skills directory only. A
+// profile skills directory the lift refuses (a link into the jas home) is
+// skipped with one warning.
+func discoverUserSkills(policy core.ExecPolicy, home string) ([]skills.Skill, []string) {
+	srcs, warns := profileSkillSources(policy, home)
+	found, dw := skills.Discover(append(srcs, skills.BuiltinSources(manualDir())...), policy.ProfileScope().Denied)
+	return found, append(warns, dw...)
+}
+
+// profileSkillSources is the active profile's skills source, or none and a
+// warning when the read exception refuses that directory.
+func profileSkillSources(policy core.ExecPolicy, home string) ([]skills.Source, []string) {
+	if why := policy.ProfileSkillsIgnored(); why != "" {
+		return nil, []string{why}
+	}
+	return skills.ProfileSources(policy.ProfileSkills, home), nil
 }
 
 // denyPatterns are the paths no tool or skill discovery may read.
@@ -162,15 +205,22 @@ func saveSettingsFile(root, home string, scope settings.Scope, path string, f se
 // of an untrusted project: the session ignores those files, so the change
 // would silently do nothing.
 func (e *env) projectWritable(scope settings.Scope) error {
-	if scope == settings.ScopeGlobal || e.settingsTrusted {
+	if scope == settings.ScopeGlobal || scope == settings.ScopeProfile || e.settingsTrusted {
 		return nil
 	}
 	return fmt.Errorf("project not trusted, so this session ignores %s config: restart with --trust-project (or answer always) to use it, or set it globally", scope)
 }
 
-// setFile records a settings write and recomputes what the session reads.
+// setFile records a settings write and recomputes what the session reads. A
+// profile write replaces the active profile's layer (and the copy a /reload
+// keeps).
 func (e *env) setFile(scope settings.Scope, f settings.File) {
-	e.files = e.files.WithFile(scope, f)
+	if scope == settings.ScopeProfile {
+		e.files = e.files.WithProfile(e.activeProfile(), f)
+		e.prof.layer = f
+	} else {
+		e.files = e.files.WithFile(scope, f)
+	}
 	e.layers, _ = e.files.ForProject(e.settingsTrusted) // user-only keys were warned about at start
 }
 
@@ -196,7 +246,20 @@ func (e *env) warnUnknownWindow(model string) {
 func (e *env) sessionMeta(model string) map[string]any {
 	window, known := e.window(model)
 	return map[string]any{
-		"provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
+		"profile": e.activeProfile(), "provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
+}
+
+// skillsMigrationWarning is the one-time notice for users whose skills sit in
+// the folders earlier jas versions read; it marks itself shown.
+func skillsMigrationWarning(home, profile, profileSkillsDir string, found []skills.Skill) []string {
+	userHome, _ := os.UserHomeDir()
+	userConfig, _ := os.UserConfigDir()
+	n := migrationNotice(home, profile, userHome, userConfig, countProfileSkills(found, profileSkillsDir))
+	if n == "" {
+		return nil
+	}
+	markSkillsNotice(home, profile)
+	return []string{n}
 }

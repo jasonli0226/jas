@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -166,6 +167,9 @@ type chatBackend struct {
 	e          *env
 	farmerOnce sync.Once
 	farmer     *chatFarmer
+	// workerProf is the profile context farm workers start on, published
+	// after each /reload and profile switch; nil: what the farm started with.
+	workerProf atomic.Pointer[workerProfile]
 }
 
 var _ tui.Backend = (*chatBackend)(nil)
@@ -259,6 +263,9 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 	notices := slices.Clone(st.Notices)
 	if notice != "" {
 		notices = append(notices, notice)
+	}
+	if active := b.e.activeProfile(); st.Profile != "" && st.Profile != active {
+		notices = append(notices, fmt.Sprintf("session was on profile %q; continuing on %q", st.Profile, active))
 	}
 	return b.live(provName, path, model, log, s, c.Budget, rec), notices, nil
 }
@@ -484,7 +491,7 @@ func modelKeyName(key string) (string, bool) {
 	return name, name != ""
 }
 
-// SetSetting writes key=value to scope (global|project|local) and refreshes
+// SetSetting writes key=value to scope (global|profile|project|local) and refreshes
 // the effective Run config. Empty scope uses DefaultSettingsScope.
 func (b *chatBackend) SetSetting(scope, key, value string) error {
 	s, err := parseWriteScope(scope, b.DefaultSettingsScope())
@@ -511,43 +518,42 @@ func parseWriteScope(scope, def string) (settings.Scope, error) {
 }
 
 func (b *chatBackend) writeSetting(scope settings.Scope, key, value string) error {
-	path, err := scope.Path(b.e.home, b.e.root)
-	if err != nil {
-		return err
-	}
 	if err := settings.CheckWriteScope(key, scope); err != nil {
 		return err
 	}
-	if err := b.e.projectWritable(scope); err != nil {
-		return err
-	}
-	next, err := b.e.files.File(scope).Set(key, value)
-	if err != nil {
-		return err
-	}
-	if err := saveSettingsFile(b.e.root, b.e.home, scope, path, next); err != nil {
-		return err
-	}
-	b.e.setFile(scope, next)
-	return b.reconfigure()
+	return b.changeSetting(scope, func(f settings.File) (settings.File, error) { return f.Set(key, value) })
 }
 
 func (b *chatBackend) unsetSetting(scope settings.Scope, key string) error {
-	path, err := scope.Path(b.e.home, b.e.root)
+	return b.changeSetting(scope, func(f settings.File) (settings.File, error) { return f.Unset(key) })
+}
+
+// changeSetting applies change to scope's file, saves it and recomputes the
+// effective settings. The profile scope is the chat's active profile's
+// config.json (as `jas config --in-profile` writes it): outside the project,
+// so it needs no project trust and has no trust bundle to refresh.
+func (b *chatBackend) changeSetting(scope settings.Scope, change func(settings.File) (settings.File, error)) error {
+	e := b.e
+	path, err := scope.PathFor(e.home, e.root, e.activeProfile())
 	if err != nil {
 		return err
 	}
-	if err := b.e.projectWritable(scope); err != nil {
+	if err := e.projectWritable(scope); err != nil {
 		return err
 	}
-	next, err := b.e.files.File(scope).Unset(key)
+	next, err := change(e.files.File(scope))
 	if err != nil {
 		return err
 	}
-	if err := saveSettingsFile(b.e.root, b.e.home, scope, path, next); err != nil {
+	if scope == settings.ScopeProfile {
+		err = next.Save(path)
+	} else {
+		err = saveSettingsFile(e.root, e.home, scope, path, next)
+	}
+	if err != nil {
 		return err
 	}
-	b.e.setFile(scope, next)
+	e.setFile(scope, next)
 	return b.reconfigure()
 }
 
@@ -623,10 +629,8 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 	if err != nil {
 		return nil, err
 	}
-	files := make([]map[string]any, len(b.e.pc.files))
-	for i, f := range b.e.pc.files {
-		files[i] = map[string]any{"path": f.Path, "loaded": f.Loaded, "sha256": f.SHA256}
-	}
+	b.publishWorkerProfile()
+	files := contextFilesMeta(b.e.pc.files)
 	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
 		return notices, err
 	}

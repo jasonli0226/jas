@@ -18,6 +18,9 @@ jas is a single static Go binary for day-to-day coding with a receipt:
   `.jas/scenario.yaml` runtime policy and `jas bootstrap` to draft one from
   an existing repo (design §8, v2). Spec-driven scaffold (`jas spec`) is
   proposed.
+- **profiles** — named bundles of skills, `AGENTS.md` and settings under
+  `~/.jas/profiles/<name>/`; pick one with `--profile` or `JAS_PROFILE`, or
+  switch live in the chat with `/profile` (see the [manual](docs/manual.md#profiles)).
 - **visible** — every step is a versioned JSONL event (audit + resume)
 - **CI-ready** — `jas run --json`, stable exit codes, secrets deny/redact
 - **lean** — cache-friendly prompts, parallel reads, capped and elided tool
@@ -92,7 +95,7 @@ is listed in the **[manual](docs/manual.md)**.
 ## Chat
 
 `jas` opens an inline chat. Replies stream into the terminal's own scrollback
-(no full-screen mode), above the input box and a status line showing the
+(no full-screen mode), above the input box and a status line showing the profile,
 model, approval level, context use and token counts. While a reply runs, a
 dim spinner line above the input shows the run in progress (`working…`, or
 `thinking…` while the model reasons).
@@ -136,6 +139,7 @@ flags or env: a cloned repo cannot point your API key at another server.
 jas config set model z-ai/glm-5.3                 # → ~/.jas/config.json (default)
 jas config set --project approve shell             # → <root>/.jas/config.json
 jas config set --local max_turns 80                # → <root>/.jas/config.local.json
+jas config set --in-profile model z-ai/glm-5.3     # → ~/.jas/profiles/<active>/config.json
 jas config set base_url https://openrouter.ai/api/v1
 jas config set models.my-local.context_window 32768
 jas config get model                               # effective value
@@ -192,9 +196,9 @@ pi, Claude Code and opencode work as they are. jas scans, in order:
 | Scope | Directories |
 |---|---|
 | project | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
-| user | `~/.agents/skills/`, `~/.claude/skills/`, `~/.config/jas/skills/` (Windows/macOS: `%AppData%`/`~/Library/Application Support` under `jas/skills`) |
+| user | `~/.jas/profiles/<name>/skills/` (the active profile), then the built-in manual under `<UserCacheDir>/jas/manual/` |
 
-Skills may sit in nested folders (e.g. `~/.agents/skills/team/review/SKILL.md`):
+Skills may sit in nested folders (e.g. `~/.jas/profiles/default/skills/team/review/SKILL.md`):
 a folder with a `SKILL.md` is a skill and is not searched further; hidden
 folders and `node_modules` are skipped, and the search stops 5 levels down.
 
@@ -207,11 +211,11 @@ skill directories (the deny floor still applies there); `write`, `edit` and
 same marker above your message.
 
 jas installs its own manual as the user skill `jas` under
-`~/.config/jas/skills/` (refreshed from the binary at every start; delete or
-shadow it freely — a same-named skill in `~/.agents/skills/` wins).
+`<UserCacheDir>/jas/manual/` (refreshed from the binary at every start;
+shadow it with a same-named skill in your profile or project).
 
 - On a name clash the first skill found wins, in the table's order: project
-  before user, `.agents` before `.claude`, jas's config dir last. A warning
+  before user, `.agents` before `.claude`, the built-in manual last. A warning
   names both. The same
   folder reached twice (e.g. through a symlink) loads once, silently.
 - Project skills are project-authored instructions, like `AGENTS.md`, so they
@@ -222,7 +226,7 @@ shadow it freely — a same-named skill in `~/.agents/skills/` wins).
   is trusted its skills are ignored entirely, so they cannot hide a user
   skill of the same name. A project skill must resolve inside the project; one
   symlinked out of it is skipped with a warning. A user skill symlinked
-  outside your home still loads, with a warning naming where it points
+  outside the jas home still loads, with a warning naming where it points
   (read-only tools can open that directory).
 - The skill list in the prompt is capped at 64 KB; project skills are kept
   first, then user skills, and those past the cap are not listed (a warning

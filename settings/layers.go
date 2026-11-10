@@ -10,6 +10,7 @@ type Scope string
 
 const (
 	ScopeGlobal  Scope = "global"
+	ScopeProfile Scope = "profile"
 	ScopeProject Scope = "project"
 	ScopeLocal   Scope = "local"
 )
@@ -27,10 +28,12 @@ const (
 	globalConfigFile = "config.json"
 )
 
-// Layers holds the three Claude-style config files. auth.json and trust.json
-// stay global-only and are not part of Layers.
+// Layers holds the config files: global, the active profile's, project and
+// local. auth.json and trust.json stay global-only and are not part of Layers.
+// ProfileName names the profile Profile was loaded from ("" when none).
 type Layers struct {
-	Global, Project, Local File
+	Global, Profile, Project, Local File
+	ProfileName                     string
 }
 
 // ProjectDir is <root>/.jas.
@@ -75,18 +78,32 @@ func LoadLayers(home, root string) (Layers, error) {
 	return Layers{Global: global, Project: project, Local: local}, nil
 }
 
-// ParseScope accepts global|project|local.
+// ParseScope accepts global|profile|project|local.
 func ParseScope(s string) (Scope, error) {
 	switch Scope(s) {
-	case ScopeGlobal, ScopeProject, ScopeLocal:
+	case ScopeGlobal, ScopeProfile, ScopeProject, ScopeLocal:
 		return Scope(s), nil
 	}
-	return "", fmt.Errorf("unknown scope %q: want global|project|local", s)
+	return "", fmt.Errorf("unknown scope %q: want global|profile|project|local", s)
 }
 
-// Path returns the config file path for scope. Project and local need a root.
+// Path returns the config file path for scope. Project and local need a root;
+// the profile scope needs a name, so use PathFor.
 func (s Scope) Path(home, root string) (string, error) {
+	return s.PathFor(home, root, "")
+}
+
+// PathFor is Path with the active profile name for the profile scope.
+func (s Scope) PathFor(home, root, profile string) (string, error) {
 	switch s {
+	case ScopeProfile:
+		if home == "" {
+			return "", fmt.Errorf("jas home not set")
+		}
+		if profile == "" {
+			return "", fmt.Errorf("no active profile")
+		}
+		return ProfileConfigPath(home, profile), nil
 	case ScopeGlobal:
 		if home == "" {
 			return "", fmt.Errorf("jas home not set")
@@ -109,6 +126,8 @@ func (l Layers) File(scope Scope) File {
 	switch scope {
 	case ScopeGlobal:
 		return l.Global
+	case ScopeProfile:
+		return l.Profile
 	case ScopeProject:
 		return l.Project
 	case ScopeLocal:
@@ -122,6 +141,8 @@ func (l Layers) WithFile(scope Scope, f File) Layers {
 	switch scope {
 	case ScopeGlobal:
 		l.Global = f
+	case ScopeProfile:
+		l.Profile = f
 	case ScopeProject:
 		l.Project = f
 	case ScopeLocal:
@@ -130,14 +151,14 @@ func (l Layers) WithFile(scope Scope, f File) Layers {
 	return l
 }
 
-// Merged overlays models and providers: local > project > global. Plain
+// Merged overlays models and providers: local > project > profile > global. Plain
 // Values are left empty — callers use Resolve for those.
 func (l Layers) Merged() File {
 	out := File{
 		Models:    map[string]ModelOverride{},
 		Providers: map[string]ProviderEntry{},
 	}
-	for _, f := range []File{l.Global, l.Project, l.Local} {
+	for _, f := range []File{l.Global, l.Profile, l.Project, l.Local} {
 		for k, v := range f.Models {
 			out.Models[k] = v
 		}
@@ -148,7 +169,7 @@ func (l Layers) Merged() File {
 	return out
 }
 
-// ContextOverrides merges model context windows: local > project > global.
+// ContextOverrides merges model context windows: local > project > profile > global.
 func (l Layers) ContextOverrides() map[string]int {
 	return l.Merged().ContextOverrides()
 }
@@ -161,6 +182,9 @@ func (l Layers) ModelSource(name string) (window int, source Source, ok bool) {
 	if m, found := l.Project.Models[name]; found {
 		return m.ContextWindow, SourceProject, true
 	}
+	if m, found := l.Profile.Models[name]; found {
+		return m.ContextWindow, ProfileSource(l.ProfileName), true
+	}
 	if m, found := l.Global.Models[name]; found {
 		return m.ContextWindow, SourceFile, true
 	}
@@ -172,13 +196,15 @@ func (l Layers) ModelNames() []string {
 	return l.Merged().ModelNames()
 }
 
-// pick returns the first non-empty value among local, project, global.
-func pick(local, project, global string) (string, Source) {
+// pick returns the first non-empty value among local, project, profile, global.
+func pick(local, project, profile, global, profileName string) (string, Source) {
 	switch {
 	case local != "":
 		return local, SourceLocal
 	case project != "":
 		return project, SourceProject
+	case profile != "":
+		return profile, ProfileSource(profileName)
 	case global != "":
 		return global, SourceFile
 	}

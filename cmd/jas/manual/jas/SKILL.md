@@ -20,7 +20,8 @@ flags, keys, defaults, exit codes and event fields, read
 | `jas run "<task>"` | one-shot agent run (the CI path) |
 | `jas --continue`, `jas --name <title>` | reopen, name a saved session |
 | `jas sessions` | list this repo's sessions, across worktrees |
-| `jas config get/set/unset/list`, `jas config init` | settings in `~/.jas/config.json` |
+| `jas config get/set/unset/list`, `jas config init` | settings in `~/.jas/config.json` (`--in-profile`: the active profile's `config.json`) |
+| `jas profile list/use/new/show` | profiles: skills, `AGENTS.md`, settings under `~/.jas/profiles/<name>/` |
 | `jas auth add <provider>` | store a key in `~/.jas/auth.json` (0600) |
 | `jas farm …` | experimental parallel worktree runner (below) |
 
@@ -44,14 +45,16 @@ Windows also probes Shift so Shift+Enter works when the terminal drops the
 modifier), Up/Down recalls input, `/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in
 progress (`working…`, or `thinking…` while the model reasons).
-A start banner (version, key hints, loaded context files and skills; a
-context file the trust decision declined is marked `not loaded`) shows
+A start banner (version, key hints, the active `[Profile]`, loaded context files and skills; a
+context file the trust decision declined is marked `not loaded`; the active
+profile's `AGENTS.md`, loaded before the project's, is listed first) shows
 when the chat opens fresh and again on `/new`; resuming (`--continue`,
 `/resume`) does not show it.
 
 | command | what it does |
 |---|---|
 | `/model [name]` | switch model (bare form: picker; Ctrl+S also sets the default) |
+| `/profile [name]` | switch profile (bare form: picker; Ctrl+S also sets the default profile) |
 | `/new` | fresh conversation and clear the screen (model, thinking, approval level and grants kept; reprints the start banner) |
 | `/name [title]` | name this session, for `/resume` |
 | `/resume` | continue a session here (grants and level reset) |
@@ -61,6 +64,7 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 | `/approve [level]` | `never` / `shell` / `mutating` |
 | `/allowed` | list and remove always-grants |
 | `/copy` | copy the last reply |
+| `/settings [--global\|--in-profile\|--project\|--local] [unset] <key> [value]` | show, set or unset a setting (default local; `--in-profile`: the active profile's `config.json`) |
 | `/skill:<name> [text]` | run a skill |
 | `/quit` | save the session and quit |
 
@@ -74,6 +78,16 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 (`base_url`, `search_base_url`, `providers.<name>.base_url`) are global-only
 and are never read from them.
 
+Profiles: `--profile <name>` / `JAS_PROFILE` / the `profile` key pick
+`~/.jas/profiles/<name>/` (default `default`). Its `config.json` sits between
+global and project config (no endpoint keys, no `profile`), and its
+`AGENTS.md` goes into the prompt before the project's. An unknown name from
+the flag or env is a usage error; from config it warns and uses `default`.
+`/resume` stays on the chat's active profile (the notice names the recorded
+one when it differs); farm workers run on the active profile's `AGENTS.md`
+and skills (workers started after a mid-farm `/profile` get the new profile's,
+but the farm's `max_turns`, budget and approval level stay fixed).
+
 ## Approval and safety
 
 - `--approve`: `never` (default) prompts nothing; `shell` prompts every shell
@@ -82,7 +96,9 @@ and are never read from them.
   TTY exits 5.
 - Deny floor, always on for file tools: `.env*`, `secrets/**`, `*.pem`,
   `id_rsa*`, `*.p12`, `.git-credentials`, `~/.aws/**`, `~/.ssh/**`,
-  `~/.jas/**`.
+  `~/.jas/**` (reads of the active profile's `skills/` folder are allowed,
+  through symlinks too; a `skills/` linked into the jas home is ignored with
+  a warning).
 - The `shell` tool is not sandboxed: confinement and the deny floor do not
   filter it. Secrets are redacted from tool output and logs. Review untrusted
   work with `--approve=shell`, or run jas under bubblewrap/Docker.
@@ -106,10 +122,10 @@ and are never read from them.
 
 A skill is a directory holding a `SKILL.md` whose frontmatter has a `name`
 and `description`. Scanned, in order: project `<root>/.agents/skills` and
-`<root>/.claude/skills` (behind the project trust prompt), then user
-`~/.agents/skills`, `~/.claude/skills`, and jas's own
-`~/.config/jas/skills` (Windows/macOS: `%AppData%\jas`,
-`~/Library/Application Support/jas`) — that last one holds this manual.
+`<root>/.claude/skills` (behind the project trust prompt), then user: the
+active profile's `~/.jas/profiles/<name>/skills` and jas's built-in manual under `<UserCacheDir>/jas/manual` (this
+manual). `~/.agents/skills`, `~/.claude/skills` and `~/.config/jas/skills`
+are no longer read.
 Only name and description reach the system prompt; the model reads the full
 `SKILL.md` when a task matches. On a name clash the first found wins.
 `disable-model-invocation: true` hides a skill from the model (it stays

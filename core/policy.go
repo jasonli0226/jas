@@ -40,7 +40,23 @@ func FindRoot(cwd string) string {
 // Resolve maps a tool-supplied path to an absolute, symlink-free path inside
 // Root. Relative paths are joined with Root. For a path that does not exist
 // yet, the nearest existing ancestor is resolved and the rest re-appended.
+//
+// Resolve serves write and edit, so it always applies the full deny floor:
+// the profile read lift is cleared even on a scope from ProfileScope.
 func (p ExecPolicy) Resolve(path string) (string, error) {
+	p.liftHome = false
+	resolved, err := p.resolveInRoot(path)
+	if err != nil {
+		return "", err
+	}
+	if err := p.checkDeny(path, resolved); err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+// resolveInRoot is Resolve without the deny check.
+func (p ExecPolicy) resolveInRoot(path string) (string, error) {
 	if p.Root == "" {
 		return "", errors.New("project root not set")
 	}
@@ -59,9 +75,6 @@ func (p ExecPolicy) Resolve(path string) (string, error) {
 	if !within(root, resolved) {
 		return "", fmt.Errorf("%w: %s", errOutsideRoot, path)
 	}
-	if err := p.checkDeny(path, resolved); err != nil {
-		return "", err
-	}
 	return resolved, nil
 }
 
@@ -69,25 +82,55 @@ var errOutsideRoot = errors.New("path outside project root")
 
 // ResolveRead is Resolve for read-only tools: an absolute path inside one of
 // ReadRoots is allowed too. There the deny floor applies with the read root
-// standing in for the project root, so a skill's .env stays denied.
+// standing in for the project root, so a skill's .env stays denied. A path
+// in the project that the full floor denies may still be read through a
+// lifted scope (the active profile's skills when the project holds the jas
+// home, or p itself when it came from ProfileScope).
 func (p ExecPolicy) ResolveRead(path string) (string, error) {
 	path = expandHome(path)
 	resolved, err := p.Resolve(path)
-	if !errors.Is(err, errOutsideRoot) || !filepath.IsAbs(path) {
-		return resolved, err
-	}
-	abs, rerr := evalExisting(filepath.Clean(path))
-	if rerr != nil {
-		return "", rerr
-	}
-	scope, ok := p.readRoot(abs)
-	if !ok {
+	var abs string
+	var scope ExecPolicy
+	switch {
+	case err == nil:
+		return resolved, nil
+	case errors.Is(err, errOutsideRoot) && filepath.IsAbs(path):
+		a, rerr := evalExisting(filepath.Clean(path))
+		if rerr != nil {
+			return "", rerr
+		}
+		s, ok := p.readRoot(a)
+		if !ok {
+			return "", err
+		}
+		abs, scope = a, s
+	case errors.Is(err, errDenied):
+		a, rerr := p.resolveInRoot(path)
+		if rerr != nil {
+			return "", rerr
+		}
+		s, ok := p.liftedScope(a)
+		if !ok {
+			return "", err
+		}
+		abs, scope = a, s
+	default:
 		return "", err
 	}
 	if err := scope.checkDeny(path, abs); err != nil {
 		return "", err
 	}
 	return abs, nil
+}
+
+// liftedScope returns the profile-lifted read scope for abs: p itself when it
+// is one, or the read root inside the active profile's skills holding abs.
+func (p ExecPolicy) liftedScope(abs string) (ExecPolicy, bool) {
+	if p.liftHome {
+		return p, true
+	}
+	scope, ok := p.readRoot(abs)
+	return scope, ok && scope.liftHome
 }
 
 // expandHome turns a leading ~/ (how the skill catalog writes home paths)
@@ -104,8 +147,13 @@ func expandHome(path string) string {
 }
 
 // ReadScope returns the policy for walking or listing under resolved: p
-// inside the project, or p rooted at the read root that holds resolved.
+// inside the project, or p rooted at the read root that holds resolved. A
+// read root inside the active profile's skills wins over the project, so the
+// skills stay readable when the project holds the jas home.
 func (p ExecPolicy) ReadScope(resolved string) ExecPolicy {
+	if scope, ok := p.liftedScope(resolved); ok {
+		return scope
+	}
 	if root, err := filepath.EvalSymlinks(p.Root); err == nil && within(root, resolved) {
 		return p
 	}
@@ -115,11 +163,21 @@ func (p ExecPolicy) ReadScope(resolved string) ExecPolicy {
 	return p
 }
 
+// readRoot returns p rooted at the read root holding abs. A read root inside
+// the active profile's skills gets liftHome, so its DenyMatcher lets reads
+// through the jas home floor there (and only there). When that read root is
+// in the project, projectRoot keeps the project's relative patterns in force.
 func (p ExecPolicy) readRoot(abs string) (ExecPolicy, bool) {
+	skills := p.profileSkillsDir()
+	project, perr := filepath.EvalSymlinks(p.Root)
 	for _, r := range p.ReadRoots {
 		if within(r, abs) {
 			scope := p
-			scope.Root, scope.ReadRoots = r, nil
+			scope.Root, scope.ReadRoots, scope.projectRoot = r, nil, ""
+			scope.liftHome = skills != "" && within(skills, r)
+			if scope.liftHome && perr == nil && within(project, r) {
+				scope.projectRoot = project
+			}
 			return scope, true
 		}
 	}
@@ -203,4 +261,89 @@ func MatchWriteRules(rules []WriteRule, rel string) bool {
 		}
 	}
 	return false
+}
+
+// ProfileScope is the read scope rooted at ProfileSkills, as readRoot
+// returns it for a read root there; skill discovery uses its Denied. With no
+// ProfileSkills it is p without the lift.
+func (p ExecPolicy) ProfileScope() ExecPolicy {
+	scope := p
+	scope.liftHome, scope.projectRoot = false, ""
+	if skills := p.profileSkillsDir(); skills != "" {
+		scope.Root, scope.ReadRoots, scope.liftHome = skills, nil, true
+	}
+	return scope
+}
+
+// profileSkillsDir is the resolved ProfileSkills directory, or "" when the
+// read exception is off; see profileLift.
+func (p ExecPolicy) profileSkillsDir() string {
+	l, _ := p.profileLift()
+	return l.resolved
+}
+
+// ProfileSkillsIgnored explains why an existing ProfileSkills directory gets
+// no read exception (its skills are then not loaded), or returns "" when it
+// is lifted, missing or unset.
+func (p ExecPolicy) ProfileSkillsIgnored() string {
+	_, why := p.profileLift()
+	return why
+}
+
+// lift is the profile read exception: the active profile's skills directory
+// as spelled (<home>/profiles/<name>/skills) and as it resolves through
+// symlinks. A path inside either is read without the jas home floor.
+type lift struct{ lexical, resolved string }
+
+func (l lift) holds(abs string) bool {
+	return l.resolved != "" && (within(l.resolved, abs) || within(l.lexical, abs))
+}
+
+// profileLift resolves ProfileSkills. The exception is on when the
+// directory exists, is spelled <home>/profiles/<name>/skills, and resolves
+// either to <home>/profiles/<name>/skills under the resolved jas home (so a
+// symlinked $HOME, jas home or profile directory still works) or to a place
+// that neither holds nor sits inside the jas home or ~/.jas (a skills link to
+// a dotfiles folder). A skills link to the jas home, its profiles directory
+// or another profile's skills would widen the lift over auth.json or other
+// profiles, so it is refused and why names the reason.
+func (p ExecPolicy) profileLift() (_ lift, why string) {
+	if p.ProfileSkills == "" {
+		return lift{}, ""
+	}
+	clean := filepath.Clean(p.ProfileSkills)
+	profileDir := filepath.Dir(clean)
+	name, profiles := filepath.Base(profileDir), filepath.Dir(profileDir)
+	if !filepath.IsAbs(clean) || filepath.Base(clean) != "skills" || filepath.Base(profiles) != "profiles" {
+		return lift{}, ""
+	}
+	r, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return lift{}, ""
+	}
+	if fi, err := os.Stat(r); err != nil || !fi.IsDir() {
+		return lift{}, ""
+	}
+	jasHome, err := filepath.EvalSymlinks(filepath.Dir(profiles))
+	if err != nil {
+		return lift{}, ""
+	}
+	want := filepath.Join(jasHome, "profiles", name, "skills")
+	if r == want {
+		return lift{lexical: clean, resolved: r}, ""
+	}
+	guarded := []string{jasHome}
+	if h := homeDir(); h != "" {
+		floor := filepath.Join(h, ".jas")
+		if fr, err := filepath.EvalSymlinks(floor); err == nil {
+			floor = fr
+		}
+		guarded = append(guarded, floor)
+	}
+	for _, g := range guarded {
+		if within(g, r) || within(r, g) {
+			return lift{}, fmt.Sprintf("profile skills %s ignored: it resolves to %s, which is or overlaps the jas home (auth, config, other profiles); point it at a folder outside %s", clean, r, g)
+		}
+	}
+	return lift{lexical: clean, resolved: r}, ""
 }

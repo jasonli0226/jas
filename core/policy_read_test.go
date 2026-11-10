@@ -59,11 +59,11 @@ func TestResolveRead_ExpandsTildeToHome(t *testing.T) {
 	home := realpath(t, t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	skill := filepath.Join(home, ".agents", "skills", "a")
+	skill := filepath.Join(home, ".jas", "profiles", "default", "skills", "a")
 	assert.NoErr(t, os.MkdirAll(skill, 0o755))
 	assert.NoErr(t, os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("x"), 0o644))
-	p := ExecPolicy{Root: realpath(t, t.TempDir()), ReadRoots: []string{skill}}
-	got, err := p.ResolveRead("~/.agents/skills/a/SKILL.md")
+	p := ExecPolicy{Root: realpath(t, t.TempDir()), ReadRoots: []string{skill}, ProfileSkills: filepath.Dir(skill)}
+	got, err := p.ResolveRead("~/.jas/profiles/default/skills/a/SKILL.md")
 	assert.NoErr(t, err)
 	assert.Eq(t, got, filepath.Join(skill, "SKILL.md"))
 	if _, err := p.ResolveRead("~/elsewhere"); err == nil {

@@ -122,6 +122,9 @@ func (m *Model) onEnter() tea.Cmd {
 	if text == "" || m.live == nil || m.opening != nil {
 		return nil
 	}
+	if m.reloading && !strings.HasPrefix(text, "/") {
+		return m.notice(waitNotice) // a reload or profile switch owns the session
+	}
 	m.hist.add(text)
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)

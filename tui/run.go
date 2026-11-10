@@ -36,6 +36,13 @@ type reloadDoneMsg struct {
 	err     error
 }
 
+// profileDoneMsg reports that a /profile switch returned.
+type profileDoneMsg struct {
+	sw        ProfileSwitch
+	err       error
+	defaulted bool // the default profile was stored before the switch
+}
+
 // activeRun is a Send or a /compact in progress on its own goroutine.
 type activeRun struct {
 	cancel  context.CancelFunc

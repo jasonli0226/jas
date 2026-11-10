@@ -9,8 +9,8 @@ import (
 )
 
 // manualSkills holds jas's own skills. syncManualSkills installs the tree
-// into the user config dir (<UserConfigDir>/jas/skills), mirroring the embed
-// layout: manual/jas/SKILL.md becomes <config>/jas/skills/jas/SKILL.md.
+// into the user cache dir (<UserCacheDir>/jas/manual), mirroring the embed
+// layout: manual/jas/SKILL.md becomes <cache>/jas/manual/jas/SKILL.md.
 // Real files are required: discovery reads SKILL.md from disk and the
 // catalog hands the model that path to read.
 //
@@ -48,13 +48,23 @@ func installManualSkills(dstRoot string) error {
 	})
 }
 
-// syncManualSkills installs the embedded manual skills into the user config
-// dir. It is best effort: prepare warns on error and the session runs without
-// them. No config dir (unset on this platform) skips silently.
+// manualDir is where the built-in manual skills are installed and read from,
+// or "" when the platform has no user cache dir.
+func manualDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil || cache == "" {
+		return ""
+	}
+	return filepath.Join(cache, "jas", "manual")
+}
+
+// syncManualSkills installs the embedded manual skills into manualDir. It is
+// best effort: prepare warns on error and the session runs without them. No
+// cache dir skips silently.
 func syncManualSkills() error {
-	cfgDir, err := os.UserConfigDir()
-	if err != nil {
+	dir := manualDir()
+	if dir == "" {
 		return nil
 	}
-	return installManualSkills(filepath.Join(cfgDir, "jas", "skills"))
+	return installManualSkills(dir)
 }

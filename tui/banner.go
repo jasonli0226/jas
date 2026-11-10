@@ -13,10 +13,10 @@ const bannerHints = "esc stop run · ctrl+l clear · ctrl+c clear/twice-quit · 
 const bannerIndent = "  "
 
 // banner renders the start banner: wordmark and version, the key hints,
-// then the [Context] and [Skills] sections, each header hidden when its
+// then the [Profile] row, the [Context] and [Skills] sections, each header hidden when its
 // list is empty. Lines are wrapped to width so the banner never overflows
 // a narrow terminal.
-func banner(version string, files []ContextFile, skills []string, width int) []string {
+func banner(version, profile string, files []ContextFile, skills []string, width int) []string {
 	head := boldStyle.Render("jas")
 	if version != "" {
 		head += "  " + dimStyle.Render("v"+version)
@@ -24,6 +24,9 @@ func banner(version string, files []ContextFile, skills []string, width int) []s
 	lines := []string{head}
 	for _, l := range wrapWords(bannerHints, width) {
 		lines = append(lines, dimStyle.Render(l))
+	}
+	if profile != "" {
+		lines = append(lines, "", dimStyle.Render("[Profile]")+" "+profile)
 	}
 	if len(files) > 0 {
 		lines = append(lines, "", dimStyle.Render("[Context]"))
