@@ -106,10 +106,11 @@ and are never read from them.
 
 A skill is a directory holding a `SKILL.md` whose frontmatter has a `name`
 and `description`. Scanned, in order: project `<root>/.agents/skills` and
-`<root>/.claude/skills` (behind the project trust prompt), then user
-`~/.agents/skills`, `~/.claude/skills`, and jas's own
-`~/.config/jas/skills` (Windows/macOS: `%AppData%\jas`,
-`~/Library/Application Support/jas`) — that last one holds this manual.
+`<root>/.claude/skills` (behind the project trust prompt), then user: the
+active profile's `~/.jas/profiles/<name>/skills` (the `default` profile for
+now) and jas's built-in manual under `<UserCacheDir>/jas/manual` (this
+manual). `~/.agents/skills`, `~/.claude/skills` and `~/.config/jas/skills`
+are no longer read.
 Only name and description reach the system prompt; the model reads the full
 `SKILL.md` when a task matches. On a name clash the first found wins.
 `disable-model-invocation: true` hides a skill from the model (it stays

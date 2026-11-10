@@ -222,7 +222,7 @@ shadow it with a same-named skill in your profile or project).
   is trusted its skills are ignored entirely, so they cannot hide a user
   skill of the same name. A project skill must resolve inside the project; one
   symlinked out of it is skipped with a warning. A user skill symlinked
-  outside your home still loads, with a warning naming where it points
+  outside the jas home still loads, with a warning naming where it points
   (read-only tools can open that directory).
 - The skill list in the prompt is capped at 64 KB; project skills are kept
   first, then user skills, and those past the cap are not listed (a warning

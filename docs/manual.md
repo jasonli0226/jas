@@ -405,7 +405,7 @@ skills are looked for at the project root (the git top level) only. `/skill:<nam
 `disable-model-invocation: true` hides a skill from the model. jas
 reinstalls its own `jas` skill under `<UserCacheDir>/jas/manual/` at every start; a same-named profile or project skill overrides it. `~/.agents/skills/`, `~/.claude/skills/` and `~/.config/jas/skills/` are no longer read.
 A project skill symlinked outside the project is skipped; a user skill
-symlinked outside your home loads with a warning, since read-only tools can
+symlinked outside the jas home loads with a warning, since read-only tools can
 then open that directory.
 
 ## Farm

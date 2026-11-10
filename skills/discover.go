@@ -287,11 +287,11 @@ func ProjectSources(root string) []Source {
 
 // ProfileSources lists the active profile's skills directory, the only
 // user-level place skills are read from besides the built-in manual. A skill
-// resolving outside home (the jas home) is warned about; an empty home
-// disables that check.
-func ProfileSources(profileSkills, home string) []Source {
-	realHome := home
-	if r, err := filepath.EvalSymlinks(home); err == nil && home != "" {
+// resolving outside jasHome is warned about; an empty jasHome disables that
+// check.
+func ProfileSources(profileSkills, jasHome string) []Source {
+	realHome := jasHome
+	if r, err := filepath.EvalSymlinks(jasHome); err == nil && jasHome != "" {
 		realHome = r
 	}
 	return []Source{{Dir: profileSkills, Scope: User, WarnOutside: realHome}}

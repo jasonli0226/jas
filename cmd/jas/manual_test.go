@@ -15,7 +15,8 @@ func TestManualSkill_InstalledToCacheDir(t *testing.T) {
 	cache := t.TempDir()
 	userHome := t.TempDir()
 	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
-	env := append(jasEnv(userHome, url), "XDG_CACHE_HOME="+cache) // Linux
+	env := append(jasEnv(userHome, url), "XDG_CACHE_HOME="+cache,
+		"LocalAppData="+cache) // Linux, Windows (macOS uses HOME)
 	if runtime.GOOS == "darwin" {
 		cache = filepath.Join(userHome, "Library", "Caches")
 	}
