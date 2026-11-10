@@ -264,7 +264,7 @@ func (m *Model) skillCommand(skill, arg, text string) tea.Cmd {
 	if !ok {
 		return m.unknownCommand("skill:" + skill)
 	}
-	if m.running() {
+	if m.running() || m.reloading {
 		return m.notice(waitNotice)
 	}
 	m.input.Reset()

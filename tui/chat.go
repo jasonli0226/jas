@@ -58,6 +58,7 @@ type Model struct {
 	model     string         // used by /new; follows /model and /resume
 	window    int
 	branch    string // git branch of the root, refreshed per session and run
+	profile   string // active profile, cached: the backend is off limits during a switch
 	usage     usage
 	run       *activeRun
 	reloading bool            // /reload or /profile switch in progress (trust ask may be open)
@@ -158,7 +159,7 @@ func New(b Backend, o Options) *Model {
 	in.SetWidth(defaultWidth)
 	in.Focus()
 	m := &Model{
-		b: b, o: o, input: in, width: defaultWidth, model: o.Model,
+		b: b, o: o, profile: b.Profile(), input: in, width: defaultWidth, model: o.Model,
 		tr: Transcript{Width: defaultWidth, Skills: b.SkillFiles()},
 	}
 	// send is set after New (Run needs the program first), so read it late.
@@ -359,7 +360,7 @@ func (m *Model) statusLine() string {
 		return dimStyle.Render(ansi.Truncate(m.hint, m.width, "…"))
 	}
 	return statusInfo{
-		Profile: m.b.Profile(), Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
+		Profile: m.profile, Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
 		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch, Title: m.title(),
 		Queued: len(m.queued) + len(m.followUps), ShowThinking: m.tr.ShowThinking,
 	}.Render(m.width)

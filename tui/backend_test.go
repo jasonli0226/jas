@@ -61,6 +61,10 @@ type testBackend struct {
 	profDefaults []string               // profiles stored as the config default, in order
 	profSwitch   ProfileSwitch          // what SwitchProfile reports
 	profErr      error                  // SwitchProfile's error
+	profDefErr   error                  // SetDefaultProfile's error
+	profGate     chan struct{}          // when set, SwitchProfile blocks until it is closed
+	switching    atomic.Bool            // a SwitchProfile is in flight
+	touched      atomic.Int32           // Profile/Profiles calls made while switching
 }
 
 const testWindow = 100000
@@ -263,6 +267,9 @@ func (b *testBackend) UnsetSetting(scope, key string) error {
 }
 
 func (b *testBackend) Profile() string {
+	if b.switching.Load() {
+		b.touched.Add(1)
+	}
 	if b.profile == "" {
 		return "default"
 	}
@@ -270,6 +277,9 @@ func (b *testBackend) Profile() string {
 }
 
 func (b *testBackend) Profiles() []string {
+	if b.switching.Load() {
+		b.touched.Add(1)
+	}
 	if b.profiles == nil {
 		return []string{"default"}
 	}
@@ -278,12 +288,20 @@ func (b *testBackend) Profiles() []string {
 
 // SetDefaultProfile records the stored default; the real one writes config.json.
 func (b *testBackend) SetDefaultProfile(name string) error {
+	if b.profDefErr != nil {
+		return b.profDefErr
+	}
 	b.profDefaults = append(b.profDefaults, name)
 	return nil
 }
 
 // SwitchProfile sets the active profile and reports profSwitch, or profErr.
 func (b *testBackend) SwitchProfile(s *core.Session, name string, ask func(string) string) (ProfileSwitch, error) {
+	b.switching.Store(true)
+	if b.profGate != nil {
+		<-b.profGate
+	}
+	b.switching.Store(false)
 	if b.profErr != nil {
 		return ProfileSwitch{}, b.profErr
 	}

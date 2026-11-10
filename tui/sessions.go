@@ -62,7 +62,7 @@ func openOrContinue(b Backend, gate core.Gate, o Options, ui core.UI) sessionMsg
 
 // banner renders the start banner for this chat (see the banner function).
 func (m *Model) banner() []string {
-	return banner(m.o.Version, core.Sanitize(m.b.Profile()), m.b.ContextFiles(), m.b.SkillNames(), m.width)
+	return banner(m.o.Version, core.Sanitize(m.profile), m.b.ContextFiles(), m.b.SkillNames(), m.width)
 }
 
 // clearView clears the terminal scrollback view and reprints the start

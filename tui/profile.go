@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -12,9 +13,9 @@ import (
 // opens a picker (Ctrl+S also stores the choice as the default profile).
 func (m *Model) cmdProfile(name string) tea.Cmd {
 	if name != "" {
-		return m.switchProfile(name)
+		return m.switchProfile(name, false)
 	}
-	active := m.b.Profile()
+	active := m.profile
 	var items []pickItem
 	for _, n := range m.b.Profiles() {
 		it := pickItem{label: m.clean(n), value: n}
@@ -23,28 +24,20 @@ func (m *Model) cmdProfile(name string) tea.Cmd {
 		}
 		items = append(items, it)
 	}
-	m.openPicker("profile", items, m.switchProfile)
+	m.openPicker("profile", items, func(n string) tea.Cmd { return m.switchProfile(n, false) })
 	m.picker.canDefault = true
 	m.picker.onDefault = m.setDefaultProfile
 	return nil
 }
 
 // setDefaultProfile stores name as the config default profile, then
-// switches this session to it.
-func (m *Model) setDefaultProfile(name string) tea.Cmd {
-	if m.reloading {
-		return m.notice(waitNotice)
-	}
-	if err := m.b.SetDefaultProfile(name); err != nil {
-		return m.print(errStyle.Render("set default: " + m.clean(err.Error())))
-	}
-	return tea.Batch(m.notice("default profile "+m.clean(name)), m.switchProfile(name))
-}
+// switches this session to it; both run on the switch goroutine.
+func (m *Model) setDefaultProfile(name string) tea.Cmd { return m.switchProfile(name, true) }
 
 // switchProfile reloads the live session on profile name. Like cmdReload it
 // runs on a goroutine, with trust asks through the farm ask UI; m.reloading
 // holds off every other backend user until profileDoneMsg arrives.
-func (m *Model) switchProfile(name string) tea.Cmd {
+func (m *Model) switchProfile(name string, asDefault bool) tea.Cmd {
 	if m.reloading || m.running() {
 		return m.notice(waitNotice)
 	}
@@ -63,8 +56,14 @@ func (m *Model) switchProfile(name string) tea.Cmd {
 			}
 			return ans
 		}
+		if asDefault {
+			if err := b.SetDefaultProfile(name); err != nil {
+				send(profileDoneMsg{err: fmt.Errorf("set default: %w", err)})
+				return
+			}
+		}
 		sw, err := b.SwitchProfile(live.Session, name, ask)
-		send(profileDoneMsg{sw: sw, err: err})
+		send(profileDoneMsg{sw: sw, err: err, defaulted: asDefault})
 	}()
 	return nil
 }
@@ -73,10 +72,18 @@ func (m *Model) switchProfile(name string) tea.Cmd {
 // changed and names the ones that wait for /new.
 func (m *Model) onProfileDone(msg profileDoneMsg) tea.Cmd {
 	m.reloading = false
+	m.profile = m.b.Profile() // no switch is in flight now: safe to read
 	if msg.err != nil {
-		return m.print(errStyle.Render("profile: " + m.clean(msg.err.Error())))
+		text := "profile: " + m.clean(msg.err.Error())
+		if msg.defaulted {
+			text += " (the default profile was stored)"
+		}
+		return m.print(errStyle.Render(text))
 	}
 	var cmds []tea.Cmd
+	if msg.defaulted {
+		cmds = append(cmds, m.notice("default profile "+m.clean(m.profile)))
+	}
 	if len(msg.sw.Notices) > 0 {
 		cmds = append(cmds, m.notice(msg.sw.Notices...))
 	}

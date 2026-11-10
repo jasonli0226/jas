@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jasonli0226/jas/core"
@@ -123,4 +124,60 @@ func TestPicker_CtrlSModelStillSetsDefaultModel(t *testing.T) {
 	c.submit("/model")
 	c.key("ctrl+s")
 	assert.Eq(t, len(b.defaults), 1)
+}
+
+func TestCmdProfile_RenderDuringSwitchLeavesBackendAlone(t *testing.T) {
+	b := newTestBackend(t)
+	b.profGate = make(chan struct{})
+	c := newTestChat(t, b)
+	c.submit("/profile ds")
+	for !b.switching.Load() {
+		time.Sleep(time.Millisecond)
+	}
+	assert.Contains(t, c.view(), "default · ")
+	c.m.banner()
+	c.m.statusLine()
+	assert.Eq(t, b.touched.Load(), int32(0))
+	close(b.profGate)
+	c.pumpProfileDone()
+	assert.Contains(t, c.view(), "ds · ")
+}
+
+func TestCmdProfile_InputRefusedWhileSwitching(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.m.reloading = true
+	for _, in := range []string{"hello", "/skill:review x", "!echo hi"} {
+		c.m.input.Reset()
+		before := len(c.printedText())
+		c.submit(in)
+		assert.Contains(t, c.printedText()[before:], "wait for the reply or press Esc first")
+		assert.Eq(t, c.m.running(), false)
+		assert.Eq(t, c.m.bang == nil, true)
+	}
+}
+
+func TestPicker_CtrlSProfileStoreFailureDoesNotSwitch(t *testing.T) {
+	b := newTestBackend(t)
+	b.profiles = []string{"default", "ds"}
+	b.profDefErr = errors.New("disk full")
+	c := newTestChat(t, b)
+	c.submit("/profile")
+	c.key("down")
+	c.key("ctrl+s")
+	c.pumpProfileDone()
+	assert.Contains(t, c.printedText(), "set default: disk full")
+	assert.Eq(t, b.Profile(), "default")
+}
+
+func TestPicker_CtrlSProfileSwitchFailureSaysStored(t *testing.T) {
+	b := newTestBackend(t)
+	b.profiles = []string{"default", "ds"}
+	b.profErr = errNoProfile
+	c := newTestChat(t, b)
+	c.submit("/profile")
+	c.key("down")
+	c.key("ctrl+s")
+	c.pumpProfileDone()
+	assert.Contains(t, c.printedText(), "the default profile was stored")
 }
