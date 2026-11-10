@@ -108,6 +108,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: deny}, home, prof.name)
 	userSkills, uw := discoverUserSkills(policy, home)
 	early = append(early, uw...)
+	early = append(early, skillsMigrationWarning(home, prof.name, policy.ProfileSkills, userSkills)...)
 
 	cfg, err := settings.Resolve(flags, os.Getenv, layers).Build()
 	if err != nil {
@@ -229,4 +230,17 @@ func (e *env) sessionMeta(model string) map[string]any {
 		"profile": e.activeProfile(), "provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
+}
+
+// skillsMigrationWarning is the one-time notice for users whose skills sit in
+// the folders earlier jas versions read; it marks itself shown.
+func skillsMigrationWarning(home, profile, profileSkillsDir string, found []skills.Skill) []string {
+	userHome, _ := os.UserHomeDir()
+	userConfig, _ := os.UserConfigDir()
+	n := migrationNotice(home, profile, userHome, userConfig, countProfileSkills(found, profileSkillsDir))
+	if n == "" {
+		return nil
+	}
+	markSkillsNotice(home, profile)
+	return []string{n}
 }

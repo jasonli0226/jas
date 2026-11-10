@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jasonli0226/jas/settings"
+	"github.com/jasonli0226/jas/skills"
 )
 
 // profileAgentsFile is the profile's instructions file, loaded before the
@@ -87,4 +88,90 @@ func (e *env) activeProfile() string {
 		return settings.DefaultProfile
 	}
 	return e.profile
+}
+
+// skillsNoticeMarker records, in the profile directory, that the one-time
+// skills migration notice was shown.
+const skillsNoticeMarker = ".skills-notice"
+
+// oldSkillDirs are the user skill folders earlier jas versions read, relative
+// to the user home and the user config dir. The last one also holds the old
+// manual copy, jas/SKILL.md, which every earlier jas installed.
+func oldSkillDirs(userHome, userConfig string) []string {
+	var dirs []string
+	if userHome != "" {
+		dirs = append(dirs, filepath.Join(userHome, ".agents", "skills"), filepath.Join(userHome, ".claude", "skills"))
+	}
+	if userConfig != "" {
+		dirs = append(dirs, filepath.Join(userConfig, "jas", "skills"))
+	}
+	return dirs
+}
+
+// hasOldSkills reports whether dir holds a */SKILL.md. The old manual copy
+// (jas/SKILL.md under the user config dir) does not count: it is not the
+// user's own skill.
+func hasOldSkills(dir string, isConfigDir bool) bool {
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
+	for _, m := range matches {
+		if isConfigDir && filepath.Base(filepath.Dir(m)) == "jas" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// migrationNotice is the one-time note for users upgrading from a jas that
+// read skills from ~/.agents/skills and friends: "" unless the profile has no
+// skills and an old folder holds some, or the notice was already shown.
+func migrationNotice(home, profile, userHome, userConfig string, profileSkills int) string {
+	if profileSkills > 0 {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(settings.ProfileDir(home, profile), skillsNoticeMarker)); err == nil {
+		return ""
+	}
+	var found []string
+	for _, d := range oldSkillDirs(userHome, userConfig) {
+		if hasOldSkills(d, userConfig != "" && d == filepath.Join(userConfig, "jas", "skills")) {
+			found = append(found, d)
+		}
+	}
+	if len(found) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("skills are now read from the profile's skills folder, %s; none are there yet. "+
+		"Move or copy your skills from %s. The old manual copy in %s can be deleted. This notice is shown once.",
+		filepath.Join(settings.ProfileDir(home, profile), "skills"), strings.Join(found, ", "),
+		filepath.Join(userConfig, "jas", "skills", "jas"))
+}
+
+// markSkillsNotice remembers that the notice was shown. Best effort: the
+// profile directory is not created, and a failure only repeats the notice.
+func markSkillsNotice(home, profile string) {
+	dir := settings.ProfileDir(home, profile)
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, skillsNoticeMarker), nil, 0o600)
+}
+
+// countProfileSkills counts the discovered skills that live in the profile's
+// skills directory (not the built-in manual).
+func countProfileSkills(found []skills.Skill, profileSkillsDir string) int {
+	roots := []string{profileSkillsDir}
+	if r, err := filepath.EvalSymlinks(profileSkillsDir); err == nil {
+		roots = append(roots, r)
+	}
+	n := 0
+	for _, s := range found {
+		for _, r := range roots {
+			if strings.HasPrefix(s.Dir, r+string(filepath.Separator)) {
+				n++
+				break
+			}
+		}
+	}
+	return n
 }

@@ -417,6 +417,11 @@ read on demand and can change without a new prompt. Trust an older jas recorded 
 the project has only `AGENTS.md` / `CLAUDE.md`; with project skills,
 `.jas/farm.yaml` or settings files it is asked once more.
 
+User skills are read only from the active profile's `skills/` folder. A jas that
+finds none there but some in `~/.agents/skills`, `~/.claude/skills` or
+`<config dir>/jas/skills` prints a one-time notice naming them and the new
+folder (remembered in `.skills-notice` in the profile directory).
+
 The active profile's `AGENTS.md` (`~/.jas/profiles/<name>/AGENTS.md`) needs
 no trust and goes into the prompt before the project's file, so on a
 conflict the project's later text wins; a missing file adds nothing. An

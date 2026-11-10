@@ -184,3 +184,66 @@ func TestLoadProfile_Sources(t *testing.T) {
 	assert.Eq(t, len(w), 0)
 	assert.Eq(t, len(ps.agents), 0)
 }
+
+// migrationEnv is jasEnv with the user config dir inside userHome on every
+// OS, and the folder os.UserConfigDir resolves to.
+func migrationEnv(userHome, url string) ([]string, string) {
+	env := jasEnv(userHome, url)
+	switch runtime.GOOS {
+	case "windows":
+		cfg := filepath.Join(userHome, "AppData")
+		return append(env, "AppData="+cfg), cfg
+	case "darwin":
+		return env, filepath.Join(userHome, "Library", "Application Support")
+	}
+	cfg := filepath.Join(userHome, ".config")
+	return append(env, "XDG_CONFIG_HOME="+cfg), cfg
+}
+
+func TestMigrationNotice_ShownOnce(t *testing.T) {
+	userHome := t.TempDir()
+	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "old", "Use when old", "x\n")
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}, {Text: "b"}})
+	env, _ := migrationEnv(userHome, url)
+	_, first, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, first, filepath.Join(".agents", "skills"))
+	assert.Contains(t, first, filepath.Join(".jas", "profiles", "default", "skills"))
+	_, second, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, second, "skills folder")
+}
+
+func TestMigrationNotice_NotWhenProfileHasSkills(t *testing.T) {
+	userHome := t.TempDir()
+	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "old", "Use when old", "x\n")
+	writeSkill(t, profileSkills(userHome), "new", "Use when new", "x\n")
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	env, _ := migrationEnv(userHome, url)
+	_, errOut, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, errOut, "skills folder")
+}
+
+func TestMigrationNotice_NotWhenNoOldSkills(t *testing.T) {
+	userHome := t.TempDir()
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	env, cfg := migrationEnv(userHome, url)
+	// Every earlier jas installed the manual here; alone it must not trigger.
+	writeSkill(t, filepath.Join(cfg, "jas", "skills"), "jas", "Use when jas", "x\n")
+	_, errOut, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, errOut, "skills folder")
+}
+
+func TestMigrationNotice_OtherSkillInConfigDirTriggers(t *testing.T) {
+	userHome := t.TempDir()
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "a"}})
+	env, cfg := migrationEnv(userHome, url)
+	writeSkill(t, filepath.Join(cfg, "jas", "skills"), "jas", "Use when jas", "x\n")
+	writeSkill(t, filepath.Join(cfg, "jas", "skills"), "mine", "Use when mine", "x\n")
+	_, errOut, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, errOut, "skills folder")
+	assert.Contains(t, errOut, filepath.Join("jas", "skills", "jas"))
+}
