@@ -114,7 +114,7 @@ func TestValidProfileName(t *testing.T) {
 	for _, ok := range []string{"ds", "data-sci", "a1"} {
 		assert.NoErr(t, ValidProfileName(ok))
 	}
-	for _, bad := range []string{"DS", "-x", "x-", "a_b", "", strings.Repeat("a", 65)} {
+	for _, bad := range []string{"DS", "-x", "x-", "a--b", "a_b", "", strings.Repeat("a", 65)} {
 		if ValidProfileName(bad) == nil {
 			t.Errorf("%q should be invalid", bad)
 		}

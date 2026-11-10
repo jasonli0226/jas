@@ -13,7 +13,7 @@ const DefaultProfile = "default"
 
 const maxProfileName = 64
 
-var profileNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+var profileNameRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // profileForbiddenKeys are plain keys a profile config may not set: endpoints
 // stay global-only (a trusted project can pick a profile), and the profile
