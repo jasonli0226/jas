@@ -60,6 +60,9 @@ type ExecPolicy struct {
 	// liftHome is set only by readRoot/ProfileScope on a read scope rooted
 	// inside ProfileSkills.
 	liftHome bool
+	// projectRoot is the resolved project root on a lifted read scope whose
+	// read root lies inside the project; its relative patterns still apply.
+	projectRoot string
 	// Writes limits where write and edit may change files; nil is
 	// unrestricted. See WriteAllowed.
 	Writes []WriteRule

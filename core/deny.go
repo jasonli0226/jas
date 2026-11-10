@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,10 +30,12 @@ const JasHomeFloor = "~/.jas/**"
 // checkDeny returns the policy error when the resolved path is denied.
 func (p ExecPolicy) checkDeny(original, resolved string) error {
 	if p.Denied(resolved) {
-		return fmt.Errorf("path denied by policy: %s", original)
+		return fmt.Errorf("%w: %s", errDenied, original)
 	}
 	return nil
 }
+
+var errDenied = errors.New("path denied by policy")
 
 // Denied reports whether abs, or what it resolves to through symlinks, matches
 // the deny floor or the policy's extra patterns.
@@ -65,12 +68,17 @@ func (p ExecPolicy) DenyMatcher() func(abs string) bool {
 		return func(abs string) bool { return matchDeny(pats, root, home, filepath.Clean(abs)) }
 	}
 	lifted := withoutHomeDeny(pats, p.HomeDeny)
+	project := p.projectRoot
 	return func(abs string) bool {
 		abs = filepath.Clean(abs)
+		use := pats
 		if within(skills, abs) {
-			return matchDeny(lifted, root, home, abs)
+			use = lifted
 		}
-		return matchDeny(pats, root, home, abs)
+		if project != "" && matchDeny(use, project, home, abs) {
+			return true
+		}
+		return matchDeny(use, root, home, abs)
 	}
 }
 
@@ -89,6 +97,7 @@ func withoutHomeDeny(pats []string, homeDeny string) []string {
 // DeniedToken applies Denied to a shell word: ~ and relative forms are
 // expanded first. Best-effort only; the shell can always build paths it hides.
 func (p ExecPolicy) DeniedToken(tok string) bool {
+	p.liftHome = false // the shell filter keeps the full floor
 	home := homeDir()
 	if tok == "~" || strings.HasPrefix(tok, "~/") {
 		tok = home + tok[1:]

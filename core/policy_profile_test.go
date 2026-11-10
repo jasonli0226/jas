@@ -176,3 +176,89 @@ func TestReadScope_ProfileSkillWalk(t *testing.T) {
 		t.Fatal("ProfileScope allowed the profile config")
 	}
 }
+
+func TestProfileScope_WriteAndShellDenied(t *testing.T) {
+	f := homeProfileFixture(t)
+	ps := f.policy(t).ProfileScope()
+	skill := filepath.Join(f.demo, "SKILL.md")
+	_, err := ps.Resolve(skill)
+	if err == nil {
+		t.Fatal("ProfileScope().Resolve accepted a write under the profile skills")
+	}
+	assert.Contains(t, err.Error(), "path denied by policy")
+	if !ps.DeniedToken(skill) {
+		t.Fatal("ProfileScope().DeniedToken lifted the floor")
+	}
+	got, err := ps.ResolveRead(skill) // reads through the scope still work
+	assert.NoErr(t, err)
+	assert.Eq(t, got, skill)
+}
+
+func TestResolveRead_ProfileSkillProjectIsHome(t *testing.T) {
+	f := homeProfileFixture(t)
+	writeFile(t, filepath.Join(f.demo, "notes.md"), "x")
+	p := ExecPolicy{
+		Root:          f.home,
+		ReadRoots:     []string{f.demo},
+		ProfileSkills: f.skills,
+		Deny:          []string{".jas/profiles/ds/skills/demo/notes.md"}, // project-relative
+	}
+	skill := filepath.Join(f.demo, "SKILL.md")
+	for _, path := range []string{"~/.jas/profiles/ds/skills/demo/SKILL.md", ".jas/profiles/ds/skills/demo/SKILL.md"} {
+		got, err := p.ResolveRead(path)
+		assert.NoErr(t, err)
+		assert.Eq(t, got, skill)
+	}
+	for _, path := range []string{
+		"~/.jas/profiles/ds/skills/demo/.env",
+		"~/.jas/profiles/ds/skills/demo/notes.md",
+		"~/.jas/profiles/ds/config.json",
+		"~/.jas/auth.json",
+		".jas/profiles/ds/skills/demo/../../config.json",
+	} {
+		_, err := p.ResolveRead(path)
+		if err == nil {
+			t.Fatalf("ResolveRead(%q): expected denial", path)
+		}
+		assert.Contains(t, err.Error(), "path denied by policy")
+	}
+	match := p.ReadScope(f.demo).DenyMatcher()
+	if match(skill) || !match(filepath.Join(f.demo, ".env")) || !match(filepath.Join(f.demo, "notes.md")) {
+		t.Fatal("walk under the profile skill: want SKILL.md allowed, .env and notes.md denied")
+	}
+	if !p.ReadScope(f.home).DenyMatcher()(skill) {
+		t.Fatal("a walk from the project root entered the jas home")
+	}
+	if _, err := p.Resolve(skill); err == nil {
+		t.Fatal("write path accepted under the profile skills")
+	}
+}
+
+func TestProfileSkills_SymlinkToHomeNoLift(t *testing.T) {
+	home := realpath(t, t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	jas := filepath.Join(home, ".jas")
+	writeFile(t, filepath.Join(jas, "auth.json"), "{}")
+	assert.NoErr(t, os.MkdirAll(filepath.Join(jas, "profiles", "ds"), 0o755))
+	link := filepath.Join(jas, "profiles", "ds", "skills")
+	if err := os.Symlink(jas, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	auth := filepath.Join(jas, "auth.json")
+	for _, skills := range []string{link, jas} { // as given, and as a caller would resolve it
+		p := ExecPolicy{Root: realpath(t, t.TempDir()), ReadRoots: []string{jas}, ProfileSkills: skills}
+		if !p.ProfileScope().Denied(auth) {
+			t.Fatalf("ProfileSkills=%s: ProfileScope allowed auth.json", skills)
+		}
+		if !p.ProfileScope().Denied(filepath.Join(link, "auth.json")) {
+			t.Fatalf("ProfileSkills=%s: ProfileScope allowed auth.json through the link", skills)
+		}
+		if _, err := p.ResolveRead("~/.jas/auth.json"); err == nil {
+			t.Fatalf("ProfileSkills=%s: ResolveRead allowed auth.json", skills)
+		}
+		if _, err := p.ResolveRead("~/.jas/profiles/ds/skills/auth.json"); err == nil {
+			t.Fatalf("ProfileSkills=%s: ResolveRead allowed auth.json through the link", skills)
+		}
+	}
+}
