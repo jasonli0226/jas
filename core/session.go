@@ -72,6 +72,8 @@ type Session struct {
 	reason   string // reason of the last non-ok turn, for session_ended
 	pool     string // pool that refused the current user message, if any
 
+	pendingShell []ShellRun // from the replay; read once by the chat at resume
+
 	mu    sync.Mutex
 	queue []string // steering texts not yet delivered
 }
@@ -99,6 +101,7 @@ func NewSession(c SessionConfig) (*Session, error) {
 func ResumeSession(c SessionConfig, st ReplayState) (*Session, error) {
 	s := newSession(c)
 	s.title = st.Title
+	s.pendingShell = slices.Clone(st.PendingShell)
 	s.messages = slices.Clone(st.Messages)
 	s.ids = make([]string, len(s.messages))
 	copy(s.ids, st.MessageIDs)

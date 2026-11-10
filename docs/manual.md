@@ -211,6 +211,13 @@ sent; the agent's copy is capped at 32 KiB. Several `!` commands before one
 message all go with it, in order (`(command output attached)` marks the
 message). `!` commands run in the main chat only, not in a farm agent view.
 
+Every finished `!` and `!!` command is written to the session log at once
+(`shell_ran`, redacted), so quitting before your next message loses nothing.
+`!!` entries are marked local and never reach the agent, `/resume` included.
+`!` output the agent has not seen yet stays with its session: `/new` leaves it
+behind, and `/resume` attaches it to that session's next message. `/new` and
+`/resume` wait while a `!` command runs.
+
 ### Hints
 
 When a command would help, the chat shows a one-line `tip:` in place of the
@@ -506,6 +513,7 @@ one bumps `v`.
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage |
 | `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`) |
 | `injected` | text added to a tool-results message (farm board deliveries) |
+| `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |
 | `check_ran` | cmd, dir, exit_code, duration_ms, timed_out, output tail |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens; reason on non-zero exits |

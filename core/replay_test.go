@@ -726,3 +726,23 @@ func TestResumeSession_SendAfterCrashMergesIntoDanglingUser(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, msgSummary(st2.Messages), "user:lost+again | assistant:A")
 }
+
+// A ! command logged after the last user message never reached the model,
+// so replay hands it back as pending; !! commands and ones a later message
+// carried are not pending.
+func TestReplay_PendingShellAfterLastUserMessage(t *testing.T) {
+	r := newRig(t, nil)
+	log := r.cfg.Log
+	assert.NoErr(t, log.Append(core.EvSessionStarted, map[string]any{"model": "m", "root": r.root}))
+	assert.NoErr(t, log.Append(core.EvShellRan, core.ShellRun{Command: "echo a", Output: "a\n"}))
+	assert.NoErr(t, log.Append(core.EvUserMessage, map[string]any{"content": []map[string]any{{"type": "text", "text": "Ran `echo a`\n\nhi"}}}))
+	assert.NoErr(t, log.Append(core.EvShellRan, core.ShellRun{Command: "false", ExitCode: 1}))
+	assert.NoErr(t, log.Append(core.EvShellRan, core.ShellRun{Command: "echo c", Output: "c\n", Local: true}))
+	assert.NoErr(t, log.Close())
+	st, err := core.Replay(r.logPath)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(st.PendingShell), 1)
+	assert.Eq(t, st.PendingShell[0].Command, "false")
+	assert.Eq(t, st.PendingShell[0].ExitCode, 1)
+	assert.Eq(t, len(st.Messages), 1) // shell_ran adds no message of its own
+}

@@ -34,7 +34,8 @@ const (
 	EvCompaction       = "compaction"
 	EvSessionTitled    = "session_titled"
 	EvContextReloaded  = "context_reloaded"
-	EvInjected         = "injected" // text added to the tool-results message by SessionConfig.Inject
+	EvInjected         = "injected"  // text added to the tool-results message by SessionConfig.Inject
+	EvShellRan         = "shell_ran" // the owner's ! or !! command finished (ShellRun)
 )
 
 const (

@@ -239,6 +239,9 @@ func (m *Model) command(text string) tea.Cmd {
 	if idleOnly[name] && (m.running() || m.reloading) {
 		return m.notice(waitNotice)
 	}
+	if (name == "new" || name == "resume") && m.bang != nil {
+		return m.notice(bangWaitNotice)
+	}
 	m.input.Reset()
 	return run(m, arg)
 }
