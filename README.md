@@ -341,7 +341,7 @@ absolute path to put them elsewhere. Without `--json`, the run prints a line per
 worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental.**
 Not yet: `farm resume`,
 `researcher`/`reviewer` roles, `--spec` planning, `farm init`, attach from
-another terminal ([#12](https://github.com/jasonli0226/jas/issues/12)).
+another terminal ([#156](https://github.com/jasonli0226/jas/issues/156)).
 Full design:
 [docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
 
