@@ -101,7 +101,8 @@ dim spinner line above the input shows the run in progress (`working…`, or
   the model at its next step) and **Ctrl+Q** queues a **follow-up** for when
   it ends. **Esc** stops the run.
 - **`!cmd`** runs a shell command yourself; its output goes to the agent with
-  your next message. **`!!cmd`** keeps the output to yourself.
+  your next message. **`!!cmd`** keeps the output to yourself. Both are saved
+  to the session log as soon as they finish.
 - **`/`** opens the command menu; `/help` lists every command and key.
 - `/model` switches models, `/resume` or `jas --continue` reopens a session,
   `/compact` frees context, `/reload` picks up edited `AGENTS.md` and skills.
@@ -147,8 +148,9 @@ In chat, bare `/settings` opens a filterable picker (closed-set keys like
 `approve`, `provider`, `web_tools`, and `farm_bell` get a second value picker;
 free-text keys prefill `/settings <key> `). Typed `/settings <key> <value>`
 still writes to **local** by default (scope with `--local` / `--project` /
-`--global`). `/model` + **Ctrl+S** still stores the default model in the
-global file. Add `.jas/config.local.json` to `.gitignore` so personal
+`--global`). `approve`, `model`, `hints` and `farm_bell` apply to the current
+session; other keys take effect on `/new`. `/model` + **Ctrl+S** still stores
+the default model in the global file. Add `.jas/config.local.json` to `.gitignore` so personal
 overrides stay local.
 
 Every key, its default and its env var: [manual → Settings](docs/manual.md#settings).
