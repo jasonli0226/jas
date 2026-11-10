@@ -50,9 +50,18 @@ type ExecPolicy struct {
 	// ReadRoots are extra symlink-resolved directories (the discovered skill
 	// directories) that read-only tools may open; see ResolveRead.
 	ReadRoots []string
-	// ProfileSkills is the symlink-resolved skills directory of the active
-	// profile; "" disables the read exception. Read-only scopes rooted in it
-	// skip JasHomeFloor and HomeDeny for paths inside it (see readRoot).
+	// ProfileSkills is the active profile's skills directory as spelled,
+	// <jas home>/profiles/<name>/skills; "" disables the read exception.
+	// Read-only scopes rooted in it skip JasHomeFloor and HomeDeny for paths
+	// inside it, under its spelled and its resolved form (see readRoot and
+	// profileLift). Rules: a symlinked $HOME, jas home or profile directory
+	// keeps the exception; skills/ itself may link to a folder outside the
+	// jas home and ~/.jas (discovery warns that it resolves outside the
+	// home); a skills/ that resolves to, inside or above the jas home or
+	// ~/.jas (the home, its profiles, another profile's skills) gets no
+	// exception and ProfileSkillsIgnored says why. Denied still checks every
+	// resolved path against the full floor, so a link inside a skill into
+	// the jas home stays denied, and Resolve and DeniedToken never lift.
 	ProfileSkills string
 	// HomeDeny is the absolute deny pattern for a moved jas home (also in
 	// Deny); the profile read exception lifts it with JasHomeFloor.

@@ -155,10 +155,22 @@ func profilePolicy(p core.ExecPolicy, home, profile string) core.ExecPolicy {
 
 // discoverUserSkills finds the user-level skills: the active profile's, then
 // the built-in manual. Both are read under the profile read scope, which
-// lifts the jas home deny for the profile's skills directory only.
+// lifts the jas home deny for the profile's skills directory only. A
+// profile skills directory the lift refuses (a link into the jas home) is
+// skipped with one warning.
 func discoverUserSkills(policy core.ExecPolicy, home string) ([]skills.Skill, []string) {
-	srcs := append(skills.ProfileSources(policy.ProfileSkills, home), skills.BuiltinSources(manualDir())...)
-	return skills.Discover(srcs, policy.ProfileScope().Denied)
+	srcs, warns := profileSkillSources(policy, home)
+	found, dw := skills.Discover(append(srcs, skills.BuiltinSources(manualDir())...), policy.ProfileScope().Denied)
+	return found, append(warns, dw...)
+}
+
+// profileSkillSources is the active profile's skills source, or none and a
+// warning when the read exception refuses that directory.
+func profileSkillSources(policy core.ExecPolicy, home string) ([]skills.Source, []string) {
+	if why := policy.ProfileSkillsIgnored(); why != "" {
+		return nil, []string{why}
+	}
+	return skills.ProfileSources(policy.ProfileSkills, home), nil
 }
 
 // denyPatterns are the paths no tool or skill discovery may read.

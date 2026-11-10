@@ -77,7 +77,8 @@ func activeProfileName(home string) (string, error) {
 // profileSkillNames lists the skills in the named profile's skills/ folder.
 func profileSkillNames(home, name string) []string {
 	policy := profilePolicy(core.ExecPolicy{Deny: denyPatterns(home)}, home, name)
-	found, _ := skills.Discover(skills.ProfileSources(policy.ProfileSkills, home), policy.ProfileScope().Denied)
+	srcs, _ := profileSkillSources(policy, home)
+	found, _ := skills.Discover(srcs, policy.ProfileScope().Denied)
 	names := make([]string, 0, len(found))
 	for _, s := range found {
 		names = append(names, s.Name)

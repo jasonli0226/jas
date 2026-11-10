@@ -84,7 +84,8 @@ global and project config (no endpoint keys, no `profile`), and its
 the flag or env is a usage error; from config it warns and uses `default`.
 `/resume` stays on the chat's active profile (the notice names the recorded
 one when it differs); farm workers run on the active profile's `AGENTS.md`
-and skills.
+and skills (workers started after a mid-farm `/profile` get the new profile's,
+but the farm's `max_turns`, budget and approval level stay fixed).
 
 ## Approval and safety
 
@@ -94,7 +95,9 @@ and skills.
   TTY exits 5.
 - Deny floor, always on for file tools: `.env*`, `secrets/**`, `*.pem`,
   `id_rsa*`, `*.p12`, `.git-credentials`, `~/.aws/**`, `~/.ssh/**`,
-  `~/.jas/**` (reads of the active profile's `skills/` folder are allowed).
+  `~/.jas/**` (reads of the active profile's `skills/` folder are allowed,
+  through symlinks too; a `skills/` linked into the jas home is ignored with
+  a warning).
 - The `shell` tool is not sandboxed: confinement and the deny floor do not
   filter it. Secrets are redacted from tool output and logs. Review untrusted
   work with `--approve=shell`, or run jas under bubblewrap/Docker.

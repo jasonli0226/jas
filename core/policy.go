@@ -275,21 +275,75 @@ func (p ExecPolicy) ProfileScope() ExecPolicy {
 	return scope
 }
 
-// profileSkillsDir is ProfileSkills resolved, or "" when the read exception
-// is off. It is off unless the directory exists, is not itself a symlink,
-// and resolves to <dir>/profiles/<name>/skills: a skills link to an ancestor
-// such as the jas home must not widen the lift over auth.json.
+// profileSkillsDir is the resolved ProfileSkills directory, or "" when the
+// read exception is off; see profileLift.
 func (p ExecPolicy) profileSkillsDir() string {
+	l, _ := p.profileLift()
+	return l.resolved
+}
+
+// ProfileSkillsIgnored explains why an existing ProfileSkills directory gets
+// no read exception (its skills are then not loaded), or returns "" when it
+// is lifted, missing or unset.
+func (p ExecPolicy) ProfileSkillsIgnored() string {
+	_, why := p.profileLift()
+	return why
+}
+
+// lift is the profile read exception: the active profile's skills directory
+// as spelled (<home>/profiles/<name>/skills) and as it resolves through
+// symlinks. A path inside either is read without the jas home floor.
+type lift struct{ lexical, resolved string }
+
+func (l lift) holds(abs string) bool {
+	return l.resolved != "" && (within(l.resolved, abs) || within(l.lexical, abs))
+}
+
+// profileLift resolves ProfileSkills. The exception is on when the
+// directory exists, is spelled <home>/profiles/<name>/skills, and resolves
+// either to <home>/profiles/<name>/skills under the resolved jas home (so a
+// symlinked $HOME, jas home or profile directory still works) or to a place
+// that neither holds nor sits inside the jas home or ~/.jas (a skills link to
+// a dotfiles folder). A skills link to the jas home, its profiles directory
+// or another profile's skills would widen the lift over auth.json or other
+// profiles, so it is refused and why names the reason.
+func (p ExecPolicy) profileLift() (_ lift, why string) {
 	if p.ProfileSkills == "" {
-		return ""
+		return lift{}, ""
 	}
 	clean := filepath.Clean(p.ProfileSkills)
-	if fi, err := os.Lstat(clean); err != nil || fi.Mode()&os.ModeSymlink != 0 {
-		return ""
+	profileDir := filepath.Dir(clean)
+	name, profiles := filepath.Base(profileDir), filepath.Dir(profileDir)
+	if !filepath.IsAbs(clean) || filepath.Base(clean) != "skills" || filepath.Base(profiles) != "profiles" {
+		return lift{}, ""
 	}
 	r, err := filepath.EvalSymlinks(clean)
-	if err != nil || filepath.Base(r) != "skills" || filepath.Base(filepath.Dir(filepath.Dir(r))) != "profiles" {
-		return ""
+	if err != nil {
+		return lift{}, ""
 	}
-	return r
+	if fi, err := os.Stat(r); err != nil || !fi.IsDir() {
+		return lift{}, ""
+	}
+	jasHome, err := filepath.EvalSymlinks(filepath.Dir(profiles))
+	if err != nil {
+		return lift{}, ""
+	}
+	want := filepath.Join(jasHome, "profiles", name, "skills")
+	if r == want {
+		return lift{lexical: clean, resolved: r}, ""
+	}
+	guarded := []string{jasHome}
+	if h := homeDir(); h != "" {
+		floor := filepath.Join(h, ".jas")
+		if fr, err := filepath.EvalSymlinks(floor); err == nil {
+			floor = fr
+		}
+		guarded = append(guarded, floor)
+	}
+	for _, g := range guarded {
+		if within(g, r) || within(r, g) {
+			return lift{}, fmt.Sprintf("profile skills %s ignored: it resolves to %s, which is or overlaps the jas home (auth, config, other profiles); point it at a folder outside %s", clean, r, g)
+		}
+	}
+	return lift{lexical: clean, resolved: r}, ""
 }

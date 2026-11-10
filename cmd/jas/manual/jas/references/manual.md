@@ -468,7 +468,16 @@ wins; a missing file adds nothing.
 
 **Skills.** User skills come only from the active profile's `skills/` plus
 the built-in manual ([Project context and skills](#project-context-and-skills)).
-The one-time notice about old skill folders is described there.
+The one-time notice about old skill folders is described there. Read-only
+tools may open files under that `skills/` folder although the rest of the jas
+home stays denied. Symlinks work: a symlinked `$HOME`, `~/.jas` or profile
+folder changes nothing, and `skills/` itself may link to a folder outside the
+jas home (a dotfiles checkout; it loads with the outside-the-home warning). A
+`skills/` that links to the jas home, its `profiles/` folder, another
+profile's skills or a folder holding the jas home is ignored with a warning
+(`profile skills … ignored: …`), so `auth.json`, `trust.json`, configs and
+other profiles stay unreadable. A link inside a skill that points into the
+jas home stays denied.
 
 **In the chat.** `/profile [name]` (bare: a picker marking the active one)
 switches in place: the conversation is kept, the profile's `AGENTS.md` and
@@ -480,7 +489,9 @@ so (`session was on profile "ds"; continuing on "default"`) when they differ.
 
 **Farm.** Workers run on the session's active profile, with its `AGENTS.md`
 and skills. A worker keeps the profile it started with; in the chat, workers
-started after a switch get the new one. A worker whose worktree's project
+started after a mid-farm `/profile` switch get the new profile's skills,
+`AGENTS.md` and read access, but the farm's limits (`max_turns`, budget,
+approval level) stay as they were when the farm started. A worker whose worktree's project
 context does not match the trusted main checkout drops only the project's
 `AGENTS.md` and skills; the profile's stay.
 

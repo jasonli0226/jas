@@ -134,6 +134,17 @@ func TestListProfiles(t *testing.T) {
 	got, err = ListProfiles(home)
 	assert.NoErr(t, err)
 	assert.Eq(t, fmt.Sprint(got), "[default ds]")
+
+	target := filepath.Join(t.TempDir(), "work")
+	assert.NoErr(t, os.MkdirAll(target, 0o700))
+	if err := os.Symlink(target, filepath.Join(dir, "work")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	assert.NoErr(t, os.Symlink(filepath.Join(dir, "notes"), filepath.Join(dir, "filelink")))
+	assert.NoErr(t, os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")))
+	got, err = ListProfiles(home)
+	assert.NoErr(t, err)
+	assert.Eq(t, fmt.Sprint(got), "[default ds work]")
 }
 
 func TestEnsureDefaultProfile_ReadOnlyHome(t *testing.T) {

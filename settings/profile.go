@@ -44,16 +44,23 @@ func ValidProfileName(name string) error {
 }
 
 // ListProfiles returns the sorted names of the valid profile directories under
-// home, always including "default". A missing profiles directory is not an error.
+// home, always including "default". A symlink to a directory counts, as it
+// does when the profile is picked. A missing profiles directory is not an
+// error.
 func ListProfiles(home string) ([]string, error) {
 	names := []string{DefaultProfile}
-	entries, err := os.ReadDir(ProfilesDir(home))
+	dir := ProfilesDir(home)
+	entries, err := os.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 	for _, e := range entries {
-		if e.IsDir() && ValidProfileName(e.Name()) == nil && e.Name() != DefaultProfile {
-			names = append(names, e.Name())
+		name := e.Name()
+		if ValidProfileName(name) != nil || name == DefaultProfile {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.IsDir() {
+			names = append(names, name)
 		}
 	}
 	slices.Sort(names)
