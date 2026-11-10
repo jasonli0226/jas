@@ -115,11 +115,16 @@ func (p ExecPolicy) ReadScope(resolved string) ExecPolicy {
 	return p
 }
 
+// readRoot returns p rooted at the read root holding abs. A read root inside
+// the active profile's skills gets liftHome, so its DenyMatcher lets reads
+// through the jas home floor there (and only there).
 func (p ExecPolicy) readRoot(abs string) (ExecPolicy, bool) {
+	skills := p.profileSkillsDir()
 	for _, r := range p.ReadRoots {
 		if within(r, abs) {
 			scope := p
 			scope.Root, scope.ReadRoots = r, nil
+			scope.liftHome = skills != "" && within(skills, r)
 			return scope, true
 		}
 	}
@@ -203,4 +208,29 @@ func MatchWriteRules(rules []WriteRule, rel string) bool {
 		}
 	}
 	return false
+}
+
+// ProfileScope is the read scope rooted at ProfileSkills, as readRoot
+// returns it for a read root there; skill discovery uses its Denied. With no
+// ProfileSkills it is p without the lift.
+func (p ExecPolicy) ProfileScope() ExecPolicy {
+	scope := p
+	scope.liftHome = false
+	if skills := p.profileSkillsDir(); skills != "" {
+		scope.Root, scope.ReadRoots, scope.liftHome = skills, nil, true
+	}
+	return scope
+}
+
+// profileSkillsDir is ProfileSkills with symlinks resolved when it exists,
+// or "" when the profile read exception is off.
+func (p ExecPolicy) profileSkillsDir() string {
+	if p.ProfileSkills == "" {
+		return ""
+	}
+	clean := filepath.Clean(p.ProfileSkills)
+	if r, err := filepath.EvalSymlinks(clean); err == nil {
+		return r
+	}
+	return clean
 }

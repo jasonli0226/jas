@@ -19,8 +19,12 @@ import (
 // otherwise they act through the shell tool's best-effort filter.
 var DenyFloor = []string{
 	".env*", "**/.env", "**/.env.*", "secrets/**", "**/secrets/**", "**/*.pem", "**/id_rsa*",
-	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**", "~/.jas/**",
+	"**/*.p12", "**/.git-credentials", "~/.aws/**", "~/.ssh/**", JasHomeFloor,
 }
+
+// JasHomeFloor is the deny floor entry for the jas home (auth, config,
+// trust). Read scopes inside the active profile's skills lift it there.
+const JasHomeFloor = "~/.jas/**"
 
 // checkDeny returns the policy error when the resolved path is denied.
 func (p ExecPolicy) checkDeny(original, resolved string) error {
@@ -44,6 +48,11 @@ func (p ExecPolicy) Denied(abs string) bool {
 // DenyMatcher returns a lexical check for absolute paths with the root and
 // home computed once. Use it when walking a tree: WalkDir does not follow
 // symlinks, so no resolution is needed. Denied also resolves symlinks.
+//
+// On a read scope from readRoot or ProfileScope (liftHome), a path inside
+// ProfileSkills is checked without JasHomeFloor and HomeDeny; every other
+// pattern still applies. The base policy, and so Resolve and DeniedToken,
+// never lifts anything.
 func (p ExecPolicy) DenyMatcher() func(abs string) bool {
 	root, err := filepath.EvalSymlinks(p.Root)
 	if err != nil {
@@ -51,7 +60,30 @@ func (p ExecPolicy) DenyMatcher() func(abs string) bool {
 	}
 	home := homeDir()
 	pats := append(append([]string{}, DenyFloor...), p.Deny...)
-	return func(abs string) bool { return matchDeny(pats, root, home, filepath.Clean(abs)) }
+	skills := p.profileSkillsDir()
+	if !p.liftHome || skills == "" {
+		return func(abs string) bool { return matchDeny(pats, root, home, filepath.Clean(abs)) }
+	}
+	lifted := withoutHomeDeny(pats, p.HomeDeny)
+	return func(abs string) bool {
+		abs = filepath.Clean(abs)
+		if within(skills, abs) {
+			return matchDeny(lifted, root, home, abs)
+		}
+		return matchDeny(pats, root, home, abs)
+	}
+}
+
+// withoutHomeDeny returns pats without JasHomeFloor and homeDeny.
+func withoutHomeDeny(pats []string, homeDeny string) []string {
+	out := make([]string, 0, len(pats))
+	for _, pat := range pats {
+		if pat == JasHomeFloor || (homeDeny != "" && pat == homeDeny) {
+			continue
+		}
+		out = append(out, pat)
+	}
+	return out
 }
 
 // DeniedToken applies Denied to a shell word: ~ and relative forms are

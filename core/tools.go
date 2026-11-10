@@ -50,6 +50,16 @@ type ExecPolicy struct {
 	// ReadRoots are extra symlink-resolved directories (the discovered skill
 	// directories) that read-only tools may open; see ResolveRead.
 	ReadRoots []string
+	// ProfileSkills is the symlink-resolved skills directory of the active
+	// profile; "" disables the read exception. Read-only scopes rooted in it
+	// skip JasHomeFloor and HomeDeny for paths inside it (see readRoot).
+	ProfileSkills string
+	// HomeDeny is the absolute deny pattern for a moved jas home (also in
+	// Deny); the profile read exception lifts it with JasHomeFloor.
+	HomeDeny string
+	// liftHome is set only by readRoot/ProfileScope on a read scope rooted
+	// inside ProfileSkills.
+	liftHome bool
 	// Writes limits where write and edit may change files; nil is
 	// unrestricted. See WriteAllowed.
 	Writes []WriteRule
