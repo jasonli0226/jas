@@ -459,7 +459,8 @@ func (m *Model) settingLine(key string) SettingLine {
 	return SettingLine{Key: key}
 }
 
-// applySetting writes key=value and updates live approve when needed.
+// applySetting writes key=value, then applies the effective value to the
+// running chat (see applyLive).
 func (m *Model) applySetting(scope, key, value string) tea.Cmd {
 	if err := m.b.SetSetting(scope, key, value); err != nil {
 		return m.print(errStyle.Render(m.clean(err.Error())))
@@ -467,13 +468,39 @@ func (m *Model) applySetting(scope, key, value string) tea.Cmd {
 	if scope == "" {
 		scope = m.b.DefaultSettingsScope()
 	}
-	cmds := []tea.Cmd{m.notice(fmt.Sprintf("%s=%s (%s config)", key, m.clean(value), scope))}
-	if key == "approve" {
+	written := m.notice(fmt.Sprintf("%s=%s (%s config)", key, m.clean(value), scope))
+	if line, err := m.b.GetSetting(key); err == nil {
+		value = line.Value // a narrower scope or a flag may still win over the write
+	}
+	return tea.Batch(written, m.applyLive(key, value))
+}
+
+// applyLive applies a setting's effective value to the running chat. approve,
+// model, hints and farm_bell change now; every other key is read when a
+// session starts, so it waits for /new and the notice says so.
+func (m *Model) applyLive(key, value string) tea.Cmd {
+	switch key {
+	case "approve":
 		if level, err := core.ParseLevel(value); err == nil {
 			m.gate.SetLevel(level)
 		}
+	case "model":
+		if value == m.model {
+			return nil
+		}
+		if cmd, refused := m.refuseCrossProvider(value); refused {
+			m.model = value // the live session keeps its provider; /new opens on value
+			return cmd
+		}
+		return m.setModel(value)
+	case "hints":
+		m.o.Hints = value == "true"
+	case "farm_bell":
+		m.o.FarmBell = value == "true"
+	default:
+		return m.notice(key + " takes effect on /new")
 	}
-	return tea.Batch(cmds...)
+	return nil
 }
 
 // takeSettingsScope pulls --global|--project|--local from the /settings arg.
@@ -533,7 +560,7 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 // session to it like setModel. The store runs first but the cross-provider
 // refusal comes before it: a default that cannot be used is not stored.
 func (m *Model) setDefaultModel(name string) tea.Cmd {
-	if cmd := m.refuseCrossProvider(name); cmd != nil {
+	if cmd, refused := m.refuseCrossProvider(name); refused {
 		return cmd
 	}
 	if err := m.b.SetDefaultModel(name); err != nil {
@@ -551,7 +578,7 @@ func (m *Model) setDefaultModel(name string) tea.Cmd {
 // wired at session start, so half-migrating a live session would send the
 // new model's id to the old endpoint. /new picks up the new provider.
 func (m *Model) setModel(name string) tea.Cmd {
-	if cmd := m.refuseCrossProvider(name); cmd != nil {
+	if cmd, refused := m.refuseCrossProvider(name); refused {
 		return cmd
 	}
 	bare := m.b.BareModel(name) // requests carry the bare id, never the provider prefix
@@ -575,13 +602,14 @@ func (m *Model) setModel(name string) tea.Cmd {
 	)
 }
 
-// refuseCrossProvider is the notice that refuses switching a live session to
-// a model on another provider, or nil when the switch may go ahead.
-func (m *Model) refuseCrossProvider(name string) tea.Cmd {
+// refuseCrossProvider reports whether switching a live session to name must
+// be refused because it runs on another provider, with the notice saying so.
+// The bool is the signal: the notice Cmd is nil while another print is in flight.
+func (m *Model) refuseCrossProvider(name string) (tea.Cmd, bool) {
 	if prov := m.b.ProviderOf(name); prov != "" && m.live.Provider != "" && prov != m.live.Provider {
-		return m.notice(fmt.Sprintf("%s runs on %s — /new for a %s session", m.clean(name), prov, prov))
+		return m.notice(fmt.Sprintf("%s runs on %s — /new for a %s session", m.clean(name), prov, prov)), true
 	}
-	return nil
+	return nil, false
 }
 
 func (m *Model) cmdThinking(string) tea.Cmd {

@@ -229,6 +229,28 @@ func TestChatBackend_ModelsUnion(t *testing.T) {
 	assert.Eq(t, known, false)
 }
 
+// A settings write reaches the exec policy too, so the next /new session
+// uses the new tool-output cap and redaction skip paths.
+func TestChatBackend_SettingsRefreshExecPolicy(t *testing.T) {
+	e := testEnv(t)
+	e.layers = settings.Layers{}
+	e.flags = map[string]string{}
+	e.settingsTrusted = true
+	g, err := settings.File{}.Set("model", "m")
+	assert.NoErr(t, err)
+	g, err = g.Set("provider", "custom")
+	assert.NoErr(t, err)
+	g, err = g.Set("base_url", "http://x/v1")
+	assert.NoErr(t, err)
+	assert.NoErr(t, g.Save(settings.GlobalConfigPath(e.home)))
+	e.layers.Global, e.files.Global = g, g
+	b := &chatBackend{e: e}
+	assert.NoErr(t, b.SetSetting("", "max_tool_output", "123"))
+	assert.NoErr(t, b.SetSetting("", "redact_skip_paths", "fixtures"))
+	assert.Eq(t, e.policy.MaxOutput, 123)
+	assert.Eq(t, strings.Join(e.policy.RedactSkip, ","), "fixtures")
+}
+
 func TestChatBackend_SettingsScopes(t *testing.T) {
 	e := testEnv(t)
 	e.layers = settings.Layers{}
