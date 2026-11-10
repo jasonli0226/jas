@@ -160,7 +160,7 @@ Configuration: [Farm](#farm).
 ## Chat
 
 The chat prints into your terminal's scrollback (no full-screen mode).
-Under the input, a status line shows the model, approval level, context use,
+Under the input, a status line shows the active profile, model, approval level, context use,
 token counts and the number of queued messages.
 
 ### Keys
@@ -182,7 +182,8 @@ token counts and the number of queued messages.
 
 In a picker: type to filter, Up/Down move, Enter choose, Esc cancel. In the
 `/model` picker, Ctrl+S also stores the choice as the default model for new
-sessions (global config).
+sessions (global config); in the `/profile` picker it stores the default
+profile (`profile` in the global config) and switches to it.
 
 On native Windows, Shift+Enter works even when the terminal collapses it to
 Enter (jas probes the physical Shift key; not under WSL or SSH).
@@ -198,6 +199,7 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 | `/resume` | continue a recent session in this project; always grants and level reset |
 | `/compact [focus]` | summarize older messages to free context; `focus` steers the summary |
 | `/reload` | reload `AGENTS.md` / `CLAUDE.md`, skills and project context into this session (same trust rules) |
+| `/profile [name]` | switch profile (skills, `AGENTS.md`, settings) in this session; bare `/profile` opens a picker marking the active one. Live settings (`approve`, `model`, `hints`, `farm_bell`) apply now; other changed keys take effect on `/new`. Switching to the active profile just reloads |
 | `/settings` | settings picker; closed-set keys get a value picker |
 | `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--project`; **global** in an untrusted project, where project and local writes are refused). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
 | `/settings unset <key>` | remove a setting from local (or `--global` / `--project`; global by default in an untrusted project) |
@@ -215,8 +217,9 @@ Enter (jas probes the physical Shift key; not under WSL or SSH).
 | `/skill:<name> [text]` | run a skill with optional text |
 | `/quit` | save the session and quit |
 
-`/new`, `/model`, `/name`, `/resume`, `/compact` and `/reload` wait until
-no reply is running.
+`/new`, `/model`, `/name`, `/resume`, `/compact`, `/reload` and `/profile` wait
+until no reply is running; `/new`, `/resume`, `/reload`, `/profile` and a
+farm start also wait while a reload or profile switch is in progress.
 
 ### Shell commands
 

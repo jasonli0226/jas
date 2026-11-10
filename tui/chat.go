@@ -60,7 +60,7 @@ type Model struct {
 	branch    string // git branch of the root, refreshed per session and run
 	usage     usage
 	run       *activeRun
-	reloading bool            // /reload in progress (trust ask may be open)
+	reloading bool            // /reload or /profile switch in progress (trust ask may be open)
 	frame     int             // loader frame while a run is active
 	tickPend  bool            // a loader tick timer is armed
 	queued    []string        // steering sent during the current run
@@ -233,6 +233,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case reloadDoneMsg:
 		return m, m.onReloadDone(msg)
+	case profileDoneMsg:
+		return m, m.onProfileDone(msg)
 	case tickMsg:
 		return m, m.onTick()
 	case approvalMsg:
@@ -357,7 +359,7 @@ func (m *Model) statusLine() string {
 		return dimStyle.Render(ansi.Truncate(m.hint, m.width, "…"))
 	}
 	return statusInfo{
-		Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
+		Profile: m.b.Profile(), Model: m.model, Level: m.gate.Level(), Prompt: m.usage.prompt, Window: m.window,
 		In: m.usage.in, Out: m.usage.out, Root: m.o.Root, Branch: m.branch, Title: m.title(),
 		Queued: len(m.queued) + len(m.followUps), ShowThinking: m.tr.ShowThinking,
 	}.Render(m.width)

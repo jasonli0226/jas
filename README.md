@@ -92,7 +92,7 @@ is listed in the **[manual](docs/manual.md)**.
 ## Chat
 
 `jas` opens an inline chat. Replies stream into the terminal's own scrollback
-(no full-screen mode), above the input box and a status line showing the
+(no full-screen mode), above the input box and a status line showing the profile,
 model, approval level, context use and token counts. While a reply runs, a
 dim spinner line above the input shows the run in progress (`working…`, or
 `thinking…` while the model reasons).

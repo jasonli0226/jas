@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/jasonli0226/jas/internal/assert"
 )
 
 // bannerLines renders a banner and returns its lines with styling stripped.
 func bannerLines(version string, files []ContextFile, skills []string, width int) []string {
-	return strings.Split(strings.Join(plain(banner(version, files, skills, width)), "\n"), "\n")
+	return strings.Split(strings.Join(plain(banner(version, "", files, skills, width)), "\n"), "\n")
 }
 
 const testHints = "esc stop run · ctrl+l clear · ctrl+c clear/twice-quit · / commands · /help"
@@ -100,8 +101,14 @@ func TestBanner_Wraps(t *testing.T) {
 func TestBanner_TrailingBlankLine(t *testing.T) {
 	// One blank line follows the banner, separating it from the session's
 	// first block.
-	raw := strings.Join(banner("1", nil, nil, 80), "\n")
+	raw := strings.Join(banner("1", "", nil, nil, 80), "\n")
 	if !strings.HasSuffix(raw, "\n") {
 		t.Fatalf("no trailing blank line: %q", raw)
 	}
+}
+
+func TestBanner_ShowsProfile(t *testing.T) {
+	out := strings.Join(plain(banner("1", "ds", nil, nil, 80)), "\n")
+	assert.Contains(t, out, "[Profile] ds")
+	assert.NotContains(t, strings.Join(plain(banner("1", "", nil, nil, 80)), "\n"), "[Profile]")
 }

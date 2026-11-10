@@ -34,6 +34,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"resume":   (*Model).cmdResume,
 	"compact":  (*Model).startCompact,
 	"reload":   (*Model).cmdReload,
+	"profile":  (*Model).cmdProfile,
 	"settings": (*Model).cmdSettings,
 	"farm":     (*Model).cmdFarm,
 }
@@ -42,7 +43,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 // Session.SetModel, Session.SetTitle, Session.SetSystem, Session.Messages,
 // Session.Compact and Live.Close off a session while its Send is running, and
 // what keeps the generation steady during a run.
-var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true, "reload": true}
+var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume": true, "compact": true, "reload": true, "profile": true}
 
 const helpText = `commands
   /help                  this list
@@ -52,6 +53,7 @@ const helpText = `commands
   /resume                continue a recent session in this project (grants and level reset)
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /reload                reload AGENTS.md, skills and project context into this session
+  /profile [name]        switch profile (skills, AGENTS.md, settings)
   /settings              open settings picker (enums get a value picker)
   /settings <key> [val]  show or set a setting (default write: local; global in an untrusted project)
   /settings unset <key>  remove a setting from local (or --global/--project)
@@ -83,7 +85,7 @@ keys
   !cmd run a shell command; its output goes with your next message · !!cmd keeps it local
   in the / menu: Up/Down move · Tab or Enter complete · Esc hide
   in a picker: type to filter · Up/Down move · Enter choose · Esc or Ctrl+C cancel
-  in the /model picker: Ctrl+S also sets the default for new sessions
+  in the /model and /profile pickers: Ctrl+S also sets the default for new sessions
 full manual: docs/manual.md in the jas repo, or ask jas ("how do I …?")`
 
 // parseCommand splits "/name arg..." at the first whitespace. ok is false
@@ -168,6 +170,7 @@ var commandDesc = map[string]string{
 	"resume":   "continue a recent session",
 	"compact":  "summarize older messages",
 	"reload":   "reload AGENTS.md and skills",
+	"profile":  "switch profile",
 	"settings": "open settings picker",
 	"farm":     "plan or show a farm",
 }
@@ -323,7 +326,7 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	if res == pickOpen {
 		return nil
 	}
-	onPick, onCancel := m.onPick, m.onPickCancel
+	onPick, onCancel, onDefault := m.onPick, m.onPickCancel, m.picker.onDefault
 	m.picker, m.onPick, m.onPickCancel = nil, nil, nil
 	switch res {
 	case pickCancelled:
@@ -333,7 +336,9 @@ func (m *Model) onPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case pickChosen:
 		return onPick(value)
 	case pickSetDefault:
-		return m.setDefaultModel(value)
+		if onDefault != nil {
+			return onDefault(value)
+		}
 	}
 	return nil
 }
@@ -556,6 +561,7 @@ func (m *Model) cmdModel(name string) tea.Cmd {
 	}
 	m.openPicker("model", items, m.setModel)
 	m.picker.canDefault = true
+	m.picker.onDefault = m.setDefaultModel
 	return nil
 }
 

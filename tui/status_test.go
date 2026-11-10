@@ -100,3 +100,15 @@ func TestGitBranch(t *testing.T) {
 	assert.NoErr(t, os.MkdirAll(filepath.Join(notFile, ".git", "HEAD"), 0o755))
 	assert.Eq(t, gitBranch(notFile), "")
 }
+
+func TestStatusInfo_ProfileFirst(t *testing.T) {
+	s := statusInfo{Profile: "ds", Model: "m", Level: core.ShellOnly, Root: "/x/jas"}
+	assert.Eq(t, ansi.Strip(s.Render(0)), "ds · m · shell · 0% · ↑0 ↓0 · jas")
+	s.Profile = "a\x1b[31mb"
+	assert.NotContains(t, s.Render(0), "\x1b[31m")
+}
+
+func TestStatusInfo_DefaultShown(t *testing.T) {
+	s := statusInfo{Profile: "default", Model: "m", Level: core.ShellOnly, Root: "/x/jas"}
+	assert.Contains(t, ansi.Strip(s.Render(0)), "default · m · shell")
+}

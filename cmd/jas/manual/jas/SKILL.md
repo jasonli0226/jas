@@ -45,7 +45,7 @@ Windows also probes Shift so Shift+Enter works when the terminal drops the
 modifier), Up/Down recalls input, `/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in
 progress (`working…`, or `thinking…` while the model reasons).
-A start banner (version, key hints, loaded context files and skills; a
+A start banner (version, key hints, the active `[Profile]`, loaded context files and skills; a
 context file the trust decision declined is marked `not loaded`; the active
 profile's `AGENTS.md`, loaded before the project's, is listed first) shows
 when the chat opens fresh and again on `/new`; resuming (`--continue`,
@@ -54,6 +54,7 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 | command | what it does |
 |---|---|
 | `/model [name]` | switch model (bare form: picker; Ctrl+S also sets the default) |
+| `/profile [name]` | switch profile (bare form: picker; Ctrl+S also sets the default profile) |
 | `/new` | fresh conversation and clear the screen (model, thinking, approval level and grants kept; reprints the start banner) |
 | `/name [title]` | name this session, for `/resume` |
 | `/resume` | continue a session here (grants and level reset) |
