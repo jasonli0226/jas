@@ -231,6 +231,7 @@ newer than it reads, rather than misread it.
 | `model_changed` | model (bare id), provider, base_url (the session's endpoint; never a key) | when SetModel is called; replay and resume take provider and base_url from the latest of these three events that carries them |
 | `session_titled` | title (one line, ≤80 runes; "" clears) | when SetTitle is called (`/name`, `jas --name`); the latest wins. `session_started` may also carry `title` (`jas run --name`) |
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage | when history is compacted (chat only) |
+| `shell_ran` | command, output, exit_code, error, cancelled, truncated, local (redacted) | when the owner's `!` / `!!` command finishes (chat only); replay returns `!` entries after the last `user_message` as pending, so a resumed session's next message carries them; `local` (`!!`) entries never reach the model |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash |
 
 **Single writer:** all appends go through one `EventLog` goroutine;
