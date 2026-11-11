@@ -177,4 +177,19 @@ func TestSection_NamesDirsAndGuidance(t *testing.T) {
 	if !strings.Contains(ro, "not available in this session") {
 		t.Error("read-only section lacks notice")
 	}
+	for _, want := range []string{"Check a file, flag or function", "Writes are shown to the owner"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("writable missing %q", want)
+		}
+	}
+	for _, want := range []string{"Check a file, flag or function", "not available in this session"} {
+		if !strings.Contains(ro, want) {
+			t.Errorf("read-only missing %q", want)
+		}
+	}
+	for _, bad := range []string{"never a whole-file", "Writes are shown to the owner", "cannot delete"} {
+		if strings.Contains(ro, bad) {
+			t.Errorf("read-only contains write bullet %q", bad)
+		}
+	}
 }
