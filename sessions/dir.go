@@ -20,18 +20,34 @@ const gitTimeout = 5 * time.Second
 // when root is not in a git repository. Inside git it makes sure the
 // directory is listed in info/exclude.
 func Dir(root string) (string, error) {
-	common, ok := gitCommonDir(root)
+	main, common, ok := mainRoot(root)
 	if !ok {
 		return filepath.Join(root, ".jas", "sessions"), nil
-	}
-	main := root
-	if filepath.Base(common) == ".git" {
-		main = filepath.Dir(common)
 	}
 	if err := ensureExcluded(filepath.Join(common, "info", "exclude")); err != nil {
 		return "", err
 	}
 	return filepath.Join(main, ".jas", "sessions"), nil
+}
+
+// MainRoot returns the main checkout of the repository holding root (the
+// directory above the .git common dir), or root itself outside git.
+func MainRoot(root string) string {
+	main, _, _ := mainRoot(root)
+	return main
+}
+
+// mainRoot also returns the git common dir; ok is false outside git.
+func mainRoot(root string) (main, common string, ok bool) {
+	common, ok = gitCommonDir(root)
+	if !ok {
+		return root, "", false
+	}
+	main = root
+	if filepath.Base(common) == ".git" {
+		main = filepath.Dir(common)
+	}
+	return main, common, true
 }
 
 // ignoreFile ignores everything in the records directory, itself included,
