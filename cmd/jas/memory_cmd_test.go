@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -49,4 +50,33 @@ func TestMemoryCmd_Usage(t *testing.T) {
 	dir, _, env := memoryProject(t)
 	_, _, code := runJasIn(t, dir, env, "memory", "extra")
 	assert.Eq(t, code, core.ExitUsage)
+}
+
+func TestMemoryCmd_ProjectSettingsNeedStoredTrust(t *testing.T) {
+	dir, home, env := memoryProject(t)
+	cfg := settings.ProjectConfigPath(dir)
+	assert.NoErr(t, os.MkdirAll(filepath.Dir(cfg), 0o700))
+	assert.NoErr(t, os.WriteFile(cfg, []byte(`{"memory":"off"}`), 0o600))
+
+	out, stderr, code := runJasIn(t, dir, env, "memory")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "memory: on") // untrusted: the project cannot narrow memory
+	assert.Eq(t, stderr, "")
+
+	bundle := trustBundle(nil, nil, nil, readProjectSettings(dir))
+	assert.NoErr(t, trustStore(home).Trust(dir, bundle))
+	out, _, code = runJasIn(t, dir, env, "memory")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "memory: read")
+	assert.Contains(t, out, "hidden")
+}
+
+func TestMemoryCmd_ShowsIgnoredProfileMemory(t *testing.T) {
+	dir, home, env := memoryProject(t)
+	prof := settings.ProfileDir(home, "default")
+	assert.NoErr(t, os.MkdirAll(prof, 0o700))
+	assert.NoErr(t, os.Symlink(home, filepath.Join(prof, "memory")))
+	out, _, code := runJasIn(t, dir, env, "memory")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "profile memory ignored: ")
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
+	"github.com/jasonli0226/jas/skills"
 )
 
 const memoryUsage = "usage: jas memory [--path]"
@@ -64,8 +65,20 @@ func memoryLayers(home, root, name string) (settings.Layers, error) {
 	if err != nil {
 		return settings.Layers{}, err
 	}
-	layers, _ := files.WithProfile(prof.name, prof.layer).ForProject(true)
+	layers, _ := files.WithProfile(prof.name, prof.layer).ForProject(memoryProjectTrusted(root, home))
 	return layers, nil
+}
+
+// memoryProjectTrusted is the project's stored trust decision, read the way
+// a session reads it but never asking and never warning. No stored decision
+// means untrusted.
+func memoryProjectTrusted(root, home string) bool {
+	deny := core.ExecPolicy{Root: root, Deny: denyPatterns(home)}.Denied
+	project, _ := skills.Discover(skills.ProjectSources(root), deny)
+	_, content, _ := core.FindContextFile(root)
+	bundle := trustBundle(content, project, readFarmConfig(root), readProjectSettings(root))
+	ok, err := trustStore(home).Check(root, bundle)
+	return err == nil && ok
 }
 
 // memoryReport reads the current memory files and settings for profile in
@@ -87,5 +100,11 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 	if hide {
 		proj = memory.Index{}
 	}
-	return memory.Report(dirs, prof, proj, mode), dirs, nil
+	text := memory.Report(dirs, prof, proj, mode)
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profile)
+	policy.ProfileMemory = dirs.Profile
+	if why := policy.ProfileMemoryIgnored(); why != "" {
+		text += "\nprofile memory ignored: " + why
+	}
+	return text, dirs, nil
 }
