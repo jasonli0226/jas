@@ -201,3 +201,26 @@ func TestGate_ApprovalCarriesDiff(t *testing.T) {
 	assert.Eq(t, (<-ch).d, core.Denied)
 	assert.Eq(t, calls, 1)
 }
+
+func TestGate_MustAskIgnoresGrants(t *testing.T) {
+	args := json.RawMessage(`{"path":"~/.jas/profiles/ds/skills/x/SKILL.md","content":"x"}`)
+	write := toolNamed(t, "write")
+	g, msgs := newRecordingGate(core.AllMutating)
+	_, ok := g.Grants().Add("write", args)
+	assert.Eq(t, ok, true) // a standing write grant must not cover it
+	farm := core.NewGrants(false)
+	farm.Add("write", args)
+	for _, gate := range []core.Gate{g, g.ForPart("coder", core.Never, farm)} {
+		res := make(chan allowResult, 1)
+		go func() {
+			d, err := gate.Allow(context.Background(), core.AskAlways(write), args, nil)
+			res <- allowResult{d, err}
+		}()
+		nextApproval(t, msgs).reply <- "always"
+		r := <-res
+		assert.NoErr(t, r.err)
+		assert.Eq(t, r.d, core.Granted)
+		assert.Eq(t, (<-msgs).(noticeMsg).s, mustAskNotice)
+	}
+	eqStrings(t, g.Grants().List(), []string{"write"})
+}

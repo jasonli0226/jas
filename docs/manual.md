@@ -373,6 +373,11 @@ A denied call returns `status: denied` to the model and the run continues.
 With no terminal, a gated call cannot be answered: jas logs
 `approval: unavailable` and exits 5.
 
+A `write` or `edit` into the active profile's `skills/` folder always
+prompts, at every level and whatever grants you hold: every later session in
+every project loads those skills. `always` allows it once and adds no grant;
+with no terminal it exits 5 like any gated call.
+
 ### Always grants
 
 Grants last until jas quits: they survive `/new` but not `/resume` or
@@ -402,8 +407,11 @@ Docker recipes.
 | `suggest_farm` | chat only: show the drafted task and ask `plan this farm? [yes/no/change]` (change asks what should change and sends your answer to the agent, which revises the task and suggests it again; empty asks again); where a farm cannot run (untrusted project, no `check`, uncommitted changes, no commit yet) it tells the agent why and to ask you first | — |
 
 File tools are confined to the project and a deny floor (secrets, `~/.jas`,
-session files); the one opening in `~/.jas` is read access to the active
-profile's `skills/` folder. Read-only calls in a row run in parallel; each mutating call
+session files); the one opening in `~/.jas` is the active profile's `skills/`
+folder, which `read`, `ls` and `grep` may open and `write` and `edit` may
+change (always with a prompt, see [Approvals](#approvals)). That is how the
+agent installs a personal skill; a project-only skill goes in
+`.agents/skills/` as before. Read-only calls in a row run in parallel; each mutating call
 waits for the ones before it. Output is redacted (keys, tokens) before the
 model or the log sees it.
 
@@ -470,14 +478,17 @@ wins; a missing file adds nothing.
 **Skills.** User skills come only from the active profile's `skills/` plus
 the built-in manual ([Project context and skills](#project-context-and-skills)).
 The one-time notice about old skill folders is described there. Read-only
-tools may open files under that `skills/` folder although the rest of the jas
-home stays denied. Symlinks work: a symlinked `$HOME`, `~/.jas` or profile
+tools may open files under that `skills/` folder, and `write` and `edit` may
+change them (after a prompt; a missing `skills/` is created), although the
+rest of the jas home stays denied. The rest of the floor still applies inside
+it: a skill's `.env` or `secrets/` stays denied, and so does a write through
+a link out of `skills/`. The `shell` filter keeps the whole jas home denied. Symlinks work: a symlinked `$HOME`, `~/.jas` or profile
 folder changes nothing, and `skills/` itself may link to a folder outside the
 jas home (a dotfiles checkout; it loads with the outside-the-home warning). A
 `skills/` that links to the jas home, its `profiles/` folder, another
 profile's skills or a folder holding the jas home is ignored with a warning
 (`profile skills … ignored: …`), so `auth.json`, `trust.json`, configs and
-other profiles stay unreadable. A link inside a skill that points into the
+other profiles stay unreadable and unwritable. A link inside a skill that points into the
 jas home stays denied.
 
 **In the chat.** `/profile [name]` (bare: a picker marking the active one)

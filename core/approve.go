@@ -61,8 +61,26 @@ type Approver struct {
 
 var _ Gate = (*Approver)(nil)
 
+// mustAsk wraps the tool of a call that is always put to the user, whatever
+// the level and standing grants: a write or edit in the active profile's
+// skills, which every later session in every project loads.
+type mustAsk struct{ Tool }
+
+// AskAlways returns t marked as a must-ask call (see MustAsk).
+func AskAlways(t Tool) Tool { return mustAsk{t} }
+
+// MustAsk reports whether t is such a call. Gates must not let a standing
+// grant cover it, nor record one for it.
+func MustAsk(t Tool) bool {
+	_, ok := t.(mustAsk)
+	return ok
+}
+
 // Gated reports whether a call to t needs approval at level.
 func Gated(level Level, t Tool) bool {
+	if MustAsk(t) {
+		return true
+	}
 	switch level {
 	case AllMutating:
 		return t.Kind() == Mutating
