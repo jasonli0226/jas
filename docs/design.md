@@ -1,13 +1,12 @@
-# jas — design & proposal
+# jas — design
 
 > A tiny, fast coding-agent harness in Go. "Hermes-lite, developer-first."
 
-**Status:** picked (weekend project #26, absorbs #7 Rapid / #22 worktree farm / #12 cron cockpit)
 **Repo:** https://github.com/jasonli0226/jas
-**Language:** Go (rationale below)
+**Reference:** user-visible behavior (flags, keys, settings, exit codes, events) lives in [manual.md](manual.md); this document keeps the architecture, the contracts behind it, and the roadmap.
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 **Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
-**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; waits for the event-log spec, not a farm prerequisite).
+**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (session records and `jas sessions` shipped in #91; overlap warnings proposed) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; waits for the event-log spec, not a farm prerequisite).
 
 ---
 
@@ -36,19 +35,10 @@ auditable harness); see §14 and [use-cases.md](use-cases.md).
 
 ## 2. Language choice: Go (decided)
 
-Considered Rust seriously. Decision matrix:
-
-| Factor | Go | Rust |
-|---|---|---|
-| Cold start / binary | ~5-10ms, ~12MB ✅ | ~3ms, ~10MB ✅ |
-| Parallelism model | goroutines + errgroup = *exactly* the N-parallel-agent model | tokio + Arc/Mutex dance |
-| Dev velocity (weekend-sized) | high | borrow-checker friction on iterated harness code |
-| MCP SDK | official ✅ | official ✅ |
-| Longevity for harness work | good | great (fearless refactoring) |
-
-**The bottleneck is the LLM round-trip (~2s), not the harness.** Rust's marginal
-perf win is invisible; Go's velocity win is real. If Rust ever becomes the goal,
-the agent-loop design here ports cleanly — the core is 6 interfaces (§3).
+Rust was considered. **The bottleneck is the LLM round-trip (~2s), not the
+harness**, so Rust's perf edge is invisible while Go's velocity is real, and
+goroutines + errgroup are exactly the N-parallel-agent model the farm needs.
+Cold start (~5–10 ms) and a ~12 MB static binary are hygiene, not the pitch.
 
 Prompt assembly is **cache-friendly** (see #5): stable prefix order is
 `system → tools → early messages` so providers with prompt caching keep hitting
@@ -58,55 +48,21 @@ actually measure the harness are cache-hit rate, turns/task, and tokens/task.
 
 ## 3. Architecture
 
-```
-jas (single Go binary)
-│
-├── core/                    the harness
-│   ├── session.go           one session = prompt + model + toolset + event log
-│   ├── loop.go              the agent loop: build prompt → stream → parse tool calls → execute
-│   ├── tools.go             Tool interface + registry (read-only vs mutating)
-│   ├── sandbox.go           exec policy (cwd, timeout, deny patterns, env allowlist,
-│   │                        path confinement). Shell is YOLO in v1 — see §3.1 / #1
-│   ├── approve.go           --approve=never|shell|mutating gate (v1; default never)
-│   ├── trust.go             project trust for AGENTS.md/CLAUDE.md (v1), scenarios (v2)
-│   ├── redact.go            output redaction middleware (§9 layer 2)
-│   ├── budget.go            token tracking + chunked tool-result elision (v1); compaction (v2)
-│   └── events.go            versioned JSONL events (single writer; §3.2)
-│
-├── providers/               provider-neutral stream; OpenAI chat-completions adapter (v1)
-│   ├── types.go             Message / ContentBlock / StreamEvent (provider-neutral)
-│   └── openai.go            OpenRouter/vLLM/ollama. Retry/backoff, SSE idle timeout.
-│
-├── tools/                   built-in toolset (v1; web = v2 opt-in; mcp/git_clone later)
-│   ├── shell.go             run commands (YOLO + --approve gate; §3.1)
-│   ├── files.go             read/write/edit/ls (edit = exact-match replace, see below)
-│   ├── grep.go              regex search (ripgrep-style, no ripgrep dep)
-│   ├── web_fetch.go         HTTP GET → HTML→text; behind web_tools=true (§12.1)
-│   ├── web_search.go        SearXNG / DuckDuckGo chain; behind web_tools=true (§12.1)
-│   ├── git_clone.go         shallow clone, path-confined to session dir (deferred; §12.1)
-│   └── mcp.go               MCP client (stdio + HTTP) — external tools become tools (v2)
-│
-├── settings/                ~/.jas/ agent dir (§10; global scope v1, project scope v2)
-│   ├── config.go            prefs: CLI > JAS_* > local > project > global > defaults
-│   ├── auth.go              auth.json (0600) / $ENV references, key resolution
-│   └── models.go            compiled-in model catalog (context window) + config overrides
-├── scenario/                loader + merger + bootstrap (§8, v2)
-│   ├── loader.go            .jas/scenario.yaml discovery, layer-merge
-│   └── bootstrap.go         deterministic project scan → draft scenario.yaml
-│
-├── farm/                    split one task into parts (v2, spec: superpowers/specs/2026-11-02-farm-design.md)
-│   ├── plan.go              planner agent drafts plan.yaml; validation in code
-│   ├── supervisor.go        runs parts in DAG order, one worktree + branch + session each
-│   ├── board.go             append-only board.jsonl of typed commitment posts, delivered as fenced context
-│   └── integrate.go         integrator agent merges branches; the supervisor runs `check`
-│
-├── ui/                      visibility (inline only — AGENTS.md: no fullscreen TUI)
-│   └── attach.go            after farm: `jas attach <part>` — client of the farm's Unix socket (§5)
-│
-└── cmd/jas/
-    ├── main.go              single binary entry
-    └── commands.go          jas run | jas config | jas auth (v1) · jas farm (v2) · attach | tasks (later)
-```
+One static Go binary (`CGO_ENABLED=0`). Packages:
+
+| package | holds |
+|---|---|
+| `core/` | session, agent loop, tool execution policy, approval ladder and grants, deny floor, path policy, redaction, budget/elision, compaction, event log, exit codes, `check` runner |
+| `providers/` | provider-neutral types, SSE reader, tool-call accumulator, the OpenAI chat-completions adapter, a fake for tests |
+| `tools/` | `shell`, `read`/`write`/`edit`/`ls`, `grep`; `web_fetch` and `web_search` behind `web_tools=true` (§12.1) |
+| `settings/` | layered config, profiles, named providers, `auth.json`, trust, compiled-in model catalog (§10) |
+| `skills/` | Agent Skills discovery and the catalog the model sees |
+| `sessions/` | per-repo live session records for `jas sessions` |
+| `farm/` | planner, supervisor, board, integrator, manifest (farm spec) |
+| `tui/` | the inline Bubble Tea chat (no alt-screen; AGENTS.md) |
+| `cmd/jas/` | CLI entry, subcommands, onboarding, the embedded manual skill |
+
+Not built yet: `scenario/` (§8), MCP client, RPC / `jas attach` (§5).
 
 ### The six interfaces
 
@@ -120,11 +76,11 @@ adapter). See also #5.
 | 3 | `EventLog` | append-only versioned JSONL writer (audit + resume + future RPC) |
 | 4 | `ExecPolicy` | project root, timeout, env allowlist, path confinement, deny patterns |
 | 5 | `Approver` | `--approve=never\|shell\|mutating` gate before tool exec |
-| 6 | `UI` | print / JSONL-stdout / (v2) TUI+attach |
+| 6 | `UI` | print / JSONL-stdout / inline chat; attach later |
 
 Provider-neutral types live in `providers/types.go`: `Message`, `ContentBlock`
 (text / tool_use / tool_result), `StreamEvent`, `Usage`. The OpenAI
-chat-completions + SSE adapter is the only v1 backend; Anthropic-style deltas
+chat-completions + SSE adapter is the only backend; Anthropic-style deltas
 are handled inside that adapter (or a later one), never leaked into the loop.
 The provider layer retries 429/5xx with exponential backoff and enforces an
 SSE idle timeout (no bytes for N seconds → cancel the stream).
@@ -192,14 +148,14 @@ v1 tracks prompt tokens against the model's context window (see #2):
   `[elided: read foo.go 412 lines]`. The prefix changes once per pass, not once
   per turn, so cache hits resume on the next request.
 - A provider `context_length_exceeded`, or a count still over the window
-  after elision, becomes a clean stop (exit 3). Full summarization compaction
-  (pi's `window − reserve` threshold) stays v2.
+  after elision, becomes a clean stop (exit 3) in `jas run`. The chat
+  compacts first (pi's `window − reserve` threshold, plus an overflow retry).
 
 ### Event log & resume
 
 Every step appends a versioned JSONL event to `<session>/events.jsonl` — the
-audit log and, from v2, the checkpoint/resume + RPC wire format. Record shape
-from day one (see #6):
+audit log, the source for resume, and the future RPC wire format. Record
+shape (see #6):
 
 ```json
 {"v":1,"id":"…","parent_id":"…","seq":42,"ts":"…","type":"tool_started", …}
@@ -209,7 +165,7 @@ from day one (see #6):
 continue across reopen (resuming from the last event). The session file is
 locked while open (write-ahead & replay safety).
 
-**Event types (v1 contract).** `--json` consumers and the v2 RPC protocol
+**Event types (contract).** `--json` consumers and the future RPC protocol
 depend on this list. Adding a type or field is backward compatible. Renaming or
 removing one bumps `v`. Replay refuses a file with an event whose `v` is
 newer than it reads, rather than misread it.
@@ -234,12 +190,15 @@ newer than it reads, rather than misread it.
 | `shell_ran` | command, output, exit_code, error, cancelled, truncated, local (redacted) | when the owner's `!` / `!!` command finishes (chat only); replay returns `!` entries after the last `user_message` as pending, so a resumed session's next message carries them; `local` (`!!`) entries never reach the model |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens | once each time closed; totals cover the current open only; absent after a crash |
 
+`context_reloaded`, `injected`, `budget_stop` and `check_ran` are listed in
+the manual's Event log table.
+
 **Single writer:** all appends go through one `EventLog` goroutine;
 concurrent callers send events. The writer fsyncs after each turn's tool
 results — and, for mutating calls, fsyncs `tool_started` **before** the call
 executes (write-ahead; see #4).
 
-**Side effects and resume (v1 contract):**
+**Side effects and resume (contract):**
 
 1. Mutating call → fsync `tool_started` → execute → `tool_result`.
 2. On resume, a `tool_started` with no matching `tool_result` is **never**
@@ -261,7 +220,7 @@ executes (write-ahead; see #4).
 5. Shell children run with `Setpgid: true`; cancel kills the process group and
    uses `WaitDelay` so grandchildren cannot outlive the tool call.
 
-### 3.1 Shell security stance (v1)
+### 3.1 Shell security stance
 
 **pi-style YOLO, documented loudly** (see #1). Path confinement and the deny
 floor apply to the *file* tools. The `shell` tool inherits an allowlisted env
@@ -270,7 +229,7 @@ and can still reach anything `HOME` can — `cat ~/.aws/credentials`,
 `python -c`, `curl`. In-process string guards on the command line are theater
 and are **not** claimed as a security boundary.
 
-- v1 CLI: `--approve=never|shell|mutating` (default `never` = permissive).
+- CLI: `--approve=never|shell|mutating` (default `never` = permissive).
   The tool-exec path always consults the Approver so the gate is real even
   when it defaults open. It is a ladder, each level gating a superset of the
   one before:
@@ -291,29 +250,16 @@ and are **not** claimed as a security boundary.
   proceeding. CI that wants unattended runs uses `--approve=never` inside a
   container.
 - If you care about isolation: run jas (or each farm part) inside
-  **bubblewrap/Docker**. That is the documented answer in v1 and the planned
+  **bubblewrap/Docker**. That is the documented answer today and the planned
   per-task option in v3 — not a pretend in-process sandbox.
 
-### Exit codes (v1 contract)
+### Exit codes (contract)
 
 Tool errors are results the model sees (loop above), so they never set the
-exit code by themselves. The process exit code reflects how the *run* ended:
-
-| code | meaning |
-|---|---|
-| 0 | model gave a final answer |
-| 1 | provider failure after retries, config error, or internal error |
-| 2 | usage error (bad flags, missing model/key) |
-| 3 | context full (`context_length_exceeded`, or over the window after elision) |
-| 4 | turn cap (`max_turns`) hit |
-| 5 | approval required but no TTY to ask |
-| 6 | farm unmet: the supervisor's `check` failed or a part failed/was dropped; the final event's `reason` says which |
-| 7 | budget exceeded: token or wall-clock cap (`jas run --max-tokens/--timeout`, farm totals); `reason` is `tokens` or `timeout`, after a `budget_stop` event |
-| 8 | farm planner refused to split (use `jas run`) |
-| 130 | interrupted (Ctrl-C / SIGTERM) |
-
-The same code appears in the `session_ended` event, with a `reason` on every
-non-zero exit.
+exit code by themselves. The process exit code reflects how the *run* ended
+and is repeated in `session_ended`, with a `reason` on every non-zero exit.
+The table (0–8, 130) is in the manual's Exit codes section; `TestManual_*`
+keeps it complete.
 
 ### The Tool interface (the whole extensibility story)
 
@@ -347,18 +293,17 @@ type Tool interface {
   (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`, plus names the scenario
   adds), never jas's own environment. `JAS_API_KEY` and other provider keys
   are never visible to tools.
-- **Project instructions (v1):** load `AGENTS.md` (and `CLAUDE.md` as a
-  fallback) from the project root into the system prompt — ~20 lines, large
-  lift (#8). Complements, does not replace, `scenario.yaml` runtime policy (#9).
+- **Project instructions:** load `AGENTS.md` (and `CLAUDE.md` as a
+  fallback) from the project root into the system prompt (#8). Complements, does not replace, `scenario.yaml` runtime policy (#9).
   These files come from the repo, so they are a prompt-injection channel. With
   the default `--approve=never`, "run `curl … | sh`" in a cloned repo's
-  `AGENTS.md` would just execute. v1 therefore ships the **project trust gate**
+  `AGENTS.md` would just execute. jas therefore has a **project trust gate**
   for context files (pi gates project-local files the same way): the first time
   jas sees context files in a project, it asks `trust this project?
   [y/N/always]`. The answer is cached in `~/.jas/trust.json`, keyed by root
   path plus content hash, so an edit asks again. Without a TTY, untrusted
   context files are **skipped with a warning** unless `--trust-project` is
-  passed. v2 extends the same gate to scenarios (§11).
+  passed. Scenarios will extend the same gate (§11).
 - **Skills (shipped after v1):** a skill = `SKILL.md` per the agentskills.io
   spec, discovered in the project's `.agents/skills` and `.claude/skills`, then
   the active profile's `~/.jas/profiles/<name>/skills` and the built-in manual
@@ -368,55 +313,16 @@ type Tool interface {
   file's trust prompt. Optional tool manifests stay v3. Research:
   `docs/research/agent-skills.md`.
 
-## 4. v1 scope (weekend one)
+## 4. v1 (shipped)
 
-**Goal:** a single Go binary that beats `pi --print` on cold start and runs a real
-coding task end-to-end.
+The weekend-one goal — a single binary that beats `pi --print` on cold start
+and runs a real coding task end to end — shipped in 2026-10, together with
+skills, the inline chat and project-scoped settings, which were first
+planned for later. Its contracts are §3 (event log, exit codes, approval
+ladder, side-effect rules) and §9 (secret layers 1, 2 and 4). Shell isolation
+is still bubblewrap/Docker; per-task containers are v3.
 
-- [ ] `jas run "task string"` — streaming chat loop, OpenAI-compatible endpoint
-- [ ] `jas run --json` — emit events to stdout as JSONL (cheap; the future RPC wire format)
-- [ ] `jas run --approve=never|shell|mutating` — approval ladder on the tool-exec
-      path (default `never`; no TTY + gate → exit 5; see §3.1 / #1)
-- [ ] exit-code contract (§3) and the v1 event-type list (§3), both documented
-      and tested
-- [ ] built-in tools: shell, read/write/edit file, ls, grep
-- [ ] tool execution policy: consecutive read-only batches in parallel; each
-      mutating call is a barrier; MCP defaults mutating unless `readOnlyHint` (§3 / #3)
-- [ ] context budget (#2): usage + estimate vs catalog window; chunked elision
-      at `elide_at`; `context_length_exceeded` → clean stop (exit 3)
-- [ ] `max_turns` cap (default 50; config/flag/`JAS_MAX_TURNS`) — cost caps are
-      v2, so v1 needs a runaway stop (exit 4)
-- [ ] SSE tool-call delta reassembly (fuzz-tested against recorded streams);
-      provider retry/backoff on 429/5xx; SSE idle timeout (#5)
-- [ ] versioned JSONL event log at `~/.jas/sessions/<id>/events.jsonl`
-      (`v`, `id`, `parent_id`, `seq`, `ts`, `type` — #6); single writer;
-      fsync `tool_started` before mutating exec; atomic `write`/`edit`
-      (temp + rename); synthesize `cancelled` results on Ctrl-C; process-group
-      kill (#4). Token usage logged per request
-- [ ] load `AGENTS.md` / `CLAUDE.md` from the project root into the system
-      prompt (#8), behind the v1 project trust gate (§3)
-- [ ] secrets layers 1, 2 and 4 (§9): compiled-in deny floor, output redaction
-      (with explicit redacted-region edit error + per-path opt-out — #7),
-      redacted event log; shell env allowlist; path confinement (file tools)
-- [ ] persistent config, pi-style (§10): first-run onboarding, `jas config
-      set|get|unset|list`, `jas auth add|list|rm|rotate`, stored in
-      `~/.jas/config.json` + `~/.jas/auth.json` (0600). Per-run flags
-      (`--model`, `--base-url`, `--provider`) and `JAS_*` env vars override it
-- [ ] benchmarks: hygiene cold start; primary = cache-hit / turns / tokens (§7 / #13)
-- [ ] README + demo GIF
-
-**Status (2026-11):** the v1 goal has shipped (including skills, the chat TUI,
-and project-scoped settings, which were originally listed as out of v1). The
-checkboxes above are the original weekend-one list and were not kept as a
-living burndown.
-
-**Explicitly out of v1:** MCP, TUI, farm, skills, scenarios (project trust
-ships in v1 for context files only), project-scoped settings, full
-summarization compaction. Resist scope creep.
-Shell isolation for people who care = run under bubblewrap/Docker (documented;
-per-task containers ship in v3).
-
-## 5. v2 scope (weekend two+)
+## 5. v2 roadmap
 
 v2 is no longer a single weekend. Work proceeds on three tracks. Farm stays
 last on its own track; memory is not a farm prerequisite.
@@ -435,11 +341,12 @@ after TUI dogfood):
    RPC, and dreaming all consume it.
 2. Provider fidelity.
 3. Run token and wall-clock caps for `jas run` (exit 7; checked before each
-   request).
+   request). Shipped (#91).
 4. Opt-in sandbox.
 5. Benchmarks with n>1.
 6. `jas farm plan` / `jas farm run`, then the reviewer part, then `jas attach`,
-   then interactive `/farm`.
+   then interactive `/farm`. Plan/run (#95) and interactive `/farm` (#116)
+   shipped; `jas attach` is next (owner, 2026-11-07).
 
 **Track B — core loop, can ship before farm and overlap A:**
 
@@ -468,8 +375,13 @@ after TUI dogfood):
 3. Promotion (v3, with `jas learn`): owner-approved graduation of a verified
    note into a skill or `AGENTS.md`.
 
-Interactive TUI fixes (long paste, the 10-line Shift+Enter cap, skill-path
-reads) stay on `main` and are not milestones on these tracks.
+**Shipped from this list:** `jas farm plan` / `jas farm run` (#95; spec
+[superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md),
+for tasks too big for one agent, not "better than one agent" —
+[research](research/farm-multi-agent-community-2026-11.md)); `/farm` in the
+chat (#116); auto-compaction; layered settings and `/settings` (§10);
+resume (`jas --continue`, `/resume`); `web_fetch` / `web_search` (§12.1;
+`git_clone` deferred); steering and follow-up queues. Behavior: the manual.
 
 - [ ] **Spec-driven flow** (proposed; core loop, works without farm) —
       `jas spec` grill-me interview → approved spec (hash in the event log);
@@ -477,11 +389,11 @@ reads) stay on `main` and are not milestones on these tracks.
       (exit 2); bounded `--phase scaffold`; single-agent `--section` runs that
       cite acceptance criteria. Spec:
       [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md)
-- [ ] **Session awareness** (proposed; core loop, not farm) — each chat /
-      `jas run` session registers a small record in `<repo>/.jas/sessions/`
-      (title, branch, touched files, heartbeat); read-only peers note and
-      tool; warn/ask before writing a file another active session touched.
-      Can ship before farm. Spec:
+- [ ] **Session awareness** (core loop, not farm) — records in
+      `<repo>/.jas/sessions/` (title, branch, touched files, heartbeat) and
+      `jas sessions` shipped (#91). Still proposed: the read-only peers note
+      and tool, and warn/ask before writing a file another active session
+      touched. Spec:
       [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md)
 - [ ] **Memory store** (proposed; Track C.1, after the event-log spec) —
       profile `~/.jas/profiles/<name>/memory/` and trusted project
@@ -490,16 +402,6 @@ reads) stay on `main` and are not milestones on these tracks.
 - [ ] **`jas dream`** (proposed; Track C.2, after the memory store) — read
       recent event logs and the current store, write a proposed cleanup for
       owner approval, log the run, do not edit `AGENTS.md` or skills. §12.3.
-- [x] `jas farm plan` / `jas farm run` (MVP shipped, #95) — for tasks too big or slow for one
-      agent, done safely and auditably (not "better than one agent"; see
-      [research](research/farm-multi-agent-community-2026-11.md)). A planner
-      drafts `plan.yaml` or refuses (default; suggests `jas run`), the owner
-      approves it (plan hash), the supervisor (code, no LLM) runs 2–3 parts in
-      parallel in worktrees outside the repo, workers post typed commitments to
-      a board, an integrator merges, and the supervisor runs `check` as the
-      verdict. Pinned CI contract (exit codes 6/7/8, `--json`, manifest; no
-      TTY = keep). Replaces the earlier best-of-N `--n` design. Spec:
-      [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md)
 - [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
       optional read-only part with a clean context, possibly a different
       model, reviewing the integrated diff; after farm
@@ -510,28 +412,15 @@ reads) stay on `main` and are not milestones on these tracks.
       supervisor = no replay. If the supervisor is gone, attach falls back to
       `jas resume` (event-log replay, §3 side-effect rules)
 - [ ] MCP client support (stdio first, then HTTP)
-- [x] Farm interactive mode (`/farm` in chat; shipped, #116): inline plan approval, one live row per part updated in place, part-scoped approvals, `/farm attach <part>`; same supervisor and logs as CI; no fullscreen board (AGENTS.md); after the farm CI path
-- [x] **Auto-compaction** (pi parity): trigger at `window − reserve`
-      (16k default); summarize older history with a cheap model into a summary
-      entry; originals kept in the session file (v1 already elides tool results)
 - [ ] **Session tree**: `parent_id` already on events from v1 → branches, fork,
       clone (branch summaries reuse compaction)
 - [ ] **RPC mode**: the §3 event types plus a command set, as JSONL. Two
       transports: stdio (`jas serve`, for a parent process such as an IDE or
       the Telegram bot) and a Unix socket (the farm supervisor, for `attach`
       and the TUI from another terminal)
-- [ ] **Scenarios** (§8), with the v1 project trust gate (§3) extended to
+- [ ] **Scenarios** (§8), with the project trust gate (§3) extended to
       scenario files and hook scripts (§11)
-- [x] **Claude 3-way settings** (§10): global / project `config.json` /
-      `config.local.json`, plus `/settings`; prefs stay out of `scenario.yaml`
-- [x] **Checkpoint/resume** from `events.jsonl` replay (§3 side-effect rules):
-      shipped for the chat as `jas --continue` and `/resume`
 - [ ] **Blind secret access** (§9 layer 3)
-- [x] **Web access (partial)**: in-tree `web_fetch` + `web_search` behind `web_tools=true` (§12.1); `git_clone` still deferred
-- [x] **Steering & follow-up queues**: Enter during a run steers (next
-      step), Ctrl+Q queues a follow-up (sent after the run ends ok), Alt+Up
-      pops the queue back into the input. Queued texts go out together;
-      pi's one-at-a-time mode is not built
 - [ ] **Evals**: fixed-task eval harness with fixtures — with/without scenario
       lift reports (pi's vitest-evals idea, simplified)
 
@@ -553,12 +442,12 @@ reads) stay on `main` and are not milestones on these tracks.
 - Jev-classifier tool-risk gate (absorbs #5)
 - OTel export of sessions (telemetry)
 
-## 7. Benchmarks (v1 acceptance)
+## 7. Benchmarks
 
 Cold start stays a **hygiene** metric (guards accidental dependency bloat —
 essentially free via `go build`). Primary metrics measure whether the harness
 (prompt construction, tool policy, output caps, elision) is efficient — which
-is jas's thesis. See #13.
+is jas's thesis. See #13. Results: [benchmarks.md](benchmarks.md).
 
 | kind | metric | target |
 |---|---|---|
@@ -646,7 +535,7 @@ Deterministic heuristics, instant and repeatable. Writes a draft
 What stays compiled-in: only tool *implementations* and the loader/merger.
 Scenarios are 100% data.
 
-## 9. Secrets & sensitive data (layers 1, 2, 4 = v1; layer 3 blind secret access = v2)
+## 9. Secrets & sensitive data (layers 1, 2, 4 shipped; layer 3 blind secret access = v2)
 
 **Principle: the agent never sees secret *values* — not in tool output, not in
 the transcript, not in the event log.** How peers do it, and what jas adopts:
@@ -657,12 +546,12 @@ the transcript, not in the event log.** How peers do it, and what jas adopts:
 | Deny-list file reads | Claude Code (`.env` in default ignores) | ✅ baseline |
 | Redaction middleware on tool output | pi, modern harnesses | ✅ output scrubber |
 | Secret proxy (harness holds keys, agent requests "use key X" blind) | OpenAI Codex cloud, pi | ✅ v2 |
-| Env scrubbing for tool subprocesses | Codex, pi | ✅ v1 — shell gets an allowlisted env (§3) |
-| Isolated sandbox FS (no dotfiles mounted) | cloud agents | 🔜 documented v1 answer = bubblewrap/Docker (#1); first-class per-task containers in v3. Git worktrees are *not* isolation — they share the user's FS and home dir |
+| Env scrubbing for tool subprocesses | Codex, pi | ✅ shell gets an allowlisted env (§3) |
+| Isolated sandbox FS (no dotfiles mounted) | cloud agents | 🔜 documented answer = bubblewrap/Docker (#1); first-class per-task containers in v3. Git worktrees are *not* isolation — they share the user's FS and home dir |
 
 Concretely, four layers (defense in depth — any one failing must not leak):
 
-1. **File deny-list.** v1 ships a **hard floor** compiled into the binary:
+1. **File deny-list.** A **hard floor** is compiled into the binary:
    `.env*`, `**/.env`, `secrets/**`, `*.pem`, `id_rsa*`, `*.p12`,
    `.git-credentials`, `~/.aws/**`, `~/.ssh/**`, `~/.jas/**` (plus `$JAS_HOME`
    when set; reads, and writes after a prompt that no level or grant skips,
@@ -713,7 +602,7 @@ shell tool inspects the command string for deny-pattern hits before exec).
 **Not a security boundary** — §3.1 / #1. Layer 2 (output redaction) is the
 backstop; containers are the isolation answer.
 
-**Acceptance test for v1:** a fixture repo (no scenario) with a `.env` present,
+**Acceptance test (CI):** a fixture repo (no scenario) with a `.env` present,
 and `JAS_API_KEY` set; agent is asked "print the config" and "print your
 environment"; transcript and `events.jsonl` must contain zero secret values
 (CI assertion).
@@ -726,31 +615,32 @@ dir (verified against a local `~/.pi/agent/` install): one settings dir, keys
 kept apart from config, and **everything configurable from the CLI and
 stored**. pi writes `defaultProvider`/`defaultModel` to `settings.json` when
 you pick a model and saves keys to `auth.json` on `/login`. Env vars are only a
-fallback there. jas does the same from v1 with plain subcommands and chat `/settings`.
+fallback there. jas does the same with plain subcommands and chat `/settings`.
 
 ```
 ~/.jas/                        # agent dir (global-only for auth/trust/sessions)
 ├── config.json                # global prefs: model/provider/base_url, approve, UI, …
-├── models.json                # (v2) named OpenAI-compatible endpoints — NO raw keys
+├── farm.yaml                  # user farm config
 ├── auth.json                  # saved API keys (chmod 0600; global-only forever)
 ├── trust.json                 # project trust answers (global-only forever)
 ├── scenarios/                 # saved scenario presets (not blueprints — #9)
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3) — already global
 ├── profiles/<name>/memory/    # proposed: MEMORY.md index + topic notes (§12.3)
 ├── farms/                     # farm state (farm spec)
-├── run/                       # supervisor sockets for attach
+├── run/                       # planned: supervisor sockets for attach
 └── AGENTS.md                  # global instructions appended to every system prompt
 
 <project>/.jas/
 ├── config.json                # shared team prefs (commit) — Claude-style project settings
 ├── config.local.json          # personal prefs (gitignore) — overrides project
-├── scenario.yaml              # runtime policy only: tools/hooks/sandbox/MCP (§8) — NOT prefs
-├── hooks/                     # project hook scripts
-├── sessions/                  # session-awareness records (git-excluded; proposed)
+├── farm.yaml                  # project farm config
+├── scenario.yaml              # planned: runtime policy only (§8) — NOT prefs
+├── hooks/                     # planned: project hook scripts
+├── sessions/                  # live session records, <id>.json (git-excluded)
 ├── memory/                    # proposed: project memory store; needs trust (§12.3)
 └── worktrees/                 # farm worktrees (git-excluded)
 
-<project>/AGENTS.md            # loaded in v1 (#8); complements scenario.yaml
+<project>/AGENTS.md            # project instructions (#8)
 ```
 
 **Prefs resolution** (Claude 3-way; shipped):
@@ -781,74 +671,24 @@ user skill source besides jas's built-in manual (installed under
 Maps merge key-by-key; lists use pi's `+name`/`-name` add/remove semantics.
 Do **not** dump prefs into `scenario.yaml`.
 
-Per-model overrides live in each config layer under `models`. `models.json`
-(named custom endpoints, each with its own key) arrives in v2.
+Per-model overrides live in each config layer under `models`. Named
+endpoints are `providers.<name>` entries in the global config, addressed as
+`<name>/<model>` ([providers.md](providers.md)).
 
-**First-run experience** (v1; also `jas config init` to rerun it):
-
-```sh
-$ jas            # no config → interactive onboarding
-Provider?        # openrouter | ollama | custom endpoint (→ base_url in config.json)
-API key:         # read without echo → auth.json (0600), or "$OPENROUTER_API_KEY" ref
-Default model:   # anthropic/claude-sonnet-4.6 → config.json
-```
-
-**Configure from the CLI** (v1). Every setting can be set, read and cleared
-without editing JSON, and every stored value can be overridden for one run:
-
-```sh
-jas config set model anthropic/claude-sonnet-4.6   # → ~/.jas/config.json (default write)
-jas config set --project approve shell             # → <root>/.jas/config.json
-jas config set --local max_turns 80                # → <root>/.jas/config.local.json
-jas config set base_url https://openrouter.ai/api/v1
-jas config set models.my-local.context_window 32768
-jas config get model                               # effective
-jas config get --project approve                   # stored in that layer
-jas config unset --local max_turns
-jas config list          # effective value of every key, and where it came from:
-                         #   model  anthropic/claude-sonnet-4.6  (global config)
-                         #   approve  shell                      (project config)
-                         #   max_turns  80                       (local config)
-
-jas auth add openrouter                 # prompts for the key, no echo → auth.json
-jas auth add openrouter --env OPENROUTER_API_KEY   # store a reference, not the key
-jas auth list                           # names + source only, never values
-jas auth rm openrouter | jas auth rotate openrouter
-
-jas run --model z-ai/glm-5.3 --provider openrouter "…"   # one-run override
-
-jas                       # inline chat in this project (first run: onboarding, then the chat)
-jas --continue            # resume this project's newest session in the chat
-jas --model z-ai/glm-5.3  # the same setting flags as jas run, plus --trust-project
-```
-
-`jas` with no subcommand opens the inline chat; it needs a terminal on stdin
-and stdout, so scripts use `jas run "task"`, which is unchanged. A task
-argument to bare `jas` is a usage error pointing at `jas run`. The trust
-prompt for the project context file and project skills is asked before the
-chat starts. Chat sessions use the same `~/.jas/sessions/<id>/events.jsonl`
-layout and `session_started` payload as `jas run`.
-
-Settings keys (v1): `provider`, `model`, `base_url`, `approve`, `max_turns`,
-`max_tool_output`, `elide_at`, `keep_tool_results`, `redact_skip_paths`
-(the per-path redaction opt-out, §9), the chat's compaction keys
-`compact_reserve_tokens` (default 16384), `compact_keep_tokens` (default
-20000) and `compact_model` (default: the session's model), `max_output_tokens`
-(default 16000, sent as `max_tokens` on every request), and per-model
-`models.<name>.context_window`. Each key `k` has a matching `JAS_<K>` env var
-and, for the per-run ones, a `--<k>` flag. There is deliberately **no
-`--api-key` flag**: argv shows up in shell history and `ps`. Keys come from
-`auth.json`, an `$ENV` reference, or `JAS_API_KEY`.
+First-run onboarding, every `jas config` / `jas auth` command, the full
+settings key list and their `JAS_*` / `--<k>` forms are in the manual. There
+is deliberately **no `--api-key` flag**: argv shows up in shell history and
+`ps`. Keys come from `auth.json`, an `$ENV` reference, or `JAS_API_KEY`.
 
 **Key management rules:**
 
 - `auth.json` stores either a literal key (chmod 0600, `JAS_NO_PLAINTEXT_KEYS=1`
   refuses to write it) or a `$ENV_NAME` reference resolved at launch — so the
   key can live in a password manager/env instead of on disk.
-- Keys NEVER appear in config.json, models.json, or scenario files (§9's blind
+- Keys NEVER appear in config.json or scenario files (§9's blind
   secret access consumes them by name only).
 - `jas auth` subcommand: list/add/remove/rotate keys; never echoes values.
-- Per-endpoint key resolution: `models.json` entry → `auth.json` name → env var.
+- Per-endpoint key resolution: the provider entry's key → `auth.json` name → env var.
 
 **What env vars still do:** transient overrides just below CLI flags
 (`JAS_MODEL`, `JAS_BASE_URL`, `JAS_API_KEY` beat project and global config).
@@ -857,36 +697,20 @@ Persistent config lives in `~/.jas/` and is managed with `jas config` /
 `jas auth`.
 
 **Session storage** stays simple: `~/.jas/sessions/<id>/events.jsonl` (§3) is
-the whole story — no DB, replay = tail the file. Farm state (v2) lives in
+the whole story — no DB, replay = tail the file. Farm state lives in
 `~/.jas/farms/<farm-id>/` (plan, supervisor log, board, manifest, one event
 log per part); worktrees live in the repo's git-excluded `.jas/worktrees/`; see the farm spec.
 
-## 11. Security acceptance: v1, and project trust
+## 11. Security acceptance and project trust
 
-**v1:**
+The shipped layers are pinned by tests that run in CI: the secrets fixture
+(§9), redaction including false-positive corpora (#7), the shell env
+allowlist and path confinement, the resume contract (#4), the trust gate,
+and the approval ladder (each level gates exactly its row in §3.1; no TTY →
+exit 5). Shell stays YOLO + `--approve`; containers are the isolation answer
+(#1).
 
-- **Secrets fixture test (from §9):** CI assertion, zero secret values in the
-  transcript and event log when a `.env` is present and `JAS_API_KEY` is set.
-- **Redaction middleware active in v1** — it's ~60 lines of regex and it is the
-  backstop for every later tool that produces output. Its fixture corpus
-  includes false-positive cases (`go.sum`, lockfiles) that must pass
-  unredacted, plus a real-repo FP sample (#7). Edit of a redacted region
-  returns the explicit error; per-path opt-out is tested.
-- **Shell env allowlist and path confinement** (§3) covered by tests:
-  `printenv` from the shell tool shows no `JAS_*` keys; `read ../outside` and a
-  symlink pointing outside the project root are both refused.
-- **Shell stance documented** (§3.1): YOLO + `--approve`; containers are the
-  isolation answer. No claim that command-string deny is a boundary (#1).
-- **Resume contract tests:** crash between `tool_started` fsync and
-  `tool_result` does not re-exec; Ctrl-C yields cancelled tool results;
-  process-group kill reaps grandchildren (#4); a crash mid-`write` leaves the
-  old or the new file, never a torn one.
-- **Trust gate tests (v1):** untrusted `AGENTS.md` is not loaded without a TTY
-  unless `--trust-project` is passed; editing a trusted `AGENTS.md` asks again.
-- **Approval tests:** each `--approve` level gates exactly its row in §3.1;
-  a gated call with no TTY exits 5.
-
-**v2 — project trust extended to scenarios:** the v1 gate (§3) also covers a
+**Planned — project trust extended to scenarios:** the gate (§3) also covers a
 project `.jas/scenario.yaml` that declares hooks or MCP servers. The cache key
 in `~/.jas/trust.json` becomes project path **plus a hash of the context files,
 the scenario file and the hook scripts it names**, so a `git pull` that changes
@@ -895,42 +719,22 @@ any of them asks again. The hash does **not** cover what a hook calls in turn
 security boundary (pi's model). It exists because scenarios carry executable
 hooks.
 
-**v2 — untrusted content raises the default gate.** When a scenario enables
-`web_fetch` or `web_search`, fetched pages can carry prompt injection. Under a
-`never` default, that injection could drive `shell`. So the default approve
-level for such a session becomes `shell`, unless `never` was set explicitly by
-flag or config.
+**Untrusted content raises the default gate (shipped for `web_tools`).**
+Fetched pages can carry prompt injection; under a `never` default, that
+injection could drive `shell`. So a session with web tools enabled runs at
+`shell` unless `never` was set explicitly by flag or config. Scenarios that
+enable web tools will follow the same rule.
 
 ## 12. Web access & learning (v2/v3)
 
 ### 12.1 Web access (pi's answer: core stays thin, an extension package adds it)
 
-Verified from pi-mono source: pi's built-in tools are only
-`read, bash, powershell, edit, write, grep, find, ls` — **no web search tool**.
-pi's web access happens two ways: the model just runs `curl` via `bash`
-(their CHANGELOG fixes "crash when bash outputs binary data (e.g. `curl`
-downloading a video file)"), or an extension package —
-**pi-web-access** (`pi install npm:pi-web-access`, v0.45.0) provides
-search/fetch as a first-class extension.
+pi ships no web tool in core: the model runs `curl` through `bash`, or the
+**pi-web-access** extension adds search/fetch with keyless providers in its
+fallback chain and remote providers behind an explicit opt-in. jas follows
+the same idea (see #11):
 
-**What pi-web-access teaches us** (verified from its npm README):
-
-- 4 capabilities: web_search, web_fetch (extract), GitHub cloning, and
-  PDF/video understanding (YouTube transcripts + frame extraction)
-- ~25 search providers behind one config; keys live in `~/.pi/agent/`
-  web-search settings, never in the agent dir
-- **Fallback chains** — SearXNG (private) first → subscription-backed OpenAI
-  search → Exa (zero-config) → Brave → Tavily → … the keyless providers sit
-  in the middle so it works with no keys at all
-- GitHub cloning is a **separate capability**, not hidden inside fetch
-- The tools also run as a **standalone MCP server** for other agents
-- Fetching remote-hosted providers requires explicit opt-in
-  (`fetchRouting.allowRemoteHostedProviders`) — privacy posture by default
-
-jas adopts the same philosophy, formalized (see #11):
-
-- **v1:** nothing. The shell tool gives curl for free.
-- **v2 (shipped, opt-in):** in-tree Go tools, enabled only when
+- **Shipped, opt-in:** in-tree Go tools, enabled only when
   `web_tools=true` in layered settings (default off). Chat and `jas run`
   register them via `tools.SessionTools`. When enabled and `approve` is still
   the built-in default, the session approve level rises to `shell` unless the
@@ -1037,20 +841,20 @@ Do not start this ahead of the event-log spec.
 - **API compat drift** — pin to chat-completions + SSE via a provider-neutral
   message/event layer (#5); Anthropic-style deltas stay inside the adapter.
   Test against OpenRouter AND ollama. Retry/backoff on 429/5xx; SSE idle timeout.
-- **SSE delta reassembly** — tool-call chunks split across SSE events differ per
-  provider (OpenAI vs Anthropic-style vs vLLM quirks); budget a full day for the
-  accumulation logic and fuzz it against recorded streams.
+- **SSE delta reassembly** — tool-call chunks split differently per provider
+  (OpenAI, Anthropic-style, vLLM); the accumulator is fuzzed against recorded
+  streams, and new providers need new recordings.
 - **Sandbox safety** — v1 shell is YOLO (§3.1 / #1); `--approve` is the gate;
   containers are the isolation answer. Document loudly; do not claim
   command-string deny is a boundary.
-- **Scope creep** — farm/fullscreen TUI/blueprints are out of v1 (blueprints dropped entirely,
-  #9). If v1 takes 3 weekends, it's a bad project, kill features not quality.
-- **Context / cost runaway** — v1 tracks prompt tokens, elides old tool
-  results in chunks, and clean-stops on `context_length_exceeded` (#2).
-  Auto-compaction shipped (§5). Token and wall-clock caps for `jas run`
-  (checked **before** each request, exit 7) are a farm prerequisite; farm adds
-  a farm-wide total, an integrator reserve and a shared rate limiter (farm
-  spec, Budgets). Usage is logged per request into events.jsonl from day one.
+- **Scope creep** — no fullscreen TUI, no blueprints (#9); farm stays
+  experimental. Kill features, not quality.
+- **Context / cost runaway** — jas tracks prompt tokens, elides old tool
+  results in chunks, compacts in the chat, and clean-stops on
+  `context_length_exceeded` (#2). `jas run --max-tokens/--timeout` are
+  checked **before** each request (exit 7); farm adds a farm-wide total, an
+  integrator reserve and a shared rate limiter (farm spec, Budgets). Usage is
+  logged per request.
 - **Memory drift** — a model-written `MEMORY.md` is injected into later
   sessions, so a wrong or stale note (or a note drafted from untrusted
   content) becomes a persistent prompt-injection channel, the same risk
@@ -1069,7 +873,7 @@ Do not start this ahead of the event-log spec.
 pi (`badlogic/pi-mono`) is the closest peer and the main reference for this
 design. The full feature audit is in
 [research/pi-mono-audit.md](research/pi-mono-audit.md). This table compares
-the parts a user sees, as planned for jas v1 and v2, against a local pi install
+the parts a user sees in jas today (later work marked) against a local pi install
 (`~/.pi/agent/`, pi 1.4).
 
 | Area | pi | jas | Why jas differs |
@@ -1078,13 +882,13 @@ the parts a user sees, as planned for jas v1 and v2, against a local pi install
 | Config storage | `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`, packages) | `~/.jas/config.json` | same model |
 | Setting config | TUI: `/model` saves the default, `pi config` toggles resources | `jas config set/get/unset/list`, first-run onboarding; `/model` picker Ctrl+S stores the default | config is scriptable, no TUI needed; the inline picker adds the shortcut |
 | Keys | `auth.json` via `/login` (incl. OAuth); env vars as fallback; `--api-key` flag | `auth.json` (0600) or `$ENV` reference via `jas auth`; `JAS_API_KEY` fallback; **no `--api-key` flag** | argv leaks to shell history and `ps` |
-| Model catalog | `models-store.json` with context window, costs, thinking levels | compiled-in catalog + `models.<name>.context_window` override (v1); `models.json` (v2) | needed for the v1 context budget |
-| Override order | CLI flag > settings > env fallback | CLI flag > `JAS_*` > local > project > global > defaults | env sits above stored config so CI can override without touching `~/.jas/` |
-| Modes | text, `--mode json`, `--mode rpc` | `jas run`, `--json` (v1); RPC over stdio + Unix socket (v2) | the socket enables `attach` from another terminal |
+| Model catalog | `models-store.json` with context window, costs, thinking levels | compiled-in catalog + `models.<name>.context_window` override; named `providers.<name>` | needed for the context budget |
+| Override order | CLI flag > settings > env fallback | CLI flag > `JAS_*` > local > project > profile > global > defaults | env sits above stored config so CI can override without touching `~/.jas/` |
+| Modes | text, `--mode json`, `--mode rpc` | inline chat, `jas run`, `--json`; RPC over stdio + Unix socket later | the socket enables `attach` from another terminal |
 | Tool approval | none built in (YOLO; gating via extensions) | `--approve=never\|shell\|mutating` ladder, exit 5 without a TTY | gate exists in core so CI can rely on it |
-| Project trust | `--approve`/`-a` trusts project-local files; `--no-context-files` | trust gate on `AGENTS.md`/`CLAUDE.md` (v1), extended to scenarios (v2); `--trust-project` | note the flag clash: pi's `--approve` means *trust*, jas's means *tool gating* |
-| Context | auto-compaction (summary at `window − reserve`) | v1: chunked tool-result elision + clean stop; v2: same compaction | elision is the cheap v1 floor |
-| Sessions | JSONL tree, `--continue` / `--resume` / `--fork` | versioned JSONL events with `parent_id`; resume and fork in v2 | write-ahead `tool_started` for at-most-once side effects |
-| Parallelism | one session per process (tmux for more) | session awareness across parallel sessions; then `jas farm`: one task split into parts, worktree per part, integrator, supervisor-run `check` | last in bet order, after its prerequisites |
-| Extensibility | TS extensions, npm/git packages, skills, prompt templates, MCP | `Tool` interface, MCP (v2), hooks + scenarios (v2), `SKILL.md` skills | no plugin ABI in Go; scenarios are data |
-| Secrets | `auth.json`, keys out of settings | four layers (§9): deny floor, output redaction, blind access (v2), redacted log | redaction is the backstop for YOLO shell |
+| Project trust | `--approve`/`-a` trusts project-local files; `--no-context-files` | trust gate on `AGENTS.md`/`CLAUDE.md` and project skills, later scenarios; `--trust-project` | note the flag clash: pi's `--approve` means *trust*, jas's means *tool gating* |
+| Context | auto-compaction (summary at `window − reserve`) | chunked tool-result elision + clean stop; the same compaction in the chat | elision is the cheap floor |
+| Sessions | JSONL tree, `--continue` / `--resume` / `--fork` | versioned JSONL events with `parent_id`; resume (`--continue`, `/resume`); fork later | write-ahead `tool_started` for at-most-once side effects |
+| Parallelism | one session per process (tmux for more) | `jas sessions` records; `jas farm` (experimental): one task split into parts, worktree per part, integrator, supervisor-run `check` | farm only pays on decomposable work |
+| Extensibility | TS extensions, npm/git packages, skills, prompt templates, MCP | `Tool` interface, `SKILL.md` skills; MCP, hooks + scenarios later | no plugin ABI in Go; scenarios are data |
+| Secrets | `auth.json`, keys out of settings | four layers (§9): deny floor, output redaction, redacted log; blind access later | redaction is the backstop for YOLO shell |
