@@ -354,7 +354,7 @@ or `--local` shows the file as written.
 | `web_tools` | false | offer `web_fetch` + `web_search`; when on and `approve` is still the default, the level rises to `shell` |
 | `search_base_url` | — | SearXNG root for `web_search`; otherwise DuckDuckGo lite |
 | `hints` | true | one-time chat tips ([Hints](#hints)); `false` turns them off |
-| `memory` | on | `on` \| `read` \| `off`: profile memory under `~/.jas/profiles/<name>/memory/` ([Memory](#memory)): the index goes in the system prompt, notes are readable, writes are asked every time; headless runs and farm sessions read only. `read` refuses writes; `off` removes it. `JAS_MEMORY` is the base above profile and global; project and local values can only narrow it (project `off` hides project notes and makes the profile store read-only) and apply only once the project is trusted. Not live: takes effect on `/reload`, `/new`, `/resume`, a profile switch or the next session |
+| `memory` | on | `on` \| `read` \| `off`: profile memory under `~/.jas/profiles/<name>/memory/` ([Memory](#memory)): the index goes in the system prompt, notes are readable, writes are asked every time; headless runs and farm sessions read only. `read` refuses writes; `off` removes it. `JAS_MEMORY` is the base above profile and global; project and local values can only narrow it (project `off` hides project index from the prompt and makes the store read-only; its notes stay readable on request) and apply only once the project is trusted. Not live: takes effect on `/reload`, `/new`, `/resume`, a profile switch or the next session |
 | `models.<name>.context_window` | catalog, else 128000 | context window for a model the catalog does not know |
 | `providers.<name>.base_url` | — | a named provider, addressed as `<name>/<model>` |
 
@@ -599,7 +599,9 @@ files are listed in the session's `context_files`.
 Layering: `JAS_MEMORY` is the base, above the profile and global files. Project
 and local values (`<root>/.jas/config.json`, `config.local.json`) can only
 narrow it: `read` makes the session read-only, and `off` hides the project's
-notes and makes the profile store read-only for that project. They never
+index from the prompt and makes the whole store read-only for that project.
+The project's notes stay readable: the agent can still `read` them if you ask,
+it just isn't told they exist. They never
 turn a base `off` or `read` back on. Project settings apply only when the
 project is trusted ([Settings](#settings)). The setting is not live: it
 applies on `/reload`, `/new`, `/resume`, a profile switch and the next
@@ -629,7 +631,9 @@ work, but a `memory/` that resolves to, inside or above the jas home,
 `~/.jas`, or the profile's skills dir is ignored, so `auth.json` and configs stay
 unreadable and unwritable. An ignored dir gives a warning at start and a
 reason in `/memory` and `jas memory` (`profile memory … ignored: …`); the
-session runs without memory. The `shell` filter keeps the whole jas home denied.
+session runs without memory, as it does when `memory/` is a file. A `MEMORY.md`
+that links out of its dir is not loaded, with a warning. The `shell` filter
+keeps the whole jas home denied.
 
 **Commands.** `/memory` in the chat and `jas memory [--path]` show the mode, both
 dirs, index size against the cap and note counts.
