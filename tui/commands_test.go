@@ -810,3 +810,14 @@ func TestSkillCommand_RefusedWhileSwitchingBeforeBackend(t *testing.T) {
 	assert.Contains(t, c.printedText(), waitNotice)
 	assert.Eq(t, b.skillPrompts, 0)
 }
+
+func TestCommand_Memory(t *testing.T) {
+	b := newTestBackend(t)
+	b.memoryReport = "memory: on\nprofile: /m/p"
+	c := newTestChat(t, b)
+	c.submit("/memory")
+	assert.Contains(t, c.printedText(), "memory: on")
+	assert.Contains(t, c.printedText(), "profile: /m/p")
+	assert.Eq(t, commandDesc["memory"], "show memory dirs and index size")
+	assert.Eq(t, idleOnly["memory"], false)
+}

@@ -37,6 +37,7 @@ var commands = map[string]func(*Model, string) tea.Cmd{
 	"profile":  (*Model).cmdProfile,
 	"settings": (*Model).cmdSettings,
 	"farm":     (*Model).cmdFarm,
+	"memory":   (*Model).cmdMemory,
 }
 
 // idleOnly commands are refused during a run. That is what keeps
@@ -54,6 +55,7 @@ const helpText = `commands
   /compact [focus]       summarize older messages to free context; focus steers the summary
   /reload                reload AGENTS.md, skills and project context into this session
   /profile [name]        switch profile (skills, AGENTS.md, settings)
+  /memory                show memory dirs and index size
   /settings              open settings picker (enums get a value picker)
   /settings <key> [val]  show or set a setting (default write: local; global in an untrusted project;
                          --global, --in-profile (the active profile), --project or --local picks the file)
@@ -174,6 +176,7 @@ var commandDesc = map[string]string{
 	"profile":  "switch profile",
 	"settings": "open settings picker",
 	"farm":     "plan or show a farm",
+	"memory":   "show memory dirs and index size",
 }
 
 // slashMenu is the / menu for the input: open while the input is a / name
@@ -666,6 +669,11 @@ func (m *Model) cmdAllowed(string) tea.Cmd {
 		return m.notice("removed " + g)
 	})
 	return nil
+}
+
+// cmdMemory prints the backend's memory report.
+func (m *Model) cmdMemory(string) tea.Cmd {
+	return m.notice(strings.Split(m.b.MemoryReport(), "\n")...)
 }
 
 func (m *Model) cmdSession(string) tea.Cmd {

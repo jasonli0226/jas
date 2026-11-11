@@ -27,6 +27,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas profile list\|use\|new\|show` | named bundles of skills, instructions and settings |
 | `jas auth add\|list\|rm\|rotate` | API keys |
 | `jas sessions [--prune]` | other jas sessions working in this repo |
+| `jas memory [--path]` | memory dirs, index size and note counts; `--path` prints the project memory dir |
 | `jas farm …` | experimental parallel worktree runner |
 | `jas --version` | print the version |
 
@@ -136,6 +137,15 @@ branch, files touched, last heartbeat.
 |---|---|
 | `--prune` | delete stale session records |
 
+### `jas memory`
+
+Prints the memory report for this project: mode, the profile and project
+memory dirs, index size against the cap and note counts.
+
+| flag | does |
+|---|---|
+| `--path` | print only the project memory dir (even with memory off) |
+
 ### `jas farm`
 
 ```
@@ -211,6 +221,7 @@ in the transcript is the full text the model gets.
 | `/settings` | settings picker; closed-set keys get a value picker |
 | `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--in-profile` / `--project` / `--local`; **global** in an untrusted project, where project and local writes are refused). `--in-profile` writes the chat's active profile's `config.json` (refused for `provider`, `base_url`, `search_base_url`, `profile` and `providers.*`). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
 | `/settings unset <key>` | remove a setting from local (or `--global` / `--in-profile` / `--project`; global by default in an untrusted project) |
+| `/memory` | show memory dirs, index size and note counts |
 | `/session` | session file, tokens used, context use |
 | `/thinking` | show or hide the model's thinking |
 | `/approve [level]` | show or set the approval level: `never` \| `shell` \| `mutating` |

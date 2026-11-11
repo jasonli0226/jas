@@ -41,6 +41,8 @@ type Backend interface {
 	// prefix.
 	BareModel(ref string) string
 	SkillNames() []string
+	// MemoryReport is the /memory text: mode, dirs, index size and note counts.
+	MemoryReport() string
 	// ContextFiles lists the context file and project skills offered to the
 	// chat (the start banner's [Context] rows); empty hides the section.
 	ContextFiles() []ContextFile

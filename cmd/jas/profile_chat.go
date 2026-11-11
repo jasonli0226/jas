@@ -19,6 +19,16 @@ const switchProfileSource = settings.Source("/profile")
 // applyLive); every other key waits for /new.
 var liveSettings = []string{"approve", "model", "hints", "farm_bell"}
 
+// MemoryReport is the /memory text, read fresh from the memory files. A
+// failure is the text, so /memory still answers.
+func (b *chatBackend) MemoryReport() string {
+	text, _, err := memoryReport(b.e.home, b.e.activeProfile(), b.e.root, b.e.layers)
+	if err != nil {
+		return "memory: " + err.Error()
+	}
+	return text
+}
+
 // Profile is the chat's active profile name.
 func (b *chatBackend) Profile() string { return b.e.activeProfile() }
 
