@@ -223,6 +223,9 @@ func resumeState(path string, f *os.File) (int64, string, error) {
 			break
 		}
 	}
+	if id == "" { // restarting at seq 1 would reuse ids and break the parent chain
+		return 0, "", fmt.Errorf("event log %s has no complete event; refusing to append to it", path)
+	}
 	last := make([]byte, 1)
 	if _, err := f.ReadAt(last, size-1); err != nil {
 		return 0, "", fmt.Errorf("read event log %s: %w", path, err)

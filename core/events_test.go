@@ -258,3 +258,16 @@ func appendTo(t *testing.T, path, text string) {
 	assert.NoErr(t, err)
 	assert.NoErr(t, f.Close())
 }
+
+// A non-empty log with no complete event must not restart seq at 1: the new
+// events would reuse ids and put a null parent_id mid-file.
+func TestEventLog_OpenRefusesNonEmptyLogWithNoEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "e.jsonl")
+	assert.NoErr(t, os.WriteFile(path, []byte("not json\n{\"v\":1,\"id\":\"e0000"), 0o600))
+	l, err := OpenEventLog(path, nil, nil)
+	if err == nil {
+		l.Close()
+		t.Fatal("OpenEventLog succeeded on a log with no complete event")
+	}
+	assert.Contains(t, err.Error(), "no complete event")
+}

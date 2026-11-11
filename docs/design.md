@@ -6,7 +6,7 @@
 **Reference:** user-visible behavior (flags, keys, settings, exit codes, events) lives in [manual.md](manual.md); this document keeps the architecture, the contracts behind it, and the roadmap.
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 **Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
-**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (session records and `jas sessions` shipped in #91; overlap warnings proposed) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; waits for the event-log spec, not a farm prerequisite).
+**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (session records and `jas sessions` shipped in #91; overlap warnings proposed) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; not a farm prerequisite) · event log — [event-log.md](event-log.md) (v1 contract).
 
 ---
 
@@ -165,8 +165,10 @@ shape (see #6):
 continue across reopen (resuming from the last event). The session file is
 locked while open (write-ahead & replay safety).
 
-**Event types (contract).** `--json` consumers and the future RPC protocol
-depend on this list. Adding a type or field is backward compatible. Renaming or
+**Event types (contract).** The full contract — every field, reader and
+writer rules, ordering, and the resume rules — is
+[event-log.md](event-log.md); it wins where this summary differs. `--json`
+consumers and the future RPC protocol depend on this list. Adding a type or field is backward compatible. Renaming or
 removing one bumps `v`. Replay refuses a file with an event whose `v` is
 newer than it reads, rather than misread it.
 
@@ -338,7 +340,8 @@ isolate user-level instructions and skills.
 after TUI dogfood):
 
 1. Publish the event-log spec (the §3 schema as a versioned contract). Farm,
-   RPC, and dreaming all consume it.
+   RPC, and dreaming all consume it. Published:
+   [event-log.md](event-log.md).
 2. Provider fidelity.
 3. Run token and wall-clock caps for `jas run` (exit 7; checked before each
    request). Shipped (#91).
@@ -834,7 +837,7 @@ it is a hard rule. That is the same approval bar as `jas learn` (§12.2).
 
 **Order and non-goals.** Track C in §5. Compaction is not memory. Session
 awareness is not memory, but memory writes should honor it once it ships.
-Do not start this ahead of the event-log spec.
+The event-log spec it waited on is published ([event-log.md](event-log.md)).
 
 ## 13. Risks
 

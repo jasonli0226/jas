@@ -43,7 +43,7 @@ type SessionConfig struct {
 // TurnResult describes how one user message (one Send, or the last steering
 // message it picked up) ended.
 type TurnResult struct {
-	Status string // "ok" | "context_full" | "turn_cap" | "approval_needed" | "interrupted" | "failed"
+	Status string // "ok" | "context_full" | "turn_cap" | "approval_needed" | "interrupted" | "failed" | "budget_exceeded"
 	Code   int    // the Exit* code jas run would exit with
 	Reason string
 	// Pool names the token pool that refused a request when Reason is
