@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -152,6 +153,9 @@ func TestMemory_ProjectOffHidesProjectOnly(t *testing.T) {
 	assert.Eq(t, code, 0)
 	assert.Contains(t, sys, "PROFILE-MEM-8841")
 	assert.NotContains(t, sys, "PROJECT-MEM-8842")
+	assert.NotContains(t, sys, memory.Key(root)) // no project folder named at all
+	assert.NotContains(t, sys, d.Project)
+	assert.NotContains(t, sys, "Project memory")
 	mem := sessionStarted(t, out)["memory"].(map[string]any)
 	assert.Eq(t, mem["project_dir"], any(""))
 	result := lastToolResult(out)
@@ -269,4 +273,82 @@ func TestMemory_FarmWorkerReadOnly(t *testing.T) {
 	assert.Eq(t, result["status"], any("error"))
 	b, _ := json.Marshal(result)
 	assert.Contains(t, string(b), "read-only in this run")
+}
+
+func TestMemory_EnvSettingIsTheOwnerBase(t *testing.T) {
+	userHome, root := t.TempDir(), memProject(t)
+	jasHome := filepath.Join(userHome, ".jas")
+	writeIndex(t, memDirs(t, jasHome, root).Profile, profileNote)
+	writeJSON(t, filepath.Join(jasHome, "config.json"), `{"memory":"off"}`)
+	_, sys, code := memRun(t, userHome, root, []fake.Turn{{Text: "ok"}})
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, sys, "## Memory")
+
+	// JAS_MEMORY beats the global layer...
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "ok"}})
+	_, _, code = runJasIn(t, root, append(jasEnv(userHome, url), "JAS_MEMORY=on"), "run", "q")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, systemPrompt(t, bodies()[0]), "PROFILE-MEM-8841")
+
+	// ...and turns memory off over an unset config.
+	assert.NoErr(t, os.Remove(filepath.Join(jasHome, "config.json")))
+	url, bodies = testutil.FakeOpenAI(t, []fake.Turn{{Text: "ok"}})
+	_, _, code = runJasIn(t, root, append(jasEnv(userHome, url), "JAS_MEMORY=off"), "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, systemPrompt(t, bodies()[0]), "## Memory")
+}
+
+func TestMemorySetting_ProjectStillNarrowsEnv(t *testing.T) {
+	l := settings.Layers{Project: settings.File{Values: map[string]string{"memory": "off"}}}
+	env := func(k string) string { return map[string]string{"JAS_MEMORY": "on"}[k] }
+	mode, hide := memory.ResolveMode(memorySetting(l, env))
+	assert.Eq(t, mode, memory.ModeRead)
+	assert.Eq(t, hide, true)
+}
+
+func TestMemory_SwitchProfileAppliesMemoryNow(t *testing.T) {
+	e := memChatEnv(t)
+	writeProfile(t, e.home, "ds", nil)
+	writeJSON(t, settings.ProfileConfigPath(e.home, "ds"), `{"memory":"off"}`)
+	useURL(t, e, e.cfg.BaseURL)
+	b := &chatBackend{e: e}
+	s := quietSession(t, e)
+	assert.Contains(t, s.System(), "## Memory")
+	sw, err := b.SwitchProfile(s, "ds", nil)
+	assert.NoErr(t, err)
+	assert.Eq(t, slices.Contains(sw.Deferred, "memory"), false)
+	assert.NotContains(t, s.System(), "## Memory")
+	assert.Eq(t, e.policy.ProfileMemory, "")
+}
+
+func TestMemory_NewSessionReloadsMemory(t *testing.T) {
+	e := memChatEnv(t)
+	b := &chatBackend{e: e}
+	first, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	assert.NoErr(t, first.Close("ok", 0))
+	assert.NotContains(t, first.Session.System(), "PROFILE-MEM-8841")
+
+	idx := writeIndex(t, e.mem.dirs.Profile, profileNote)
+	second, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	assert.NoErr(t, second.Close("ok", 0))
+	assert.Contains(t, second.Session.System(), "PROFILE-MEM-8841")
+	assert.Eq(t, strings.Count(second.Session.System(), "## Memory"), 1)
+	ev := testutil.ReadEvents(t, second.Path)[0]
+	assert.Contains(t, strings.Join(contextPaths(t, ev["context_files"]), "\n"), idx)
+
+	e.setFile(settings.ScopeGlobal, settings.File{Values: map[string]string{"memory": "off"}})
+	third, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	assert.NoErr(t, third.Close("ok", 0))
+	assert.NotContains(t, third.Session.System(), "## Memory")
+	assert.Eq(t, e.policy.ProfileMemory, "")
+	assert.Eq(t, slices.Contains(e.policy.ReadRoots, e.mem.dirs.Profile), false)
+	assert.Eq(t, b.memGuard.Load() == nil, true)
+	ev = testutil.ReadEvents(t, third.Path)[0]
+	if _, ok := ev["memory"]; ok {
+		t.Fatal("session_started has memory after memory off + /new")
+	}
+	assert.NotContains(t, strings.Join(contextPaths(t, ev["context_files"]), "\n"), "MEMORY.md")
 }

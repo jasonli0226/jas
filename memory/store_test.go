@@ -193,3 +193,17 @@ func TestSection_NamesDirsAndGuidance(t *testing.T) {
 		}
 	}
 }
+
+func TestSection_NoProjectDirLeavesProjectOut(t *testing.T) {
+	d := setup(t, "- [a](a.md) — hook\n", "- [b](b.md) — hook\n")
+	p, q, _ := LoadIndexes(d, true)
+	s := Section(Dirs{Profile: d.Profile}, p, q, false)
+	if !strings.Contains(s, "- [a](a.md)") {
+		t.Error("profile index missing")
+	}
+	for _, bad := range []string{d.Project, "Project memory", "(empty)"} {
+		if strings.Contains(s, bad) {
+			t.Errorf("section names the hidden project: %q", bad)
+		}
+	}
+}

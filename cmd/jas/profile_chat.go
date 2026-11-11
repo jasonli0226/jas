@@ -111,11 +111,12 @@ func (b *chatBackend) loadSwitch(name string, ask func(string) string) (tui.Prof
 // settingChanges compares the effective settings around a profile switch:
 // live holds the new values of the live keys that changed, deferred names
 // the other changed keys in settings.Keys order. profile itself is left
-// out: the switch is for this chat only and never rewrites it.
+// out: the switch is for this chat only and never rewrites it. memory is
+// left out too: the switch reloads it (reloadContext) on the spot.
 func settingChanges(before, after settings.Effective) (live map[string]string, deferred []string) {
 	live, deferred = map[string]string{}, []string{}
 	for _, k := range settings.Keys {
-		if k.Name == "profile" || before[k.Name].Raw == after[k.Name].Raw {
+		if k.Name == "profile" || k.Name == memoryKey || before[k.Name].Raw == after[k.Name].Raw {
 			continue
 		}
 		if slices.Contains(liveSettings, k.Name) {

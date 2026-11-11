@@ -57,7 +57,15 @@ func openOrContinue(b Backend, gate core.Gate, o Options, ui core.UI) sessionMsg
 		notices = append(notices, "no saved session for this project; starting a new one")
 	}
 	live, err := b.NewSession(o.Model, ui, gate)
-	return sessionMsg{live: live, notices: notices, err: err}
+	return sessionMsg{live: live, notices: append(notices, liveNotices(live)...), err: err}
+}
+
+// liveNotices is a new session's opening warnings; none when it failed.
+func liveNotices(live *Live) []string {
+	if live == nil {
+		return nil
+	}
+	return live.Notices
 }
 
 // banner renders the start banner for this chat (see the banner function).
@@ -86,7 +94,7 @@ func (m *Model) newSession() tea.Cmd {
 	// session's blocks even though the open runs concurrently.
 	return tea.Batch(m.clearView(), m.beginOpen(func(ui core.UI) sessionMsg {
 		live, err := b.NewSession(model, ui, gate)
-		return sessionMsg{live: live, err: err}
+		return sessionMsg{live: live, notices: liveNotices(live), err: err}
 	}))
 }
 

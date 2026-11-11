@@ -18,12 +18,17 @@ const recallGuidance = "- Treat recalled notes as what was true when written. Ch
 
 const readOnlyNotice = "Memory writes are not available in this session; read the notes below, but do not try to save anything."
 
-// Section renders the Memory block of the system prompt.
+// Section renders the Memory block of the system prompt. An empty
+// d.Project (the project hides its memory) leaves the project folder and
+// its index out.
 func Section(d Dirs, profile, project Index, writable bool) string {
 	var b strings.Builder
 	b.WriteString("## Memory\n\n")
 	fmt.Fprintf(&b, "Profile memory (shared across projects): %s\n", d.Profile)
-	fmt.Fprintf(&b, "Project memory (this project only): %s\n\n", d.Project)
+	if d.Project != "" {
+		fmt.Fprintf(&b, "Project memory (this project only): %s\n", d.Project)
+	}
+	b.WriteString("\n")
 	if writable {
 		b.WriteString("- ")
 		b.WriteString(writeGuidance)
@@ -34,7 +39,9 @@ func Section(d Dirs, profile, project Index, writable bool) string {
 	b.WriteString(recallGuidance)
 	b.WriteString("\n")
 	writeIndex(&b, d.Profile, profile)
-	writeIndex(&b, d.Project, project)
+	if d.Project != "" {
+		writeIndex(&b, d.Project, project)
+	}
 	return b.String()
 }
 

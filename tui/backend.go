@@ -100,4 +100,5 @@ type Live struct {
 	Provider        string // provider name the session's requests go to; "" in tests
 	Budget          *core.Budget
 	Close           func(status string, code int) error // session_ended, then closes the log
+	Notices         []string                            // warnings from opening a new session, shown once
 }

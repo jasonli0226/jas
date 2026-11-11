@@ -59,6 +59,7 @@ type projectContext struct {
 	// when memory is off; memReadOnly is the same section as a session
 	// that cannot write notes gets it (equal when this one cannot either).
 	memSection, memReadOnly string
+	memFiles                int // the memory indexes ending files
 }
 
 // withMemory ends both prompts with the Memory section for m and lists the
@@ -69,6 +70,9 @@ func withMemory(pc projectContext, m memoryState, headless bool) projectContext 
 		return pc
 	}
 	shown := promptMemoryDirs(m.dirs)
+	if m.hideProject {
+		shown.Project = "" // Section leaves the project out
+	}
 	pc.memSection = memory.Section(shown, m.profile, m.project, m.mode == memory.ModeOn && !headless)
 	pc.memReadOnly = memory.Section(shown, m.profile, m.project, false)
 	pc.system = core.BuildSystem(pc.system, pc.memSection)
@@ -79,8 +83,22 @@ func withMemory(pc projectContext, m memoryState, headless bool) projectContext 
 	for _, idx := range []memory.Index{m.profile, m.project} {
 		if idx.Exists {
 			pc.files = append(pc.files, contextFileMeta{Path: idx.Path, Loaded: true, SHA256: idx.SHA256})
+			pc.memFiles++
 		}
 	}
+	return pc
+}
+
+// withoutMemory undoes withMemory: both prompts and files as
+// buildProjectContext made them.
+func withoutMemory(pc projectContext) projectContext {
+	if pc.memSection == "" {
+		return pc
+	}
+	pc.system = strings.TrimSuffix(pc.system, "\n\n"+pc.memSection)
+	pc.userSystem = strings.TrimSuffix(pc.userSystem, "\n\n"+pc.memSection)
+	pc.files = slices.Clone(pc.files[:len(pc.files)-pc.memFiles])
+	pc.memSection, pc.memReadOnly, pc.memFiles = "", "", 0
 	return pc
 }
 

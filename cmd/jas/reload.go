@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
@@ -51,6 +52,22 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 		notices = append(notices, "jas: "+core.Sanitize(e.red.Redact(w)))
 	}
 	return notices, e.policy.ReadRoots, nil
+}
+
+// refreshMemory reloads memory alone from the current settings and files,
+// as a new or resumed session starts on it: the Memory section, the
+// indexes in context_files, the lift and the read root. It returns the
+// warnings as notices.
+func (e *env) refreshMemory() []string {
+	var notices []string
+	warn := func(w string) { notices = append(notices, "jas: "+core.Sanitize(e.red.Redact(w))) }
+	policy := e.policy
+	if e.mem.on() {
+		policy.ReadRoots = slices.DeleteFunc(slices.Clone(policy.ReadRoots), func(r string) bool { return r == e.mem.dirs.Profile })
+	}
+	policy, mem := loadMemory(policy, e.home, e.activeProfile(), e.root, e.layers, e.red.Redact, warn)
+	e.policy, e.mem, e.pc = policy, mem, withMemory(withoutMemory(e.pc), mem, !e.interactive)
+	return notices
 }
 
 // formatReloadNotice is the one-line /reload result: what context loaded and

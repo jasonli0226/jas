@@ -66,10 +66,12 @@ func (m memoryState) on() bool {
 // memoryKey is the memory setting's name in settings.Keys.
 const memoryKey = "memory"
 
-// memorySetting is the memory value of the owner's layers (profile, else
-// global) and of the project's (local, else project); "" is unset.
-func memorySetting(l settings.Layers) (base, project string) {
-	return cmp.Or(l.Profile.Values[memoryKey], l.Global.Values[memoryKey]),
+// memorySetting is the owner's memory value (JAS_MEMORY, else the profile
+// layer, else global) and the project's (local, else project); "" is unset.
+// The project value can only narrow the owner's (memory.ResolveMode).
+func memorySetting(l settings.Layers, getenv func(string) string) (base, project string) {
+	spec, _ := settings.LookupKey(memoryKey)
+	return cmp.Or(getenv(spec.EnvName()), l.Profile.Values[memoryKey], l.Global.Values[memoryKey]),
 		cmp.Or(l.Local.Values[memoryKey], l.Project.Values[memoryKey])
 }
 
@@ -83,7 +85,7 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 	redact func(string) string, warn func(string)) (core.ExecPolicy, memoryState) {
 	p.ProfileMemory = ""
 	off := memoryState{mode: memory.ModeOff}
-	mode, hide := memory.ResolveMode(memorySetting(layers))
+	mode, hide := memory.ResolveMode(memorySetting(layers, os.Getenv))
 	if mode == memory.ModeOff {
 		return p, off
 	}
