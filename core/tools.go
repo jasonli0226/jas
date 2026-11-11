@@ -68,9 +68,9 @@ type ExecPolicy struct {
 	// <jas home>/profiles/<name>/memory; "" disables it. It is lifted
 	// through the jas home floor exactly like ProfileSkills, under every
 	// rule above (ProfileMemoryIgnored says why a link is refused), and
-	// also refused when it resolves to, inside or above the skills lift
-	// (and the skills lift likewise against it), so neither aliases the
-	// other. InProfileMemory reports writes there.
+	// also refused when it resolves to, inside or above the skills lift,
+	// so it cannot alias the skills; the skills lift never depends on it.
+	// InProfileMemory reports writes there.
 	ProfileMemory string
 	// HomeDeny is the absolute deny pattern for a moved jas home (also in
 	// Deny); the profile read exception lifts it with JasHomeFloor.

@@ -194,8 +194,8 @@ func TestProfileMemory_LinkToSkillsIgnored(t *testing.T) {
 		t.Fatal("memory -> skills: the skills lift was lost")
 	}
 
-	// Both linked out of the jas home onto one tree: neither may alias the
-	// other, so the overlapping lifts are refused.
+	// Both linked out of the jas home onto one tree: memory may not alias
+	// the skills, so the memory lift is refused and the skills lift stays.
 	out := realpath(t, t.TempDir())
 	writeFile(t, filepath.Join(out, "skills", "demo", "SKILL.md"), "skill")
 	assert.NoErr(t, os.RemoveAll(f.skills))
@@ -205,8 +205,13 @@ func TestProfileMemory_LinkToSkillsIgnored(t *testing.T) {
 		symlinkOrSkip(t, target, f.memory)
 		p := ExecPolicy{Root: realpath(t, t.TempDir()), ProfileSkills: f.skills, ProfileMemory: f.memory}
 		assert.Contains(t, p.ProfileMemoryIgnored(), "ignored")
-		if p.InProfileMemory(filepath.Join(out, "skills", "demo", "SKILL.md")) {
+		outSkill := filepath.Join(out, "skills", "demo", "SKILL.md")
+		if p.InProfileMemory(outSkill) {
 			t.Fatalf("memory -> %s: memory aliased the skills", target)
+		}
+		assert.Eq(t, p.ProfileSkillsIgnored(), "")
+		if !p.InProfileSkills(outSkill) {
+			t.Fatalf("memory -> %s: the skills lift was lost", target)
 		}
 	}
 	// Apart, both outside links lift.

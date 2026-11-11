@@ -436,21 +436,18 @@ func (p ExecPolicy) spelled(leaf string) string {
 }
 
 // profileLift resolves the lift for leaf (skills: ProfileSkills, memory:
-// ProfileMemory), then refuses it when it resolves to, inside or above the
-// other leaf's lift, so neither can alias the other (a memory link onto
-// the skills tree, or both linked into one folder).
+// ProfileMemory). The skills lift is liftDir alone. The memory lift is also
+// refused when it resolves to, inside or above the skills lift, so memory
+// cannot alias the skills (a memory link onto the skills tree, or both
+// linked into one folder); the skills lift is never affected by memory.
 func (p ExecPolicy) profileLift(leaf string) (_ lift, why string) {
 	l, why := liftDir(p.spelled(leaf), leaf)
-	if l.resolved == "" {
+	if leaf != memoryLeaf || l.resolved == "" {
 		return l, why
 	}
-	other := memoryLeaf
-	if leaf == memoryLeaf {
-		other = skillsLeaf
-	}
-	o, _ := liftDir(p.spelled(other), other)
-	if o.resolved != "" && (within(o.resolved, l.resolved) || within(l.resolved, o.resolved)) {
-		return lift{}, fmt.Sprintf("profile %s %s ignored: it resolves to %s, which is or overlaps the profile %s at %s; point it at a separate folder", leaf, l.lexical, l.resolved, other, o.resolved)
+	s, _ := liftDir(p.ProfileSkills, skillsLeaf)
+	if s.resolved != "" && (within(s.resolved, l.resolved) || within(l.resolved, s.resolved)) {
+		return lift{}, fmt.Sprintf("profile memory %s ignored: it resolves to %s, which is or overlaps the profile skills at %s; point it at a separate folder", l.lexical, l.resolved, s.resolved)
 	}
 	return l, ""
 }
