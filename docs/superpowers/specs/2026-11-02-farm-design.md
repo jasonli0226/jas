@@ -696,8 +696,7 @@ Plain Go, inside the `jas farm` process. Each worker is a `core.Session`
   (e.g. `npm install --prefix other/` making `other/package-lock.json`) are
   undone by the supervisor and never blamed on the worker, also when the
   worker reruns the check. `BLOCKED:` may start any line of the answer.
-  Generated files (lockfiles; see
-  `2026-11-07-farm-generated-files-design.md`) outside a part's `owns` are
+  Generated files (lockfiles; see #143 and `docs/manual.md`, Farm) outside a part's `owns` are
   undone at each review without a fix round. **(owner-approved, 2026-11-07, after a run where both
   workers spent their budgets on a cross-part `check`.)** The supervisor
   then closes the session (no steering is drained after the
@@ -972,11 +971,10 @@ optional `blast_gate`, final choice, totals. `jas farm status` and CI read it.
 
 ## Interactive mode
 
-> **Superseded in detail by
-> [`2026-11-04-farm-interactive-design.md`](2026-11-04-farm-interactive-design.md)**
-> (one-keystroke flipping, `/farm` dashboard, approval and prompt routing).
-> Where the two differ, that document wins; the text below is the original
-> sketch.
+> **Superseded in detail by what shipped** (design PR #115, build PR #116;
+> reference: `docs/manual.md`, Farm): one-keystroke flipping, `/farm`
+> dashboard, approval and prompt routing. Where the two differ, the manual
+> wins; the text below is the original sketch.
 
 Same supervisor, same logs, same exit-code semantics as `jas farm run`; only
 the front end differs. Ships after the CI path. Inline only (AGENTS.md): no

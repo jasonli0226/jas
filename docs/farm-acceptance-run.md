@@ -1,8 +1,7 @@
 # Farm in the chat — acceptance run
 
 How to run the acceptance check for the interactive farm
-([design](superpowers/specs/2026-11-04-farm-interactive-design.md), section
-Acceptance). It is a live run with a real model, by the owner at a terminal;
+(design: PR #115; reference: `docs/manual.md`, Farm). It is a live run with a real model, by the owner at a terminal;
 it uses every piece of the feature once. Budget: roughly 0.5–1M tokens.
 
 ## Before you start
