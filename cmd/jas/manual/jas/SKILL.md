@@ -42,7 +42,9 @@ empty box it stops a running `!` command, else twice quits), `!cmd` runs a
 shell command whose output goes to the agent with the next message (`!!cmd`
 keeps it local; no approval, output redacted), Alt/Shift+Enter or Ctrl+J is a newline (native
 Windows also probes Shift so Shift+Enter works when the terminal drops the
-modifier), Up/Down recalls input, `/` opens the command menu (Tab completes).
+modifier), a paste over 10 lines or 1000 chars shows as one
+`[paste #N +L lines]` marker (Backspace/Delete removes it whole; sent in
+full), Up/Down recalls input, `/` opens the command menu (Tab completes).
 While a reply runs, a dim spinner line above the input shows the run in
 progress (`working…`, or `thinking…` while the model reasons).
 A start banner (version, key hints, the active `[Profile]`, loaded context files and skills; a

@@ -181,6 +181,12 @@ func (c *testChat) key(k string) {
 		msg = tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl}
 	case "alt+up":
 		msg = tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}
+	case "backspace":
+		msg = tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "delete":
+		msg = tea.KeyPressMsg{Code: tea.KeyDelete}
+	case "home":
+		msg = tea.KeyPressMsg{Code: tea.KeyHome}
 	default:
 		c.t.Fatalf("unknown key %q", k)
 	}

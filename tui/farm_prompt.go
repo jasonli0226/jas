@@ -129,7 +129,7 @@ func (m *Model) openFarmAsk() tea.Cmd {
 // farm.MatchChoice names it, or anything for a typed confirm; an unknown
 // answer is asked again.
 func (m *Model) answerFarmAsk() tea.Cmd {
-	text := strings.TrimSpace(m.input.Value())
+	text := m.submitText()
 	q := m.ask
 	ans := text
 	if len(q.choices) > 0 && text != "" {
