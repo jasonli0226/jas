@@ -100,3 +100,32 @@ func TestEventLogFixture_Replays(t *testing.T) {
 	assert.Eq(t, len(st.Interrupted), 0)
 	assert.Eq(t, len(st.PendingShell), 0) // the ! command was carried by the next user_message
 }
+
+// session_started and session_resumed may carry an optional memory object
+// (docs/event-log.md); the fixture shows both.
+func TestEventLogFixture_MemoryField(t *testing.T) {
+	f, err := os.Open(eventLogFixture)
+	assert.NoErr(t, err)
+	defer f.Close()
+	seen := map[string]bool{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var e struct {
+			Type   string                     `json:"type"`
+			Memory map[string]json.RawMessage `json:"memory"`
+		}
+		assert.NoErr(t, json.Unmarshal(sc.Bytes(), &e))
+		if e.Type != EvSessionStarted && e.Type != EvSessionResumed {
+			continue
+		}
+		seen[e.Type] = true
+		keys := make([]string, 0, len(e.Memory))
+		for k := range e.Memory {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		assert.Eq(t, strings.Join(keys, " "), "index_bytes profile_dir project_dir truncated")
+	}
+	assert.NoErr(t, sc.Err())
+	assert.Eq(t, len(seen), 2)
+}

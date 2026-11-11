@@ -14,7 +14,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 [Providers and models](#providers-and-models) ·
 [Approvals](#approvals) · [Tools](#tools) ·
 [Project context and skills](#project-context-and-skills) ·
-[Profiles](#profiles) · [Farm](#farm) · [Exit codes](#exit-codes) · [Event log](#event-log) ·
+[Profiles](#profiles) · [Memory](#memory) · [Farm](#farm) · [Exit codes](#exit-codes) · [Event log](#event-log) ·
 [Files](#files)
 
 ## Commands
@@ -140,7 +140,10 @@ branch, files touched, last heartbeat.
 ### `jas memory`
 
 Prints the memory report for this project: mode, the profile and project
-memory dirs, index size against the cap and note counts.
+memory dirs, index size against the cap and note counts. When the memory dir
+is ignored (see [Memory](#memory)) the report ends with
+`profile memory ignored: <reason>`. It reads the same settings a session
+would, counting the project as trusted only when you already trusted it.
 
 | flag | does |
 |---|---|
@@ -221,7 +224,7 @@ in the transcript is the full text the model gets.
 | `/settings` | settings picker; closed-set keys get a value picker |
 | `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--in-profile` / `--project` / `--local`; **global** in an untrusted project, where project and local writes are refused). `--in-profile` writes the chat's active profile's `config.json` (refused for `provider`, `base_url`, `search_base_url`, `profile` and `providers.*`). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
 | `/settings unset <key>` | remove a setting from local (or `--global` / `--in-profile` / `--project`; global by default in an untrusted project) |
-| `/memory` | show memory dirs, index size and note counts |
+| `/memory` | show the memory mode, the profile and project memory dirs, index size against the cap and note counts; says why when the dir is ignored. See [Memory](#memory) |
 | `/session` | session file, tokens used, context use |
 | `/thinking` | show or hide the model's thinking |
 | `/approve [level]` | show or set the approval level: `never` \| `shell` \| `mutating` |
@@ -351,7 +354,7 @@ or `--local` shows the file as written.
 | `web_tools` | false | offer `web_fetch` + `web_search`; when on and `approve` is still the default, the level rises to `shell` |
 | `search_base_url` | — | SearXNG root for `web_search`; otherwise DuckDuckGo lite |
 | `hints` | true | one-time chat tips ([Hints](#hints)); `false` turns them off |
-| `memory` | on | `on` \| `read` \| `off`: profile memory under `~/.jas/profiles/<name>/memory/` (index in the system prompt, notes readable, writes asked every time; headless runs and farm sessions read only). `read` refuses writes; `off` removes it. At project level `off` hides only the project's notes. Takes effect on `/reload`, `/new` or a profile switch |
+| `memory` | on | `on` \| `read` \| `off`: profile memory under `~/.jas/profiles/<name>/memory/` ([Memory](#memory)): the index goes in the system prompt, notes are readable, writes are asked every time; headless runs and farm sessions read only. `read` refuses writes; `off` removes it. `JAS_MEMORY` is the base above profile and global; project and local values can only narrow it (project `off` hides project notes and makes the profile store read-only) and apply only once the project is trusted. Not live: takes effect on `/reload`, `/new`, `/resume`, a profile switch or the next session |
 | `models.<name>.context_window` | catalog, else 128000 | context window for a model the catalog does not know |
 | `providers.<name>.base_url` | — | a named provider, addressed as `<name>/<model>` |
 
@@ -398,6 +401,12 @@ prompts, at every level and whatever grants you hold: every later session in
 every project loads those skills. `always` allows it once and adds no grant;
 with no terminal it exits 5 like any gated call.
 
+A `write` or `edit` into the profile's `memory/` folder prompts the same way,
+at every level and whatever grants you hold. Unlike skills, a memory write
+that cannot be asked (a headless run, a farm worker or planner) is refused
+before any prompt as a tool error, so memory never causes exit 5
+([Memory](#memory)).
+
 ### Always grants
 
 Grants last until jas quits: they survive `/new` but not `/resume` or
@@ -427,9 +436,10 @@ Docker recipes.
 | `suggest_farm` | chat only: show the drafted task and ask `plan this farm? [yes/no/change]` (change asks what should change and sends your answer to the agent, which revises the task and suggests it again; empty asks again); where a farm cannot run (untrusted project, no `check`, uncommitted changes, no commit yet) it tells the agent why and to ask you first | — |
 
 File tools are confined to the project and a deny floor (secrets, `~/.jas`,
-session files); the one opening in `~/.jas` is the active profile's `skills/`
-folder, which `read`, `ls` and `grep` may open and `write` and `edit` may
-change (always with a prompt, see [Approvals](#approvals)). That is how the
+session files); the openings in `~/.jas` are the active profile's `skills/`
+and `memory/` folders, which `read`, `ls` and `grep` may open and `write` and
+`edit` may change (always with a prompt, see [Approvals](#approvals); memory
+has extra rules, see [Memory](#memory)). That is how the
 agent installs a personal skill; a project-only skill goes in
 `.agents/skills/` as before. Read-only calls in a row run in parallel; each mutating call
 waits for the ones before it. Output is redacted (keys, tokens) before the
@@ -527,6 +537,103 @@ approval level) stay as they were when the farm started. A worker whose worktree
 context does not match the trusted main checkout drops only the project's
 `AGENTS.md` and skills; the profile's stay.
 
+## Memory
+
+Memory is a small store of notes the agent keeps for you between sessions:
+corrections, working preferences, why a choice was made, where things live.
+It is for what a later session cannot rediscover from the repo; project
+state already in the tree is not memory. Nothing is stored in the repo.
+
+**Layout.** One store per profile, under `~/.jas/profiles/<name>/memory/`:
+
+```text
+memory/
+  MEMORY.md            index of the profile's notes
+  <name>.md            notes that apply everywhere
+  projects/<key>/
+    MEMORY.md          index of this project's notes
+    <name>.md          notes about this project only
+```
+
+`<key>` names the project root (the main checkout: worktrees of one
+repository share a key). Every byte outside `A-Z a-z 0-9 . _` is
+percent-encoded as `%XX` (uppercase hex), then `%2F` becomes `-`, so
+`/home/me/app` is `-home-me-app`. A key over 200 bytes keeps its first 180
+bytes, then `~` and the first 16 hex digits of the SHA-256 of the full path.
+`jas memory --path` prints the project dir.
+
+**Notes.** A note is a `.md` file directly in either dir, with frontmatter:
+
+```markdown
+---
+name: prefers-table-tests
+description: one line, up to 200 characters, saying when this note matters
+type: feedback
+---
+Use table-driven tests; see [[test-layout]].
+```
+
+`name` is kebab-case and equals the file name without `.md`. `type` is
+`user` (who you are), `feedback` (corrections and confirmed ways of working),
+`project` (ongoing work, decisions) or `reference` (where things live).
+Other frontmatter keys are allowed. `[[other-note]]` links to a note in the
+same dir; the agent follows links on demand with `read`.
+
+**Index.** Each `MEMORY.md` is a list, one line per note:
+`- [Title](file.md) — one-line hook`. Both indexes go into the system prompt
+at session start (profile first, then project), redacted, capped together at
+200 lines or 25 KB, whichever comes first. The project's index always keeps at
+least 50 lines or 6 KB, so a long profile index cannot push it out. A cut index ends with
+`(memory index truncated at N lines; prune it)`. Notes are not injected: the
+agent reads them with `read`, and the index tells it which ones exist. The
+files are listed in the session's `context_files`.
+
+**Setting.** `memory` is `on` (default), `read` or `off`.
+
+| value | does |
+|---|---|
+| `on` | index in the prompt; the agent may read and, after you approve, write notes |
+| `read` | index and notes readable; every write is refused |
+| `off` | no memory section, no memory access |
+
+Layering: `JAS_MEMORY` is the base, above the profile and global files. Project
+and local values (`<root>/.jas/config.json`, `config.local.json`) can only
+narrow it: `read` makes the session read-only, and `off` hides the project's
+notes and makes the profile store read-only for that project. They never
+turn a base `off` or `read` back on. Project settings apply only when the
+project is trusted ([Settings](#settings)). The setting is not live: it
+applies on `/reload`, `/new`, `/resume`, a profile switch and the next
+session, not mid-turn. `--memory` is not a flag; use `jas config set memory …`
+or `JAS_MEMORY`.
+
+**Writes.** The agent changes memory with `write` and `edit`. Every memory
+write asks you, at every `approve` level and whatever grants you hold; `always`
+allows that one write and adds no grant. Before the prompt, jas refuses (a tool
+error the agent sees; the turn goes on) a write that:
+
+- happens in a headless `jas run`, a farm worker or the planner, or with
+  `memory` set to `read`: memory is read-only there and never exits 5
+- is outside the two dirs' top level, or is not a `.md` file
+- is a whole-file `write` over an existing `MEMORY.md` (use `edit` to add or
+  remove a line)
+- is a note with missing or invalid frontmatter (`name`, `description`,
+  `type`)
+- contains a secret (the same redaction as tool output)
+
+There are no deletes: to retract a note the agent rewrites it or removes its
+index line. Remove files yourself with your shell.
+
+**Guards.** The profile `memory/` folder is lifted past the jas home floor
+with the same guards as the profile `skills/` ([Profiles](#profiles)): symlinks
+work, but a `memory/` that resolves to, inside or above the jas home,
+`~/.jas`, or the profile's skills dir is ignored, so `auth.json` and configs stay
+unreadable and unwritable. An ignored dir gives a warning at start and a
+reason in `/memory` and `jas memory` (`profile memory … ignored: …`); the
+session runs without memory. The `shell` filter keeps the whole jas home denied.
+
+**Commands.** `/memory` in the chat and `jas memory [--path]` show the mode, both
+dirs, index size against the cap and note counts.
+
 ## Farm
 
 Experimental. Farm splits one big task into parts that run in parallel git
@@ -618,7 +725,7 @@ one bumps `v`.
 
 | type | payload |
 |---|---|
-| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present), skills, context window; optional title |
+| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory |
 | `session_resumed` | as `session_started`, on each reopen |
 | `user_message` | content; `steer: true` for steering text |
 | `turn_started` | — |
@@ -658,4 +765,5 @@ Field-level detail, reader rules and the resume rules: [event-log.md](event-log.
 | `~/.jas/profiles/<name>/config.json` | a profile's settings (between global and project) |
 | `~/.jas/profiles/<name>/AGENTS.md` | a profile's instructions |
 | `~/.jas/profiles/<name>/skills/` | the active profile's skills |
+| `~/.jas/profiles/<name>/memory/` | the profile's memory: `MEMORY.md`, notes, `projects/<key>/` ([Memory](#memory)) |
 | `<UserCacheDir>/jas/manual/jas/` | jas's built-in manual skill |

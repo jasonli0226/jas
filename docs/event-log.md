@@ -151,10 +151,23 @@ an existing file logs added lines only. An `edit` logs no diff.
 - Required: `model`, `profile`, `provider`, `base_url`, `approve`, `root`,
   `context_files` (list of context file), `skills` (list of skill),
   `context_window` (int), `window_known` (bool), `web_tools`.
-- Optional: `title` (`jas run --name`), `record_path`, and the farm
-  additions below.
+- Optional: `title` (`jas run --name`), `record_path`, `memory` (below), and
+  the farm additions below.
 - Logs from before profiles shipped lack `profile`. Readers treat it as
   missing, not as an error.
+
+*Memory* (optional `memory` object, on `session_started` and
+`session_resumed` when the session has memory; absent when memory is off):
+
+| field | type | meaning |
+|---|---|---|
+| `profile_dir` | string | the profile's memory dir |
+| `project_dir` | string | the project's memory dir; `""` when project memory is hidden |
+| `index_bytes` | int | bytes of both `MEMORY.md` indexes that went into the prompt |
+| `truncated` | bool | an index was cut to the cap |
+
+The `MEMORY.md` files that were loaded also appear in `context_files`.
+Readers that do not know `memory` ignore it.
 
 *Farm additions* (optional `session_started` fields, only in farm sessions):
 

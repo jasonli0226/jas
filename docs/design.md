@@ -399,7 +399,7 @@ resume (`jas --continue`, `/resume`); `web_fetch` / `web_search` (§12.1;
       and tool, and warn/ask before writing a file another active session
       touched. Spec:
       [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md)
-- [ ] **Memory store** (proposed; Track C.1, after the event-log spec) —
+- [x] **Memory store** (shipped, this branch; Track C.1) —
       `~/.jas/profiles/<name>/memory/` (per-project notes in
       `projects/<key>/`, never in the repo); capped `MEMORY.md` index plus
       on-demand topic notes; write lift only there. Design:
@@ -630,7 +630,7 @@ fallback there. jas does the same with plain subcommands and chat `/settings`.
 ├── trust.json                 # project trust answers (global-only forever)
 ├── scenarios/                 # saved scenario presets (not blueprints — #9)
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3) — already global
-├── profiles/<name>/memory/    # proposed: MEMORY.md index + topic notes (§12.3)
+├── profiles/<name>/memory/    # MEMORY.md index + topic notes (§12.3)
 ├── farms/                     # farm state (farm spec)
 ├── run/                       # planned: supervisor sockets for attach
 └── AGENTS.md                  # global instructions appended to every system prompt
@@ -788,7 +788,7 @@ Guardrails:
 - `learn` never overwrites an existing skill without `--force`.
 - `jas skills list` shows what's installed (and pending); `jas skills rm <name>`.
 
-### 12.3 Memory & dreaming (proposed)
+### 12.3 Memory & dreaming (memory store shipped; dreaming proposed)
 
 Anthropic's 2026-11 [agent memory](https://www.anthropic.com/research/components-of-agent-memory)
 write-up (and the walkthroughs of it) split memory into four layers: raw
