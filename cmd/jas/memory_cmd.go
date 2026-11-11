@@ -8,7 +8,6 @@ import (
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/memory"
-	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
 )
 
@@ -81,7 +80,7 @@ func memoryProjectTrusted(root, home string) bool {
 // root and returns the report with the dirs it describes. The dirs come
 // back even when memory is off, for `jas memory --path`.
 func memoryReport(home, profile, root string, layers settings.Layers) (string, memory.Dirs, error) {
-	dirs, err := memory.DirsFor(settings.ProfileDir(home, profile), sessions.MainRoot(root))
+	dirs, err := memoryDirs(home, profile, root)
 	if err != nil {
 		return "", memory.Dirs{}, err
 	}

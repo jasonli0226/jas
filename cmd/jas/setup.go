@@ -89,7 +89,7 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 	if mode == memory.ModeOff {
 		return p, off
 	}
-	dirs, err := memory.DirsFor(settings.ProfileDir(home, profile), sessions.MainRoot(root))
+	dirs, err := memoryDirs(home, profile, root)
 	if err != nil {
 		warn(err.Error() + "; memory is off for this session")
 		return p, off
@@ -117,6 +117,17 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 	m.profile.Text, m.project.Text = redact(m.profile.Text), redact(m.project.Text)
 	p.ReadRoots = append(slices.Clip(p.ReadRoots), dirs.Profile)
 	return p, m
+}
+
+// memoryDirs are profile's memory dirs for the project at root, keyed by
+// its main checkout with symlinks resolved, so every spelling of the
+// project path shares one project folder.
+func memoryDirs(home, profile, root string) (memory.Dirs, error) {
+	main := sessions.MainRoot(root)
+	if r, err := filepath.EvalSymlinks(main); err == nil {
+		main = r
+	}
+	return memory.DirsFor(settings.ProfileDir(home, profile), main)
 }
 
 // unliftedMemory says why the profile memory at dir gets no exception when

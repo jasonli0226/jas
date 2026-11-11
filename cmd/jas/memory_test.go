@@ -403,3 +403,22 @@ func TestMemory_UnliftedDirTurnsMemoryOff(t *testing.T) {
 		})
 	}
 }
+
+// A project reached through a symlink keys its memory by the real path, so
+// both spellings share one project folder.
+func TestMemory_SymlinkedRootSharesKey(t *testing.T) {
+	t.Setenv("JAS_MEMORY", "")
+	t.Setenv("GIT_CEILING_DIRECTORIES", os.TempDir())
+	jasHome, real := memProject(t), memProject(t)
+	link := filepath.Join(t.TempDir(), "via-link")
+	assert.NoErr(t, os.Symlink(real, link))
+	load := func(root string) memory.Dirs {
+		var warned []string
+		_, m := loadMemory(core.ExecPolicy{Root: root}, jasHome, settings.DefaultProfile, root,
+			settings.Layers{}, func(s string) string { return s }, func(w string) { warned = append(warned, w) })
+		assert.Eq(t, len(warned), 0)
+		return m.dirs
+	}
+	assert.Eq(t, load(link).Project, load(real).Project)
+	assert.Eq(t, load(real).Project, memDirs(t, jasHome, real).Project)
+}
