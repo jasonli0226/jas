@@ -24,8 +24,9 @@ var DenyFloor = []string{
 }
 
 // JasHomeFloor is the deny floor entry for the jas home (auth, config,
-// trust). Read scopes inside the active profile's skills lift it there,
-// and Resolve lifts it for writes there (profileWrite).
+// trust). Read scopes inside the active profile's skills or memory lift it
+// in those two directories, and Resolve lifts it for writes there
+// (profileWrite).
 const JasHomeFloor = "~/.jas/**"
 
 // checkDeny returns the policy error when the resolved path is denied.
@@ -40,13 +41,13 @@ var errDenied = errors.New("path denied by policy")
 
 // Denied reports whether abs, or what it resolves to through symlinks, matches
 // the deny floor or the policy's extra patterns. On a lifted scope, a
-// spelling of abs that resolves inside the active profile's skills is
-// checked as lifted (a symlinked jas home or $HOME spells it differently),
-// while the resolved path is always checked on its own.
+// spelling of abs that resolves inside the active profile's skills or
+// memory is checked as lifted (a symlinked jas home or $HOME spells it
+// differently), while the resolved path is always checked on its own.
 func (p ExecPolicy) Denied(abs string) bool {
 	match := p.denyMatch()
 	r, err := filepath.EvalSymlinks(abs)
-	into := err == nil && match.lift.holds(filepath.Clean(r))
+	into := err == nil && holdsAny(match.lifts, filepath.Clean(r))
 	if match.check(abs, into) {
 		return true
 	}
@@ -58,9 +59,9 @@ func (p ExecPolicy) Denied(abs string) bool {
 // symlinks, so no resolution is needed. Denied also resolves symlinks.
 //
 // On a read scope from readRoot or ProfileScope (liftHome), a path inside
-// the active profile's skills (as spelled or as resolved, see profileLift)
-// is checked without JasHomeFloor and HomeDeny; every other pattern still
-// applies. The base policy never lifts anything, so neither does
+// the active profile's skills or memory (as spelled or as resolved, see
+// profileLift) is checked without JasHomeFloor and HomeDeny; every other
+// pattern still applies. The base policy never lifts anything, so neither does
 // DeniedToken; Resolve lifts only through profileWrite's own scope.
 func (p ExecPolicy) DenyMatcher() func(abs string) bool {
 	m := p.denyMatch()
@@ -68,11 +69,11 @@ func (p ExecPolicy) DenyMatcher() func(abs string) bool {
 }
 
 // denyMatcher is DenyMatcher's state: the patterns with and without the
-// jas home floor and where the lift applies.
+// jas home floor and where the lifts apply.
 type denyMatcher struct {
 	root, home, project string
 	pats, lifted        []string
-	lift                lift
+	lifts               []lift
 }
 
 func (p ExecPolicy) denyMatch() denyMatcher {
@@ -84,18 +85,18 @@ func (p ExecPolicy) denyMatch() denyMatcher {
 	if !p.liftHome {
 		return m
 	}
-	if l, _ := p.profileLift(); l.resolved != "" {
-		m.lift, m.lifted, m.project = l, withoutHomeDeny(m.pats, p.HomeDeny), p.projectRoot
+	if ls := p.lifts(); len(ls) > 0 {
+		m.lifts, m.lifted, m.project = ls, withoutHomeDeny(m.pats, p.HomeDeny), p.projectRoot
 	}
 	return m
 }
 
-// check matches abs, lifted when it lies in the profile skills or force is
-// set (Denied: abs resolves there).
+// check matches abs, lifted when it lies in the profile skills or memory or
+// force is set (Denied: abs resolves there).
 func (m denyMatcher) check(abs string, force bool) bool {
 	abs = filepath.Clean(abs)
 	use := m.pats
-	if m.lifted != nil && (force || m.lift.holds(abs)) {
+	if m.lifted != nil && (force || holdsAny(m.lifts, abs)) {
 		use = m.lifted
 	}
 	if m.project != "" && matchDeny(use, m.project, m.home, abs) {

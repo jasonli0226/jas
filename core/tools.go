@@ -64,11 +64,19 @@ type ExecPolicy struct {
 	// the jas home stays denied. Resolve lets writes through only inside
 	// the lifted directory (see profileWrite); DeniedToken never lifts.
 	ProfileSkills string
+	// ProfileMemory is the active profile's memory directory as spelled,
+	// <jas home>/profiles/<name>/memory; "" disables it. It is lifted
+	// through the jas home floor exactly like ProfileSkills, under every
+	// rule above (ProfileMemoryIgnored says why a link is refused), and
+	// also refused when it resolves to, inside or above the skills lift
+	// (and the skills lift likewise against it), so neither aliases the
+	// other. InProfileMemory reports writes there.
+	ProfileMemory string
 	// HomeDeny is the absolute deny pattern for a moved jas home (also in
 	// Deny); the profile read exception lifts it with JasHomeFloor.
 	HomeDeny string
 	// liftHome is set only by readRoot/ProfileScope on a read scope rooted
-	// inside ProfileSkills.
+	// inside ProfileSkills or ProfileMemory; it lifts both directories.
 	liftHome bool
 	// projectRoot is the resolved project root on a lifted read scope whose
 	// read root lies inside the project; its relative patterns still apply.
