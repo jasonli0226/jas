@@ -210,3 +210,20 @@ func TestGuard_PrecheckNeedsNoContent(t *testing.T) {
 		}
 	}
 }
+
+// On a case-insensitive file system memory.md is MEMORY.md: a whole-file
+// write to any case variant replaces the index, so it is refused as one,
+// even when its content would pass as a note named "memory".
+func TestGuard_IndexCaseVariants(t *testing.T) {
+	g := newGuard(t)
+	asNote := "---\nname: memory\ndescription: a fact\ntype: user\n---\nbody\n"
+	for _, name := range []string{"memory.md", "Memory.md", "MEMORY.MD", "memory.MD"} {
+		err := g.Check("write", filepath.Join(g.Dirs.Profile, name), true, asNote)
+		if err == nil || err.Error() != "change MEMORY.md with edit, not a whole-file write" {
+			t.Errorf("%s: got %v", name, err)
+		}
+		if err := g.Check("edit", filepath.Join(g.Dirs.Profile, name), true, "- [x](x.md)\n"); err != nil {
+			t.Errorf("%s: edit as index: %v", name, err)
+		}
+	}
+}

@@ -81,7 +81,7 @@ func (g Guard) Precheck(tool, resolved string) error {
 	if dir := filepath.Dir(resolved); dir != profile && dir != project {
 		return fmt.Errorf("memory notes belong directly in %s or %s, not %s", g.Dirs.Profile, g.Dirs.Project, dir)
 	}
-	if name := filepath.Base(resolved); !strings.HasSuffix(name, ".md") {
+	if name := filepath.Base(resolved); !strings.HasSuffix(name, ".md") && !isIndex(name) {
 		return fmt.Errorf("memory holds .md notes only, not %s", name)
 	}
 	return nil
@@ -97,7 +97,7 @@ func (g Guard) Check(tool, resolved string, existed bool, newContent string) err
 		return err
 	}
 	name := filepath.Base(resolved)
-	if name == indexFile {
+	if isIndex(name) {
 		if tool == "write" && existed {
 			return errors.New("change MEMORY.md with edit, not a whole-file write")
 		}
@@ -108,6 +108,13 @@ func (g Guard) Check(tool, resolved string, existed bool, newContent string) err
 		return errors.New("memory notes cannot hold secrets; describe where the secret lives instead")
 	}
 	return nil
+}
+
+// isIndex reports whether name is MEMORY.md in any case: on a
+// case-insensitive file system every variant is the index, so none may be
+// written as a note.
+func isIndex(name string) bool {
+	return strings.EqualFold(name, indexFile)
 }
 
 // evalDir resolves symlinks in the nearest existing ancestor of dir and
