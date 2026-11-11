@@ -6,9 +6,8 @@
 **Repo:** https://github.com/jasonli0226/jas
 **Language:** Go (rationale below)
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
-**Market research (2026-10):** [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md) — jas vs 15 harnesses; recommendations map to open issues.
 **Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
-**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (draft; waits for its prerequisites, §5) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; waits for the event-log spec, not a farm prerequisite).
+**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; waits for the event-log spec, not a farm prerequisite).
 
 ---
 
@@ -491,7 +490,7 @@ reads) stay on `main` and are not milestones on these tracks.
 - [ ] **`jas dream`** (proposed; Track C.2, after the memory store) — read
       recent event logs and the current store, write a proposed cleanup for
       owner approval, log the run, do not edit `AGENTS.md` or skills. §12.3.
-- [ ] `jas farm plan` / `jas farm run` — for tasks too big or slow for one
+- [x] `jas farm plan` / `jas farm run` (MVP shipped, #95) — for tasks too big or slow for one
       agent, done safely and auditably (not "better than one agent"; see
       [research](research/farm-multi-agent-community-2026-11.md)). A planner
       drafts `plan.yaml` or refuses (default; suggests `jas run`), the owner
@@ -499,9 +498,7 @@ reads) stay on `main` and are not milestones on these tracks.
       parallel in worktrees outside the repo, workers post typed commitments to
       a board, an integrator merges, and the supervisor runs `check` as the
       verdict. Pinned CI contract (exit codes 6/7/8, `--json`, manifest; no
-      TTY = keep). Replaces the earlier best-of-N `--n` design. **Waits for
-      its prerequisites:** event-log spec, provider fidelity, run token/time
-      caps, opt-in sandbox, supervisor-run success check + benches. Spec:
+      TTY = keep). Replaces the earlier best-of-N `--n` design. Spec:
       [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md)
 - [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
       optional read-only part with a clean context, possibly a different
@@ -513,7 +510,7 @@ reads) stay on `main` and are not milestones on these tracks.
       supervisor = no replay. If the supervisor is gone, attach falls back to
       `jas resume` (event-log replay, §3 side-effect rules)
 - [ ] MCP client support (stdio first, then HTTP)
-- [ ] Farm interactive mode (`/farm` in chat): inline plan approval, one live row per part updated in place, part-scoped approvals, `/farm attach <part>`; same supervisor and logs as CI; no fullscreen board (AGENTS.md); after the farm CI path
+- [x] Farm interactive mode (`/farm` in chat; shipped, #116): inline plan approval, one live row per part updated in place, part-scoped approvals, `/farm attach <part>`; same supervisor and logs as CI; no fullscreen board (AGENTS.md); after the farm CI path
 - [x] **Auto-compaction** (pi parity): trigger at `window − reserve`
       (16k default); summarize older history with a cheap model into a summary
       entry; originals kept in the session file (v1 already elides tool results)
@@ -772,8 +769,8 @@ are dropped with a warning, so endpoints stay global-only. The profile's
 `AGENTS.md` loads before the project's, and its `skills/` folder is the only
 user skill source besides jas's built-in manual (installed under
 `<UserCacheDir>/jas/manual/`); `~/.agents/skills`, `~/.claude/skills` and
-`~/.config/jas/skills` are no longer read. Spec:
-`docs/superpowers/specs/2026-11-11-profiles-design.md`.
+`~/.config/jas/skills` are no longer read. Reference: `docs/manual.md`
+(Profiles).
 
 `jas config list` and chat `/settings` label each value with its source
 (`flag`, `env JAS_*`, `local config`, `project config`, `profile config (<name>)`, `global config`,
@@ -1071,7 +1068,7 @@ Do not start this ahead of the event-log spec.
 
 pi (`badlogic/pi-mono`) is the closest peer and the main reference for this
 design. The full feature audit is in
-[research/pi-mono-audit.md](research/pi-mono-audit.md). A broader Oct 2026 market comparison (15 products, design review, recommendations) is in [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md). This table compares
+[research/pi-mono-audit.md](research/pi-mono-audit.md). This table compares
 the parts a user sees, as planned for jas v1 and v2, against a local pi install
 (`~/.pi/agent/`, pi 1.4).
 
