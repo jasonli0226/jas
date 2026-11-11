@@ -10,7 +10,6 @@ import (
 	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
-	"github.com/jasonli0226/jas/skills"
 )
 
 const memoryUsage = "usage: jas memory [--path]"
@@ -54,8 +53,8 @@ func memoryCmd(args []string) error {
 }
 
 // memoryLayers is the settings a session started in root under profile name
-// would resolve memory from (the project counts as trusted, as for config
-// get/list: its value can only narrow the owner's).
+// would resolve memory from: project and local config apply only when the
+// project's stored trust decision still holds.
 func memoryLayers(home, root, name string) (settings.Layers, error) {
 	files, err := settings.LoadLayers(home, root)
 	if err != nil {
@@ -74,10 +73,7 @@ func memoryLayers(home, root, name string) (settings.Layers, error) {
 // means untrusted.
 func memoryProjectTrusted(root, home string) bool {
 	deny := core.ExecPolicy{Root: root, Deny: denyPatterns(home)}.Denied
-	project, _ := skills.Discover(skills.ProjectSources(root), deny)
-	_, content, _ := core.FindContextFile(root)
-	bundle := trustBundle(content, project, readFarmConfig(root), readProjectSettings(root))
-	ok, err := trustStore(home).Check(root, bundle)
+	ok, err := trustStore(home).Check(root, currentTrustBundle(root, deny))
 	return err == nil && ok
 }
 
