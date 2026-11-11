@@ -20,6 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
@@ -170,6 +171,25 @@ type chatBackend struct {
 	// workerProf is the profile context farm workers start on, published
 	// after each /reload and profile switch; nil: what the farm started with.
 	workerProf atomic.Pointer[workerProfile]
+	// memGuard is the chat's memory write guard, republished with the
+	// memory each new session, /reload and profile switch loads; nil: off.
+	memGuard atomic.Pointer[memory.Guard]
+}
+
+// publishMemoryGuard makes env's memory the one the chat's sessions check
+// writes against.
+func (b *chatBackend) publishMemoryGuard() {
+	b.memGuard.Store(newMemoryGuard(b.e.mem, !b.e.interactive, b.e.red.Redact))
+}
+
+// checkMemoryWrite is the chat's Executor.WriteGuard: the current guard, so
+// a /reload or profile switch reaches a running session.
+func (b *chatBackend) checkMemoryWrite(tool, resolved string, existed bool, newContent string) error {
+	g := b.memGuard.Load()
+	if g == nil {
+		return nil
+	}
+	return g.Check(tool, resolved, existed, newContent)
 }
 
 var _ tui.Backend = (*chatBackend)(nil)
@@ -281,9 +301,11 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 	toolset := tools.SessionTools(e.cfg.WebTools, e.cfg.SearchBaseURL)
 	b.Farmer() // sets b.farmer
 	toolset = append(toolset, suggestFarm{ui: ui, available: b.farmer.Available, tree: b.farmer.TreeReady})
+	b.publishMemoryGuard()
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(toolset...),
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
+		WriteGuard: b.checkMemoryWrite,
 	}
 	meta := e.sessionMeta(model)
 	meta["provider"], meta["base_url"] = provName, baseURL
@@ -630,11 +652,13 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 		return nil, err
 	}
 	b.publishWorkerProfile()
+	b.publishMemoryGuard()
+	s.SetReadRoots(roots)
+	s.SetProfileMemory(b.e.policy.ProfileMemory) // memory may have turned on or off
 	files := contextFilesMeta(b.e.pc.files)
 	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
 		return notices, err
 	}
-	s.SetReadRoots(roots)
 	return notices, nil
 }
 

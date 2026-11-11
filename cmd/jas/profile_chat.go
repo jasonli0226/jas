@@ -65,9 +65,11 @@ func (b *chatBackend) SwitchProfile(s *core.Session, name string, ask func(strin
 	}
 	e := b.e
 	b.publishWorkerProfile()
+	b.publishMemoryGuard()
 	files := contextFilesMeta(e.pc.files)
 	s.SetReadRoots(roots)
 	s.SetProfileSkills(e.policy.ProfileSkills)
+	s.SetProfileMemory(e.policy.ProfileMemory)
 	err = s.SetSystem(e.pc.system, map[string]any{"context_files": files, "skills": e.skillList})
 	if lerr := s.LogProfileChanged(map[string]any{
 		"from": from, "to": e.activeProfile(), "context_files": files, "skills": e.skillList, "deferred": sw.Deferred,
@@ -136,15 +138,17 @@ func contextFilesMeta(fs []contextFileMeta) []map[string]any {
 }
 
 // workerProfile is the chat's profile context as a farm worker starts on it:
-// the project context (system prompt, skills, trust) and the read fields of
-// the exec policy. It is never changed once published.
+// the project context (system prompt, skills, trust), its memory and the
+// read fields of the exec policy. It is never changed once published.
 type workerProfile struct {
 	name      string
 	pc        projectContext
 	skillList []skillMeta
-	// profileSkills, homeDeny and readRoots are ExecPolicy's read exception.
-	profileSkills, homeDeny string
-	readRoots               []string
+	mem       memoryState
+	// profileSkills, profileMemory, homeDeny and readRoots are ExecPolicy's
+	// read exception.
+	profileSkills, profileMemory, homeDeny string
+	readRoots                              []string
 }
 
 // publishWorkerProfile snapshots env for farm workers started from now on.
@@ -152,8 +156,9 @@ type workerProfile struct {
 func (b *chatBackend) publishWorkerProfile() {
 	e := b.e
 	b.workerProf.Store(&workerProfile{
-		name: e.activeProfile(), pc: e.pc, skillList: e.skillList,
-		profileSkills: e.policy.ProfileSkills, homeDeny: e.policy.HomeDeny, readRoots: slices.Clone(e.policy.ReadRoots),
+		name: e.activeProfile(), pc: e.pc, skillList: e.skillList, mem: e.mem,
+		profileSkills: e.policy.ProfileSkills, profileMemory: e.policy.ProfileMemory, homeDeny: e.policy.HomeDeny,
+		readRoots: slices.Clone(e.policy.ReadRoots),
 	})
 }
 
@@ -168,8 +173,8 @@ func (b *chatBackend) workerSession(e *env) func(farm.WorkerSession) (*core.Sess
 			return farmSession(e)(ws)
 		}
 		we := *e
-		we.profile, we.pc, we.skillList = p.name, p.pc, p.skillList
-		ws.Policy.ProfileSkills, ws.Policy.HomeDeny = p.profileSkills, p.homeDeny
+		we.profile, we.pc, we.skillList, we.mem = p.name, p.pc, p.skillList, p.mem
+		ws.Policy.ProfileSkills, ws.Policy.ProfileMemory, ws.Policy.HomeDeny = p.profileSkills, p.profileMemory, p.homeDeny
 		ws.Policy.ReadRoots = slices.Clone(p.readRoots)
 		return farmSession(&we)(ws)
 	}

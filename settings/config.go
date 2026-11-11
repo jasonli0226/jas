@@ -70,7 +70,8 @@ var Keys = []KeySpec{
 	{Name: "farm_bell", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},       // ring when a chat farm needs the owner
 	{Name: "web_tools", Default: "false", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},      // opt-in web_fetch + web_search (§12.1)
 	{Name: "search_base_url", Validate: emptyOrURL},
-	{Name: "hints", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")}, // one-time chat tips                                                                  // optional SearXNG root for web_search
+	{Name: "hints", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},        // one-time chat tips                                                                  // optional SearXNG root for web_search
+	{Name: "memory", Default: "on", Options: []string{"on", "read", "off"}, Validate: oneOf("on", "read", "off")}, // profile memory (memory.ResolveMode)
 }
 
 // LookupKey finds a plain key spec by name.

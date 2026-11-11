@@ -12,7 +12,8 @@ import (
 // reloadContext rediscovers skills and rebuilds the project system prompt
 // under the same trust rules as prepare. ask is used when trust must be
 // re-confirmed (nil refuses like a non-interactive skip). On success env's
-// project context, skill list and policy read roots are replaced.
+// project context, skill list, memory and policy read roots (skill and
+// memory dirs, returned as roots) are replaced.
 func (e *env) reloadContext(ask func(string) string) (notices []string, roots []string, err error) {
 	var warnings []string
 	warn := func(w string) { warnings = append(warnings, w) }
@@ -37,8 +38,11 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 		return nil, nil, err
 	}
 	skillList, skillDirs := listedSkills(pc.skills)
-	e.pc, e.skillList, e.prof = pc, skillList, prof
 	e.policy.ReadRoots = skillDirs
+	var mem memoryState
+	e.policy, mem = loadMemory(e.policy, e.home, name, e.root, e.layers, e.red.Redact, warn)
+	pc = withMemory(pc, mem, !e.interactive)
+	e.pc, e.skillList, e.prof, e.mem = pc, skillList, prof, mem
 	notices = append(notices, formatReloadNotice(pc))
 	if pc.trusted != e.settingsTrusted && len(readProjectSettings(e.root)) > 0 {
 		notices = append(notices, "jas: project trust changed; project settings apply at the next start")
@@ -46,7 +50,7 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 	for _, w := range warnings {
 		notices = append(notices, "jas: "+core.Sanitize(e.red.Redact(w)))
 	}
-	return notices, skillDirs, nil
+	return notices, e.policy.ReadRoots, nil
 }
 
 // formatReloadNotice is the one-line /reload result: what context loaded and

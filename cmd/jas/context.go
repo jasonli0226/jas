@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 )
@@ -54,6 +55,60 @@ type projectContext struct {
 	// trusted is the project trust decision: the context file and project
 	// skills were loaded (or --trust-project was given). farm config follows it.
 	trusted bool
+	// memSection is the Memory section ending system and userSystem, ""
+	// when memory is off; memReadOnly is the same section as a session
+	// that cannot write notes gets it (equal when this one cannot either).
+	memSection, memReadOnly string
+}
+
+// withMemory ends both prompts with the Memory section for m and lists the
+// indexes that exist in context_files. headless sessions, and memory: read,
+// get the read-only section. Memory off leaves pc as it is.
+func withMemory(pc projectContext, m memoryState, headless bool) projectContext {
+	if !m.on() {
+		return pc
+	}
+	shown := promptMemoryDirs(m.dirs)
+	pc.memSection = memory.Section(shown, m.profile, m.project, m.mode == memory.ModeOn && !headless)
+	pc.memReadOnly = memory.Section(shown, m.profile, m.project, false)
+	pc.system = core.BuildSystem(pc.system, pc.memSection)
+	if pc.userSystem != "" {
+		pc.userSystem = core.BuildSystem(pc.userSystem, pc.memSection)
+	}
+	pc.files = slices.Clip(pc.files)
+	for _, idx := range []memory.Index{m.profile, m.project} {
+		if idx.Exists {
+			pc.files = append(pc.files, contextFileMeta{Path: idx.Path, Loaded: true, SHA256: idx.SHA256})
+		}
+	}
+	return pc
+}
+
+// promptMemoryDirs writes the home directory in d as ~/, like the skill
+// catalog, so the prompt names no home path; tools expand ~/ back.
+func promptMemoryDirs(d memory.Dirs) memory.Dirs {
+	shown := func(dir string) string {
+		if h, err := os.UserHomeDir(); err == nil && h != "" {
+			if s := skills.DisplayPath(dir, h); s != dir {
+				return s
+			}
+		}
+		return skills.DisplayPath(dir, catalogHome())
+	}
+	return memory.Dirs{Profile: shown(d.Profile), Project: shown(d.Project)}
+}
+
+// readOnlyMemory is system (pc.system or pc.userSystem) with its Memory
+// section in the read-only form, for sessions no one can approve a write
+// in: farm workers and the planner.
+func (pc projectContext) readOnlyMemory(system string) string {
+	if pc.memSection == "" {
+		return system
+	}
+	if base, ok := strings.CutSuffix(system, pc.memSection); ok {
+		return base + pc.memReadOnly
+	}
+	return system
 }
 
 // projectTrust is one trust decision and the context file it covered.

@@ -2,14 +2,18 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/providers"
+	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 )
@@ -40,6 +44,101 @@ type env struct {
 	profile         string          // active profile name
 	profileSrc      settings.Source // the layer that chose it
 	prof            profileState
+	mem             memoryState
+}
+
+// memoryState is the session's memory: its dirs, the resolved setting and
+// the two indexes loaded at start (or at the last /reload), their text
+// already redacted. The zero value is off.
+type memoryState struct {
+	dirs             memory.Dirs
+	mode             memory.Mode
+	hideProject      bool
+	profile, project memory.Index
+}
+
+// on reports whether the session has memory: a Memory section, the lift and
+// the write guard.
+func (m memoryState) on() bool {
+	return m.mode != memory.ModeOff && m.dirs.Profile != ""
+}
+
+// memoryKey is the memory setting's name in settings.Keys.
+const memoryKey = "memory"
+
+// memorySetting is the memory value of the owner's layers (profile, else
+// global) and of the project's (local, else project); "" is unset.
+func memorySetting(l settings.Layers) (base, project string) {
+	return cmp.Or(l.Profile.Values[memoryKey], l.Global.Values[memoryKey]),
+		cmp.Or(l.Local.Values[memoryKey], l.Project.Values[memoryKey])
+}
+
+// loadMemory resolves the memory setting for profile in root and loads both
+// indexes, redacted. It returns p with the memory lift set and the memory
+// dir appended to ReadRoots; with memory off the lift is cleared and
+// ReadRoots left as given. Memory never fails a session: a
+// project root it cannot key, or a lift the policy refuses, turns memory
+// off with a warning, and an unreadable index loads empty with one.
+func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.Layers,
+	redact func(string) string, warn func(string)) (core.ExecPolicy, memoryState) {
+	p.ProfileMemory = ""
+	off := memoryState{mode: memory.ModeOff}
+	mode, hide := memory.ResolveMode(memorySetting(layers))
+	if mode == memory.ModeOff {
+		return p, off
+	}
+	dirs, err := memory.DirsFor(settings.ProfileDir(home, profile), sessions.MainRoot(root))
+	if err != nil {
+		warn(err.Error() + "; memory is off for this session")
+		return p, off
+	}
+	p.ProfileMemory = dirs.Profile
+	if why := p.ProfileMemoryIgnored(); why != "" {
+		warn(why)
+		p.ProfileMemory = ""
+		return p, off
+	}
+	m := memoryState{dirs: dirs, mode: mode, hideProject: hide}
+	if m.profile, m.project, err = memory.LoadIndexes(dirs, hide); err != nil { // both come back empty
+		warn(err.Error() + "; memory indexes not loaded")
+	}
+	m.profile.Text, m.project.Text = redact(m.profile.Text), redact(m.project.Text)
+	p.ReadRoots = append(slices.Clip(p.ReadRoots), dirs.Profile)
+	return p, m
+}
+
+// newMemoryGuard is the write guard for m, or nil when memory is off.
+// headless sessions (no one can approve a write) get memory read-only.
+func newMemoryGuard(m memoryState, headless bool, redact func(string) string) *memory.Guard {
+	if !m.on() {
+		return nil
+	}
+	return &memory.Guard{Dirs: m.dirs, Mode: m.mode, Headless: headless, Redact: redact}
+}
+
+// memoryGuard is newMemoryGuard as an Executor.WriteGuard (nil when off).
+func memoryGuard(m memoryState, headless bool, redact func(string) string) func(tool, resolved string, existed bool, newContent string) error {
+	if g := newMemoryGuard(m, headless, redact); g != nil {
+		return g.Check
+	}
+	return nil
+}
+
+// memoryMeta is the session_started / session_resumed memory object, or nil
+// when memory is off. project_dir is "" when the project hides its memory.
+func (m memoryState) meta() map[string]any {
+	if !m.on() {
+		return nil
+	}
+	project := m.dirs.Project
+	if m.hideProject {
+		project = ""
+	}
+	return map[string]any{
+		"profile_dir": m.dirs.Profile, "project_dir": project,
+		"index_bytes": len(m.profile.Text) + len(m.project.Text),
+		"truncated":   m.profile.Truncated || m.project.Truncated,
+	}
 }
 
 // authKeys returns every secret the auth file can put in a request: literal
@@ -137,11 +236,13 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	pc := buildProjectContext(pt, projectSkills, userSkills, prof, red.Redact, warn)
 	skillList, skillDirs := listedSkills(pc.skills)
 	policy.ReadRoots = skillDirs
+	policy, mem := loadMemory(policy, home, prof.name, root, layers, red.Redact, warn)
+	pc = withMemory(pc, mem, !interactive)
 	return &env{
 		cfg: cfg, layers: layers, files: files, settingsTrusted: pt.trusted, flags: flags, level: level, key: key, auth: auth, root: root, home: home, red: red,
 		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
-		profile:  prof.name, profileSrc: profileSrc, prof: prof,
+		profile:  prof.name, profileSrc: profileSrc, prof: prof, mem: mem,
 	}, nil
 }
 
@@ -245,10 +346,14 @@ func (e *env) warnUnknownWindow(model string) {
 // sessionMeta is the session_started / session_resumed payload jas adds.
 func (e *env) sessionMeta(model string) map[string]any {
 	window, known := e.window(model)
-	return map[string]any{
+	meta := map[string]any{
 		"profile": e.activeProfile(), "provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
+	if mem := e.mem.meta(); mem != nil {
+		meta["memory"] = mem
+	}
+	return meta
 }
 
 // skillsMigrationWarning is the one-time notice for users whose skills sit in

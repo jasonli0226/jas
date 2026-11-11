@@ -340,6 +340,7 @@ or `--local` shows the file as written.
 | `web_tools` | false | offer `web_fetch` + `web_search`; when on and `approve` is still the default, the level rises to `shell` |
 | `search_base_url` | — | SearXNG root for `web_search`; otherwise DuckDuckGo lite |
 | `hints` | true | one-time chat tips ([Hints](#hints)); `false` turns them off |
+| `memory` | on | `on` \| `read` \| `off`: profile memory under `~/.jas/profiles/<name>/memory/` (index in the system prompt, notes readable, writes asked every time; headless runs and farm sessions read only). `read` refuses writes; `off` removes it. At project level `off` hides only the project's notes. Takes effect on `/reload`, `/new` or a profile switch |
 | `models.<name>.context_window` | catalog, else 128000 | context window for a model the catalog does not know |
 | `providers.<name>.base_url` | — | a named provider, addressed as `<name>/<model>` |
 
