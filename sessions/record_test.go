@@ -136,6 +136,22 @@ func TestDir_LinkedWorktreeUsesMainCheckout(t *testing.T) {
 	assert.Eq(t, dWT, dMain)
 }
 
+func TestMainRoot_WorktreeSharesMain(t *testing.T) {
+	root := gitRepo(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, root, "worktree", "add", "-q", wt)
+	assert.Eq(t, sessions.MainRoot(wt), sessions.MainRoot(root))
+	want, _ := filepath.EvalSymlinks(root)
+	got, _ := filepath.EvalSymlinks(sessions.MainRoot(wt))
+	assert.Eq(t, got, want)
+}
+
+func TestMainRoot_NoGit(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))
+	assert.Eq(t, sessions.MainRoot(root), root)
+}
+
 func TestDir_NoGit(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))

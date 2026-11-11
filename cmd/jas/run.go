@@ -91,6 +91,7 @@ func runCmd(ctx context.Context, args []string) error {
 		},
 		Log: log, Filter: red.Filter, Redact: red.Redact,
 	}
+	guardMemory(exec, e.mem, !e.interactive, red.Redact)
 	if rec != nil {
 		exec.Touched = touchHook(rec, e.root)
 	}

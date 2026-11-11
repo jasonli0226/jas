@@ -38,6 +38,7 @@ func TestBridge_TagsGeneration(t *testing.T) {
 type testBackend struct {
 	t            *testing.T
 	root         string
+	memoryReport string
 	sessionsDir  string
 	prov         *fake.Provider
 	redact       func(string) string    // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
@@ -210,6 +211,8 @@ func (b *testBackend) Window(string) (int, bool) {
 }
 
 func (b *testBackend) Farmer() Farmer { return b.farmer }
+
+func (b *testBackend) MemoryReport() string { return b.memoryReport }
 
 func (b *testBackend) SkillPrompt(name, text string) (string, bool) {
 	b.skillPrompts++

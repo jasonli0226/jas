@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"strings"
 	"sync"
 
@@ -38,6 +39,17 @@ type Executor struct {
 	// path after a successful write or edit, and tool "shell" with path ""
 	// after any shell call that ran (its writes can't be tracked).
 	Touched func(tool, path string)
+	// WriteGuard, when set, checks a write or edit into the profile memory
+	// before the approval gate: tool is "write" or "edit", resolved the
+	// target, existed whether it was there, newContent the whole file after
+	// the call. A non-nil error refuses the call with that text. nil means
+	// no content checks; memory writes still always ask.
+	WriteGuard func(tool, resolved string, existed bool, newContent string) error
+	// WritePrecheck, when set, runs before WriteGuard and before the change
+	// is previewed, on the same calls: the checks that need no content (a
+	// read-only run, a wrong folder), so they are reported even when the
+	// preview itself would fail. A non-nil error refuses the call.
+	WritePrecheck func(tool, resolved string) error
 }
 
 type slot struct {
@@ -207,8 +219,12 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	if gate == nil {
 		gate = AllowAll{}
 	}
+	if r.refuseMemoryWrite(ctx, s) {
+		r.emitResult(s)
+		return
+	}
 	t := s.tool
-	if r.profileSkillWrite(s) {
+	if r.profileWrite(s) {
 		t = AskAlways(t)
 	}
 	d, err := gate.Allow(ctx, t, s.call.Input, r.preview(ctx, s))
@@ -249,18 +265,72 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	r.emitResult(s)
 }
 
-// profileSkillWrite reports whether s is a write or edit that lands in the
-// active profile's skills directory.
-func (r *run) profileSkillWrite(s *slot) bool {
+// writeTarget returns the resolved path of a write or edit call, or false
+// for any other call or a path that does not resolve.
+func (r *run) writeTarget(s *slot) (string, bool) {
 	if s.call.Name != "write" && s.call.Name != "edit" {
-		return false
+		return "", false
 	}
 	var a struct{ Path string }
 	if json.Unmarshal(s.call.Input, &a) != nil || a.Path == "" {
-		return false
+		return "", false
 	}
 	full, err := r.e.Policy.Resolve(a.Path)
-	return err == nil && r.e.Policy.InProfileSkills(full)
+	return full, err == nil
+}
+
+// profileWrite reports whether s is a write or edit that lands in the active
+// profile's skills or memory directory.
+func (r *run) profileWrite(s *slot) bool {
+	full, ok := r.writeTarget(s)
+	return ok && (r.e.Policy.InProfileSkills(full) || r.e.Policy.InProfileMemory(full))
+}
+
+// refuseMemoryWrite runs Executor.WritePrecheck, then Executor.WriteGuard
+// on a write or edit into the profile memory, against the whole file the
+// call would leave. It settles s and reports true when the call is refused:
+// a check said no, or the change could not be previewed. A cancelled
+// preview settles s cancelled.
+func (r *run) refuseMemoryWrite(ctx context.Context, s *slot) bool {
+	guard, precheck := r.e.WriteGuard, r.e.WritePrecheck
+	if guard == nil && precheck == nil {
+		return false
+	}
+	full, ok := r.writeTarget(s)
+	if !ok || !r.e.Policy.InProfileMemory(full) {
+		return false
+	}
+	refuse := func(msg string) bool {
+		s.settle(Result{Output: msg, IsError: true}, statusError)
+		return true
+	}
+	if precheck != nil {
+		if err := precheck(s.call.Name, full); err != nil {
+			return refuse(err.Error())
+		}
+	}
+	if guard == nil {
+		return false
+	}
+	p, ok := s.tool.(Previewer)
+	if !ok {
+		return refuse("memory write could not be checked: " + s.call.Name + " cannot preview")
+	}
+	change, err := p.Preview(ctx, r.e.Policy, s.call.Input)
+	switch {
+	case ctx.Err() != nil:
+		s.settle(Result{Output: cancelledOutput, IsError: true}, statusCancelled)
+		return true
+	case err != nil:
+		return refuse("memory write could not be checked: " + err.Error())
+	case change == nil: // binary content, or an old file too large to diff
+		return refuse("memory write could not be checked: no preview of the change")
+	}
+	_, statErr := os.Stat(full)
+	if err := guard(s.call.Name, full, statErr == nil, change.New); err != nil {
+		return refuse(err.Error())
+	}
+	return false
 }
 
 // preview returns the gate's preview of s: the diff its tool would make, or

@@ -20,6 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/sessions"
 	"github.com/jasonli0226/jas/settings"
@@ -66,7 +67,7 @@ func chatCmd(ctx context.Context, args []string) error {
 		return interrupted()
 	}
 	e.warnUnknownWindow(e.cfg.Model)
-	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e}, tui.Options{
+	return chatExit(ctx, tui.Run(ctx, &chatBackend{e: e, memFresh: true}, tui.Options{
 		Level: e.level, Model: e.cfg.Model, Root: e.root, Windows: runtime.GOOS == "windows", Version: version,
 		Continue: ca.cont, Name: ca.name, Now: time.Now, Redact: e.red.Redact, FarmBell: e.cfg.FarmBell,
 		Hints: e.cfg.Hints, WebTools: e.cfg.WebTools,
@@ -170,6 +171,51 @@ type chatBackend struct {
 	// workerProf is the profile context farm workers start on, published
 	// after each /reload and profile switch; nil: what the farm started with.
 	workerProf atomic.Pointer[workerProfile]
+	// memGuard is the chat's memory write guard, republished with the
+	// memory each new session, /reload and profile switch loads; nil: off.
+	memGuard atomic.Pointer[memory.Guard]
+	// memFresh is true while env's memory is the one prepare just loaded:
+	// the chat's first session starts on it without loading it again.
+	memFresh bool
+}
+
+// loadSessionMemory reloads memory for a session about to start (/new,
+// /resume), so a note or a memory setting changed since takes effect, and
+// returns its warnings as notices.
+func (b *chatBackend) loadSessionMemory() []string {
+	if b.memFresh {
+		b.memFresh = false
+		return nil
+	}
+	notices := b.e.refreshMemory()
+	b.publishWorkerProfile()
+	return notices
+}
+
+// publishMemoryGuard makes env's memory the one the chat's sessions check
+// writes against.
+func (b *chatBackend) publishMemoryGuard() {
+	b.memGuard.Store(newMemoryGuard(b.e.mem, !b.e.interactive, b.e.red.Redact))
+}
+
+// checkMemoryWrite is the chat's Executor.WriteGuard: the current guard, so
+// a /reload or profile switch reaches a running session.
+func (b *chatBackend) checkMemoryWrite(tool, resolved string, existed bool, newContent string) error {
+	g := b.memGuard.Load()
+	if g == nil {
+		return nil
+	}
+	return g.Check(tool, resolved, existed, newContent)
+}
+
+// precheckMemoryWrite is the chat's Executor.WritePrecheck, against the
+// current guard like checkMemoryWrite.
+func (b *chatBackend) precheckMemoryWrite(tool, resolved string) error {
+	g := b.memGuard.Load()
+	if g == nil {
+		return nil
+	}
+	return g.Precheck(tool, resolved)
 }
 
 var _ tui.Backend = (*chatBackend)(nil)
@@ -207,6 +253,7 @@ func (b *chatBackend) NewSession(model string, ui core.UI, gate core.Gate) (*tui
 		return nil, err
 	}
 	rec := b.record(path)
+	memNotices := b.loadSessionMemory()
 	c := b.configProv(prov, provName, baseURL, bare, log, ui, gate)
 	rec.attach(&c, b.e.root)
 	s, err := core.NewSession(c)
@@ -215,7 +262,9 @@ func (b *chatBackend) NewSession(model string, ui core.UI, gate core.Gate) (*tui
 		removeUnstartedSession(path)
 		return nil, err
 	}
-	return b.live(provName, path, model, log, s, c.Budget, rec), nil
+	live := b.live(provName, path, model, log, s, c.Budget, rec)
+	live.Notices = memNotices
+	return live, nil
 }
 
 // removeUnstartedSession deletes a new session's directory when its log never
@@ -254,13 +303,14 @@ func (b *chatBackend) Resume(path string, ui core.UI, gate core.Gate) (*tui.Live
 		return nil, nil, errors.Join(err, log.Close())
 	}
 	rec := b.record(path)
+	memNotices := b.loadSessionMemory() // a resumed session sees the current index
 	c := b.configProv(prov, provName, baseURL, bare, log, ui, gate)
 	rec.attach(&c, b.e.root)
 	s, err := core.ResumeSession(c, st)
 	if err != nil {
 		return nil, nil, errors.Join(err, rec.close(), log.Close())
 	}
-	notices := slices.Clone(st.Notices)
+	notices := append(slices.Clone(st.Notices), memNotices...)
 	if notice != "" {
 		notices = append(notices, notice)
 	}
@@ -281,9 +331,11 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 	toolset := tools.SessionTools(e.cfg.WebTools, e.cfg.SearchBaseURL)
 	b.Farmer() // sets b.farmer
 	toolset = append(toolset, suggestFarm{ui: ui, available: b.farmer.Available, tree: b.farmer.TreeReady})
+	b.publishMemoryGuard()
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(toolset...),
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
+		WriteGuard: b.checkMemoryWrite, WritePrecheck: b.precheckMemoryWrite,
 	}
 	meta := e.sessionMeta(model)
 	meta["provider"], meta["base_url"] = provName, baseURL
@@ -630,11 +682,13 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 		return nil, err
 	}
 	b.publishWorkerProfile()
+	b.publishMemoryGuard()
+	s.SetReadRoots(roots)
+	s.SetProfileMemory(b.e.policy.ProfileMemory) // memory may have turned on or off
 	files := contextFilesMeta(b.e.pc.files)
 	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
 		return notices, err
 	}
-	s.SetReadRoots(roots)
 	return notices, nil
 }
 

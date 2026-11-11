@@ -19,6 +19,16 @@ const switchProfileSource = settings.Source("/profile")
 // applyLive); every other key waits for /new.
 var liveSettings = []string{"approve", "model", "hints", "farm_bell"}
 
+// MemoryReport is the /memory text, read fresh from the memory files. A
+// failure is the text, so /memory still answers.
+func (b *chatBackend) MemoryReport() string {
+	text, _, err := memoryReport(b.e.home, b.e.activeProfile(), b.e.root, b.e.layers)
+	if err != nil {
+		return "memory: " + err.Error()
+	}
+	return text
+}
+
 // Profile is the chat's active profile name.
 func (b *chatBackend) Profile() string { return b.e.activeProfile() }
 
@@ -65,9 +75,11 @@ func (b *chatBackend) SwitchProfile(s *core.Session, name string, ask func(strin
 	}
 	e := b.e
 	b.publishWorkerProfile()
+	b.publishMemoryGuard()
 	files := contextFilesMeta(e.pc.files)
 	s.SetReadRoots(roots)
 	s.SetProfileSkills(e.policy.ProfileSkills)
+	s.SetProfileMemory(e.policy.ProfileMemory)
 	err = s.SetSystem(e.pc.system, map[string]any{"context_files": files, "skills": e.skillList})
 	if lerr := s.LogProfileChanged(map[string]any{
 		"from": from, "to": e.activeProfile(), "context_files": files, "skills": e.skillList, "deferred": sw.Deferred,
@@ -109,11 +121,12 @@ func (b *chatBackend) loadSwitch(name string, ask func(string) string) (tui.Prof
 // settingChanges compares the effective settings around a profile switch:
 // live holds the new values of the live keys that changed, deferred names
 // the other changed keys in settings.Keys order. profile itself is left
-// out: the switch is for this chat only and never rewrites it.
+// out: the switch is for this chat only and never rewrites it. memory is
+// left out too: the switch reloads it (reloadContext) on the spot.
 func settingChanges(before, after settings.Effective) (live map[string]string, deferred []string) {
 	live, deferred = map[string]string{}, []string{}
 	for _, k := range settings.Keys {
-		if k.Name == "profile" || before[k.Name].Raw == after[k.Name].Raw {
+		if k.Name == "profile" || k.Name == memoryKey || before[k.Name].Raw == after[k.Name].Raw {
 			continue
 		}
 		if slices.Contains(liveSettings, k.Name) {
@@ -136,15 +149,17 @@ func contextFilesMeta(fs []contextFileMeta) []map[string]any {
 }
 
 // workerProfile is the chat's profile context as a farm worker starts on it:
-// the project context (system prompt, skills, trust) and the read fields of
-// the exec policy. It is never changed once published.
+// the project context (system prompt, skills, trust), its memory and the
+// read fields of the exec policy. It is never changed once published.
 type workerProfile struct {
 	name      string
 	pc        projectContext
 	skillList []skillMeta
-	// profileSkills, homeDeny and readRoots are ExecPolicy's read exception.
-	profileSkills, homeDeny string
-	readRoots               []string
+	mem       memoryState
+	// profileSkills, profileMemory, homeDeny and readRoots are ExecPolicy's
+	// read exception.
+	profileSkills, profileMemory, homeDeny string
+	readRoots                              []string
 }
 
 // publishWorkerProfile snapshots env for farm workers started from now on.
@@ -152,8 +167,9 @@ type workerProfile struct {
 func (b *chatBackend) publishWorkerProfile() {
 	e := b.e
 	b.workerProf.Store(&workerProfile{
-		name: e.activeProfile(), pc: e.pc, skillList: e.skillList,
-		profileSkills: e.policy.ProfileSkills, homeDeny: e.policy.HomeDeny, readRoots: slices.Clone(e.policy.ReadRoots),
+		name: e.activeProfile(), pc: e.pc, skillList: e.skillList, mem: e.mem,
+		profileSkills: e.policy.ProfileSkills, profileMemory: e.policy.ProfileMemory, homeDeny: e.policy.HomeDeny,
+		readRoots: slices.Clone(e.policy.ReadRoots),
 	})
 }
 
@@ -168,8 +184,8 @@ func (b *chatBackend) workerSession(e *env) func(farm.WorkerSession) (*core.Sess
 			return farmSession(e)(ws)
 		}
 		we := *e
-		we.profile, we.pc, we.skillList = p.name, p.pc, p.skillList
-		ws.Policy.ProfileSkills, ws.Policy.HomeDeny = p.profileSkills, p.homeDeny
+		we.profile, we.pc, we.skillList, we.mem = p.name, p.pc, p.skillList, p.mem
+		ws.Policy.ProfileSkills, ws.Policy.ProfileMemory, ws.Policy.HomeDeny = p.profileSkills, p.profileMemory, p.homeDeny
 		ws.Policy.ReadRoots = slices.Clone(p.readRoots)
 		return farmSession(&we)(ws)
 	}

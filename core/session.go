@@ -346,6 +346,15 @@ func (s *Session) SetProfileSkills(dir string) {
 	s.c.Exec.Policy.ProfileSkills = dir
 }
 
+// SetProfileMemory replaces the executor's profile memory directory after a
+// profile switch. A nil executor is a no-op.
+func (s *Session) SetProfileMemory(dir string) {
+	if s.c.Exec == nil {
+		return
+	}
+	s.c.Exec.Policy.ProfileMemory = dir
+}
+
 // LogProfileChanged logs profile_changed with data (from, to, the reloaded
 // context files and skills, settings deferred to /new).
 func (s *Session) LogProfileChanged(data map[string]any) error {

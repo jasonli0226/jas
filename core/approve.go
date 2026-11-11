@@ -63,7 +63,7 @@ var _ Gate = (*Approver)(nil)
 
 // mustAsk wraps the tool of a call that is always put to the user, whatever
 // the level and standing grants: a write or edit in the active profile's
-// skills, which every later session in every project loads.
+// skills or memory, which every later session in every project loads.
 type mustAsk struct{ Tool }
 
 // AskAlways returns t marked as a must-ask call (see MustAsk).

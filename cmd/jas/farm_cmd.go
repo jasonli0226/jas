@@ -294,7 +294,8 @@ func (p *planner) Close(status string, code int) error {
 	return err
 }
 
-// startPlanner opens the planner session with read-only tools.
+// startPlanner opens the planner session with read-only tools. Its memory
+// is read-only, as in every session no one can approve a write in.
 func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerInput, farmID, logPath string) (*planner, error) {
 	log, err := core.OpenEventLog(logPath, nil, e.red.Redact)
 	if err != nil {
@@ -311,8 +312,9 @@ func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerI
 		Reg: core.NewRegistry(tools.ReadOnly()...), Policy: e.policy, Log: log,
 		Filter: e.red.Filter, Redact: e.red.Redact,
 	}
+	guardMemory(exec, e.mem, true, e.red.Redact)
 	pl, err := farm.NewPlanner(core.SessionConfig{
-		Provider: e.provider, Model: model, System: e.pc.system, Exec: exec, Log: log,
+		Provider: e.provider, Model: model, System: e.pc.readOnlyMemory(e.pc.system), Exec: exec, Log: log,
 		UI: core.NewQuietUI(), MaxTurns: e.cfg.MaxTurns, Budget: e.budget(model), Meta: meta,
 		MaxOutput: e.cfg.MaxOutputTokens, Tokens: core.NewTokenPool("farm", cfg.Budget.FarmTokens, nil),
 	}, in)

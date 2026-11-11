@@ -113,17 +113,18 @@ func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty b
 // farmSession builds a worker's or the integrator's session: the trusted
 // project context (when the worktree's matches main's) before the farm's
 // prompt, the role's model or the session model, the worker's UI (quiet when
-// none), redaction.
+// none), redaction. Memory is read-only: no one can approve a worker's write.
 func farmSession(e *env) func(farm.WorkerSession) (*core.Session, error) {
 	return func(ws farm.WorkerSession) (*core.Session, error) {
 		system, trusted := workerContext(e.pc, e.root, ws.Root)
-		ws.System = system + "\n\n" + ws.System
+		ws.System = e.pc.readOnlyMemory(system) + "\n\n" + ws.System
 		model := ws.Role.Model
 		if model == "" {
 			model = e.cfg.Model
 		}
 		c := ws.Config(e.provider, model) // wraps the provider in the farm's limiter
 		c.Exec.Filter, c.Exec.Redact = e.red.Filter, e.red.Redact
+		guardMemory(c.Exec, e.mem, true, e.red.Redact)
 		if c.UI == nil { // the chat gives each worker its own UI
 			c.UI = core.NewQuietUI()
 		}
