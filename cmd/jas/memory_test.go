@@ -422,3 +422,34 @@ func TestMemory_SymlinkedRootSharesKey(t *testing.T) {
 	assert.Eq(t, load(link).Project, load(real).Project)
 	assert.Eq(t, load(real).Project, memDirs(t, jasHome, real).Project)
 }
+
+func TestMemory_SessionResumedCarriesMemory(t *testing.T) {
+	e := memChatEnv(t)
+	writeIndex(t, e.mem.dirs.Profile, profileNote)
+	b := &chatBackend{e: e}
+	saved, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	assert.NoErr(t, saved.Close("ok", 0))
+	live, _, err := b.Resume(saved.Path, core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	assert.NoErr(t, live.Close("ok", 0))
+	var resumed map[string]any
+	for _, ev := range testutil.ReadEvents(t, saved.Path) {
+		if ev["type"] == core.EvSessionResumed {
+			resumed = ev
+		}
+	}
+	if resumed == nil {
+		t.Fatal("no session_resumed")
+	}
+	mem, ok := resumed["memory"].(map[string]any)
+	if !ok {
+		t.Fatalf("session_resumed has no memory object: %v", resumed)
+	}
+	assert.Eq(t, mem["profile_dir"], any(e.mem.dirs.Profile))
+	assert.Eq(t, mem["project_dir"], any(e.mem.dirs.Project))
+	if n, _ := mem["index_bytes"].(float64); n <= 0 {
+		t.Fatalf("index_bytes = %v, want > 0", mem["index_bytes"])
+	}
+	assert.Contains(t, strings.Join(contextPaths(t, resumed["context_files"]), "\n"), filepath.Join(e.mem.dirs.Profile, "MEMORY.md"))
+}
