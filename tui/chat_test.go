@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -409,6 +410,22 @@ func TestChat_ShiftEnterInsertsNewline(t *testing.T) {
 	assert.Eq(t, c.m.input.Value(), "a\nb")
 	assert.Eq(t, c.m.running(), false)
 	assert.Eq(t, len(b.prov.Requests), 0)
+}
+
+// TestChat_NewlinePastVisibleHeight keeps inserting lines once the draft is
+// taller than the input box, which scrolls instead (#177).
+func TestChat_NewlinePastVisibleHeight(t *testing.T) {
+	c := newTestChat(t, newTestBackend(t))
+	keys := []string{"shift+enter", "alt+enter", "ctrl+j"}
+	lines := []string{"1"}
+	c.typeText("1")
+	for i := 2; i <= inputMaxHeight+2; i++ {
+		c.key(keys[i%len(keys)])
+		c.typeText(strconv.Itoa(i))
+		lines = append(lines, strconv.Itoa(i))
+	}
+	assert.Eq(t, c.m.input.Value(), strings.Join(lines, "\n"))
+	assert.Eq(t, c.m.input.Height() <= inputMaxHeight, true)
 }
 
 func TestChat_CtrlJInsertsNewline(t *testing.T) {

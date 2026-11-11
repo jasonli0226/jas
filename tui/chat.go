@@ -19,7 +19,11 @@ import (
 
 const (
 	defaultWidth   = 80
-	inputMaxHeight = 10
+	inputMaxHeight = 10 // visible rows; a taller draft scrolls
+	// inputMaxContent caps the draft in visual rows (the textarea's own
+	// line limit). Without it the textarea treats MaxHeight as the content
+	// cap and newlines stop at 10 lines (#177).
+	inputMaxContent = 10000
 )
 
 // Options configures the chat.
@@ -147,6 +151,7 @@ func New(b Backend, o Options) *Model {
 	in.DynamicHeight = true
 	in.MinHeight = 1
 	in.MaxHeight = inputMaxHeight
+	in.MaxContentHeight = inputMaxContent
 	in.SetHeight(1)
 	// Enter submits; Alt/Shift+Enter and Ctrl+J (portable LF) insert a newline.
 	// On native Windows, onKey also rewrites plain Enter to shift+enter when
