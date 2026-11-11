@@ -101,7 +101,7 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 		return p, off
 	}
 	if !p.ProfileMemoryLifted() {
-		warn("profile memory " + dirs.Profile + " is not a folder jas can use (a file, or missing behind a link); memory is off for this session")
+		warn(unliftedMemory(dirs.Profile) + "; memory is off for this session")
 		p.ProfileMemory = ""
 		return p, off
 	}
@@ -117,6 +117,12 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 	m.profile.Text, m.project.Text = redact(m.profile.Text), redact(m.project.Text)
 	p.ReadRoots = append(slices.Clip(p.ReadRoots), dirs.Profile)
 	return p, m
+}
+
+// unliftedMemory says why the profile memory at dir gets no exception when
+// the policy gives no reason (ProfileMemoryLifted false, Ignored "").
+func unliftedMemory(dir string) string {
+	return "profile memory " + dir + " is not a folder jas can use (a file, or missing behind a link)"
 }
 
 // newMemoryGuard is the write guard for m, or nil when memory is off.

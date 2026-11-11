@@ -93,6 +93,16 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 	if mode == memory.ModeOff {
 		return memory.Report(dirs, memory.Index{}, memory.Index{}, mode), dirs, nil
 	}
+	// A folder the lift refuses is never read: what a link reaches is not
+	// memory, so there are no indexes or notes to count.
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profile)
+	policy.ProfileMemory = dirs.Profile
+	if why := policy.ProfileMemoryIgnored(); why != "" {
+		return fmt.Sprintf("memory: %s\nprofile memory ignored: %s", mode, why), dirs, nil
+	}
+	if !policy.ProfileMemoryLifted() {
+		return fmt.Sprintf("memory: %s\n%s", mode, unliftedMemory(dirs.Profile)), dirs, nil
+	}
 	prof, proj, err := memory.LoadIndexes(dirs, hide)
 	if err != nil {
 		return "", dirs, err
@@ -105,11 +115,6 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 		if why != "" {
 			text += "\n" + why
 		}
-	}
-	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profile)
-	policy.ProfileMemory = dirs.Profile
-	if why := policy.ProfileMemoryIgnored(); why != "" {
-		text += "\nprofile memory ignored: " + why
 	}
 	return text, dirs, nil
 }

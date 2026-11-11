@@ -76,7 +76,23 @@ func TestMemoryCmd_ShowsIgnoredProfileMemory(t *testing.T) {
 	prof := settings.ProfileDir(home, "default")
 	assert.NoErr(t, os.MkdirAll(prof, 0o700))
 	assert.NoErr(t, os.Symlink(home, filepath.Join(prof, "memory")))
+	// What the link reaches is never read or counted.
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "MEMORY.md"), []byte("- a\n- b\n"), 0o600))
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "stray.md"), []byte("x\n"), 0o600))
 	out, _, code := runJasIn(t, dir, env, "memory")
 	assert.Eq(t, code, 0)
 	assert.Contains(t, out, "profile memory ignored: ")
+	assert.NotContains(t, out, "lines")
+	assert.NotContains(t, out, "notes")
+}
+
+func TestMemoryCmd_UnliftedDirIsReported(t *testing.T) {
+	dir, home, env := memoryProject(t)
+	prof := settings.ProfileDir(home, "default")
+	assert.NoErr(t, os.MkdirAll(prof, 0o700))
+	assert.NoErr(t, os.WriteFile(filepath.Join(prof, "memory"), []byte("a file\n"), 0o600))
+	out, _, code := runJasIn(t, dir, env, "memory")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "is not a folder jas can use")
+	assert.NotContains(t, out, "notes")
 }
