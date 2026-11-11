@@ -453,7 +453,7 @@ skills kept before user skills; home paths written `~/…`, which read tools
 expand); the model reads a full `SKILL.md` when a task matches. Project
 skills are looked for at the project root (the git top level) only. `/skill:<name>` runs one directly.
 `disable-model-invocation: true` hides a skill from the model. jas
-reinstalls its own `jas` skill under `<UserCacheDir>/jas/manual/` at every start; a same-named profile or project skill overrides it. `~/.agents/skills/`, `~/.claude/skills/` and `~/.config/jas/skills/` are no longer read.
+reinstalls its built-in skills under `<UserCacheDir>/jas/manual/` at every start: `jas` (this manual) and `skill-creator` (how to write, improve and test a skill: where it goes, the frontmatter rules above, and a `jas run --json` trigger check). A same-named profile or project skill overrides either. `~/.agents/skills/`, `~/.claude/skills/` and `~/.config/jas/skills/` are no longer read.
 A project skill symlinked outside the project is skipped; a user skill
 symlinked outside the jas home loads with a warning, since read-only tools can
 then open that directory.

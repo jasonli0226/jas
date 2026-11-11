@@ -133,7 +133,8 @@ are no longer read.
 Only name and description reach the system prompt; the model reads the full
 `SKILL.md` when a task matches. On a name clash the first found wins.
 `disable-model-invocation: true` hides a skill from the model (it stays
-runnable as `/skill:<name>`).
+runnable as `/skill:<name>`). To write or fix a skill, use the built-in
+`skill-creator` skill.
 
 ## Farm (experimental)
 

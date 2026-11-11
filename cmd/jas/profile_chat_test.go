@@ -72,7 +72,7 @@ func TestChatBackend_SwitchProfileSwapsSkillsAndAgents(t *testing.T) {
 	assert.Contains(t, s.System(), "newskill")
 	assert.NotContains(t, s.System(), "oldskill")
 	assert.Eq(t, len(s.Messages()), before)
-	assert.Eq(t, sw.Notices[0], "profile ds · no project context file · 2 skills")
+	assert.Eq(t, sw.Notices[0], "profile ds · no project context file · 3 skills")
 	assert.Eq(t, e.policy.ProfileSkills, filepath.Join(e.home, "profiles", "ds", "skills"))
 	assert.Eq(t, slices.Contains(e.policy.ReadRoots, filepath.Dir(newSkill)), true)
 	assert.Eq(t, slices.Contains(e.policy.ReadRoots, filepath.Dir(oldSkill)), false)
@@ -137,7 +137,7 @@ func TestChatBackend_SwitchProfileLogsEvent(t *testing.T) {
 	for _, sk := range ev["skills"].([]any) {
 		names = append(names, sk.(map[string]any)["name"].(string))
 	}
-	assert.Eq(t, strings.Join(names, ","), "jas,newskill")
+	assert.Eq(t, strings.Join(names, ","), "jas,newskill,skill-creator")
 	cf := ev["context_files"].([]any)
 	assert.Contains(t, cf[0].(map[string]any)["path"].(string), filepath.Join("profiles", "ds", "AGENTS.md"))
 	st, err := core.Replay(live.Path)

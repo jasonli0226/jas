@@ -212,9 +212,11 @@ prompt. In chat, a read of a
 `SKILL.md` shows as a `◆ skill <name>` row, and `/skill:<name>` prints the
 same marker above your message.
 
-jas installs its own manual as the user skill `jas` under
-`<UserCacheDir>/jas/manual/` (refreshed from the binary at every start;
-shadow it with a same-named skill in your profile or project).
+jas installs two built-in user skills under `<UserCacheDir>/jas/manual/`:
+`jas`, its own manual, and `skill-creator`, which walks the model through
+writing, improving and testing a skill (ask "make a skill for our release
+steps"). Both are refreshed from the binary at every start; shadow one with
+a same-named skill in your profile or project.
 
 - On a name clash the first skill found wins, in the table's order: project
   before user, `.agents` before `.claude`, the built-in manual last. A warning
