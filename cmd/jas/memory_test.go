@@ -355,3 +355,22 @@ func TestMemory_NewSessionReloadsMemory(t *testing.T) {
 	}
 	assert.NotContains(t, strings.Join(contextPaths(t, ev["context_files"]), "\n"), "MEMORY.md")
 }
+
+func TestMemory_IndexLinkedOutsideIsNotLoaded(t *testing.T) {
+	userHome, root := t.TempDir(), memProject(t)
+	d := memDirs(t, filepath.Join(userHome, ".jas"), root)
+	assert.NoErr(t, os.MkdirAll(d.Profile, 0o700))
+	outside := filepath.Join(t.TempDir(), "elsewhere.txt")
+	assert.NoErr(t, os.WriteFile(outside, []byte("OUTSIDE-MEM-7712\n"), 0o600))
+	assert.NoErr(t, os.Symlink(outside, filepath.Join(d.Profile, "MEMORY.md")))
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "ok"}})
+	env := append(jasEnv(userHome, url), "GIT_CEILING_DIRECTORIES="+filepath.Dir(root))
+	_, stderr, code := runJasIn(t, root, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, systemPrompt(t, bodies()[0]), "OUTSIDE-MEM-7712")
+	assert.Contains(t, stderr, "memory index "+filepath.Join(d.Profile, "MEMORY.md")+" ignored")
+
+	out, _, code := runJasIn(t, root, env, "memory")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "ignored: it links to")
+}

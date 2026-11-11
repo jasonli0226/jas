@@ -101,6 +101,11 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 		proj = memory.Index{}
 	}
 	text := memory.Report(dirs, prof, proj, mode)
+	for _, why := range []string{prof.Ignored, proj.Ignored} {
+		if why != "" {
+			text += "\n" + why
+		}
+	}
 	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profile)
 	policy.ProfileMemory = dirs.Profile
 	if why := policy.ProfileMemoryIgnored(); why != "" {

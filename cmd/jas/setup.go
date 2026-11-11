@@ -104,6 +104,11 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 	if m.profile, m.project, err = memory.LoadIndexes(dirs, hide); err != nil { // both come back empty
 		warn(err.Error() + "; memory indexes not loaded")
 	}
+	for _, why := range []string{m.profile.Ignored, m.project.Ignored} {
+		if why != "" {
+			warn(why)
+		}
+	}
 	m.profile.Text, m.project.Text = redact(m.profile.Text), redact(m.project.Text)
 	p.ReadRoots = append(slices.Clip(p.ReadRoots), dirs.Profile)
 	return p, m

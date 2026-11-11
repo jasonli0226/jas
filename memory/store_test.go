@@ -207,3 +207,49 @@ func TestSection_NoProjectDirLeavesProjectOut(t *testing.T) {
 		}
 	}
 }
+
+// An index that is a link out of its memory folder is not read: the prompt
+// would otherwise carry any file the link points at.
+func TestLoadIndexes_RefusesIndexLinkedOutside(t *testing.T) {
+	d := setup(t, "", "- q\n")
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("OUTSIDE-9931\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(d.Profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(d.Profile, "MEMORY.md")); err != nil {
+		t.Fatal(err)
+	}
+	p, q, err := LoadIndexes(d, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Exists || p.Text != "" || p.Bytes != 0 {
+		t.Errorf("profile index read through the link: %+v", p)
+	}
+	if !strings.Contains(p.Ignored, "outside") || !strings.Contains(p.Ignored, d.Profile) {
+		t.Errorf("Ignored = %q", p.Ignored)
+	}
+	if q.Text != "- q\n" || q.Ignored != "" {
+		t.Errorf("project = %+v", q)
+	}
+}
+
+func TestLoadIndexes_LinkInsideStoreIsRead(t *testing.T) {
+	d := setup(t, "", "")
+	if err := os.MkdirAll(d.Profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.Profile, "index-src.md"), []byte("- p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("index-src.md", filepath.Join(d.Profile, "MEMORY.md")); err != nil {
+		t.Fatal(err)
+	}
+	p, _, err := LoadIndexes(d, false)
+	if err != nil || p.Text != "- p\n" || p.Ignored != "" {
+		t.Fatalf("p=%+v err=%v", p, err)
+	}
+}

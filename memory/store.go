@@ -41,20 +41,23 @@ type Index struct {
 	Truncated  bool
 	SHA256     string
 	Exists     bool
+	// Ignored says why an index that is there was not read (it links out
+	// of its memory folder); the index then loads as missing.
+	Ignored string
 }
 
 // LoadIndexes reads both indexes under one shared cap: the profile index
 // first, the project index keeping at least MinProject* of the budget.
 // Missing files are not errors. hideProject skips the project index.
 func LoadIndexes(d Dirs, hideProject bool) (profile, project Index, err error) {
-	profile, pLines, err := readIndex(filepath.Join(d.Profile, indexFile))
+	profile, pLines, err := readIndex(d.Profile)
 	if err != nil {
 		return Index{}, Index{}, err
 	}
 	project = Index{Path: filepath.Join(d.Project, indexFile)}
 	var qLines []string
 	if !hideProject {
-		if project, qLines, err = readIndex(project.Path); err != nil {
+		if project, qLines, err = readIndex(d.Project); err != nil {
 			return Index{}, Index{}, err
 		}
 	}
@@ -72,9 +75,23 @@ func LoadIndexes(d Dirs, hideProject bool) (profile, project Index, err error) {
 	return profile, project, nil
 }
 
-func readIndex(path string) (Index, []string, error) {
+// readIndex reads dir's MEMORY.md. An index that resolves outside dir (a
+// link out of the store) is not read: it comes back missing, Ignored set.
+func readIndex(dir string) (Index, []string, error) {
+	path := filepath.Join(dir, indexFile)
 	idx := Index{Path: path}
-	raw, err := os.ReadFile(path)
+	resolved, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return idx, nil, nil
+	}
+	if err != nil {
+		return Index{}, nil, fmt.Errorf("memory: read index: %w", err)
+	}
+	if !within(evalDir(dir), resolved) {
+		idx.Ignored = fmt.Sprintf("memory index %s ignored: it links to %s, outside %s", path, resolved, dir)
+		return idx, nil, nil
+	}
+	raw, err := os.ReadFile(resolved)
 	if errors.Is(err, fs.ErrNotExist) {
 		return idx, nil, nil
 	}
