@@ -360,3 +360,15 @@ func TestProfileMemory_SkillsUnaffected(t *testing.T) {
 		t.Fatal("shell filter lifted the floor for memory")
 	}
 }
+
+func TestProfileMemoryLifted(t *testing.T) {
+	f := homeMemoryFixture(t)
+	p := f.policy(t)
+	assert.Eq(t, p.ProfileMemoryLifted(), true)
+	assert.NoErr(t, os.RemoveAll(f.memory))
+	assert.Eq(t, p.ProfileMemoryLifted(), true) // missing: the first note creates it
+	writeFile(t, f.memory, "a file, not a folder")
+	assert.Eq(t, p.ProfileMemoryLifted(), false)
+	assert.Eq(t, p.ProfileMemoryIgnored(), "") // off with no reason to give
+	assert.Eq(t, ExecPolicy{}.ProfileMemoryLifted(), false)
+}

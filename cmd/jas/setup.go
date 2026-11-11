@@ -100,6 +100,11 @@ func loadMemory(p core.ExecPolicy, home, profile, root string, layers settings.L
 		p.ProfileMemory = ""
 		return p, off
 	}
+	if !p.ProfileMemoryLifted() {
+		warn("profile memory " + dirs.Profile + " is not a folder jas can use (a file, or missing behind a link); memory is off for this session")
+		p.ProfileMemory = ""
+		return p, off
+	}
 	m := memoryState{dirs: dirs, mode: mode, hideProject: hide}
 	if m.profile, m.project, err = memory.LoadIndexes(dirs, hide); err != nil { // both come back empty
 		warn(err.Error() + "; memory indexes not loaded")

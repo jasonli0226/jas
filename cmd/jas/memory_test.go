@@ -374,3 +374,32 @@ func TestMemory_IndexLinkedOutsideIsNotLoaded(t *testing.T) {
 	assert.Eq(t, code, 0)
 	assert.Contains(t, out, "ignored: it links to")
 }
+
+// A profile memory the policy cannot lift with no reason to give (memory/
+// is a file, or is missing behind a linked profile dir) turns memory off
+// for the session with a warning rather than leaving it on unwritable.
+func TestMemory_UnliftedDirTurnsMemoryOff(t *testing.T) {
+	for _, tc := range []string{"memory is a file", "missing behind a link"} {
+		t.Run(tc, func(t *testing.T) {
+			userHome, root := t.TempDir(), memProject(t)
+			d := memDirs(t, filepath.Join(userHome, ".jas"), root)
+			prof := filepath.Dir(d.Profile)
+			if tc == "memory is a file" {
+				assert.NoErr(t, os.MkdirAll(prof, 0o700))
+				assert.NoErr(t, os.WriteFile(d.Profile, []byte("not a folder\n"), 0o600))
+			} else {
+				assert.NoErr(t, os.MkdirAll(filepath.Dir(prof), 0o700))
+				assert.NoErr(t, os.Symlink(t.TempDir(), prof))
+			}
+			url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "ok"}})
+			env := append(jasEnv(userHome, url), "GIT_CEILING_DIRECTORIES="+filepath.Dir(root))
+			out, stderr, code := runJasIn(t, root, env, "run", "--json", "q")
+			assert.Eq(t, code, 0)
+			assert.NotContains(t, systemPrompt(t, bodies()[0]), "## Memory")
+			assert.Contains(t, stderr, "memory is off for this session")
+			if _, ok := sessionStarted(t, out)["memory"]; ok {
+				t.Fatal("session_started has a memory object with the lift off")
+			}
+		})
+	}
+}

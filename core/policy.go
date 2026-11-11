@@ -380,6 +380,14 @@ func (p ExecPolicy) ProfileMemoryIgnored() string {
 	return why
 }
 
+// ProfileMemoryLifted reports whether the ProfileMemory directory gets the
+// read and write exception. It can be false with ProfileMemoryIgnored "":
+// memory/ is not a folder, or is missing behind a link.
+func (p ExecPolicy) ProfileMemoryLifted() bool {
+	l, _ := p.memoryLift()
+	return l.resolved != ""
+}
+
 // Profile lift leaves: the directories under <home>/profiles/<name> that
 // get the read and write exception.
 const (
