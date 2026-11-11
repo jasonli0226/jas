@@ -106,7 +106,8 @@ type Model struct {
 	slashCursor int
 	slashHidden string // input text at which Esc dismissed the / menu
 	hist        history
-	err         error // fatal error returned by Run
+	pastes      pastes // large pastes collapsed to markers in the input
+	err         error  // fatal error returned by Run
 
 	lastCtrlC time.Time
 	hint      string // replaces the status line until the next key
@@ -208,9 +209,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onKey(msg)
 	case tea.PasteMsg:
 		if !m.quitting && m.picker == nil {
-			var cmd tea.Cmd
-			m.input, cmd = m.input.Update(msg)
-			return m, cmd
+			return m, m.onPaste(msg)
 		}
 	case hintMsg:
 		m.tip(msg.id, msg.text)

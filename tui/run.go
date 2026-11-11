@@ -280,7 +280,7 @@ func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 // is a denial that is also queued as steering, before the reply, so the loop
 // has it when the denied result goes back to the model.
 func (m *Model) answerApproval() tea.Cmd {
-	text := strings.TrimSpace(m.input.Value())
+	text := m.submitText()
 	m.input.Reset()
 	if strings.HasPrefix(text, "/") { // a command is not an answer: ask again
 		m.hint = "answer the approval first (y, N or always); commands work after"

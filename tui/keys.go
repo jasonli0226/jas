@@ -98,6 +98,9 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 	}
+	if m.deletePasteMarker(k) {
+		return nil
+	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return cmd
@@ -114,18 +117,18 @@ func (m *Model) onEnter() tea.Cmd {
 		return m.answerFarmAsk()
 	}
 	if m.farmReplan != nil {
-		text := strings.TrimSpace(m.input.Value())
+		text := m.submitText()
 		m.input.Reset()
 		return m.farmFeedback(text)
 	}
-	text := strings.TrimSpace(m.input.Value())
+	raw, text := strings.TrimSpace(m.input.Value()), m.submitText()
 	if text == "" || m.live == nil || m.opening != nil {
 		return nil
 	}
 	if m.reloading && !strings.HasPrefix(text, "/") {
 		return m.notice(waitNotice) // a reload or profile switch owns the session
 	}
-	m.hist.add(text)
+	m.hist.add(raw) // keeps paste markers; Up brings back the short form
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
 	}
@@ -155,12 +158,12 @@ func (m *Model) onEnter() tea.Cmd {
 // once the run ends ok. Anywhere else (idle, a prompt or command, an agent
 // view) it acts like Enter.
 func (m *Model) onFollowUp() tea.Cmd {
-	text := strings.TrimSpace(m.input.Value())
+	raw, text := strings.TrimSpace(m.input.Value()), m.submitText()
 	if !m.running() || m.viewing != "" || m.approval != nil || m.ask != nil || m.farmReplan != nil ||
 		text == "" || strings.HasPrefix(text, "/") || isBang(text) {
 		return m.onEnter()
 	}
-	m.hist.add(text)
+	m.hist.add(raw)
 	m.input.Reset()
 	m.followUps = append(m.followUps, text)
 	return nil

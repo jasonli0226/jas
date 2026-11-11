@@ -188,6 +188,14 @@ profile (`profile` in the global config) and switches to it.
 On native Windows, Shift+Enter works even when the terminal collapses it to
 Enter (jas probes the physical Shift key; not under WSL or SSH).
 
+A paste of more than 10 lines or 1000 characters goes into the input as one
+marker, `[paste #N +L lines]` (or `[paste #N C chars]`), so the cursor and the
+rest of your message stay easy to edit. Backspace or Delete next to a marker
+removes the whole paste. The marker turns back into the pasted text when you
+send (also as a steer, follow-up, `/` command or prompt answer), and Up
+recalls it as the marker. Smaller pastes go in as they are. The message shown
+in the transcript is the full text the model gets.
+
 ### Commands
 
 | command | does |
