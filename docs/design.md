@@ -8,7 +8,7 @@
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 **Market research (2026-10):** [research/market-comparison-2026-10.md](research/market-comparison-2026-10.md) — jas vs 15 harnesses; recommendations map to open issues.
 **Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
-**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (draft; waits for its prerequisites, §5) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it).
+**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (draft; waits for its prerequisites, §5) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (proposed; core loop, ships before farm) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (proposed; memory store then a reviewed `jas dream`; waits for the event-log spec, not a farm prerequisite).
 
 ---
 
@@ -406,6 +406,11 @@ coding task end-to-end.
 - [ ] benchmarks: hygiene cold start; primary = cache-hit / turns / tokens (§7 / #13)
 - [ ] README + demo GIF
 
+**Status (2026-11):** the v1 goal has shipped (including skills, the chat TUI,
+and project-scoped settings, which were originally listed as out of v1). The
+checkboxes above are the original weekend-one list and were not kept as a
+living burndown.
+
 **Explicitly out of v1:** MCP, TUI, farm, skills, scenarios (project trust
 ships in v1 for context files only), project-scoped settings, full
 summarization compaction. Resist scope creep.
@@ -413,6 +418,59 @@ Shell isolation for people who care = run under bubblewrap/Docker (documented;
 per-task containers ship in v3).
 
 ## 5. v2 scope (weekend two+)
+
+v2 is no longer a single weekend. Work proceeds on three tracks. Farm stays
+last on its own track; memory is not a farm prerequisite.
+
+**Already in place — do not redo.** The audit event log already lives globally
+at `~/.jas/sessions/<id>/events.jsonl`. `<project>/.jas/sessions/` is only for
+the proposed session-awareness heartbeats, not a second copy of the log, and
+the log should not be moved. `AGENTS.md` is the handbook, skills are stable
+workflows, compaction is in-session context only, and named profiles already
+isolate user-level instructions and skills.
+
+**Track A — receipt contract and farm prerequisites** (the product-bet order
+after TUI dogfood):
+
+1. Publish the event-log spec (the §3 schema as a versioned contract). Farm,
+   RPC, and dreaming all consume it.
+2. Provider fidelity.
+3. Run token and wall-clock caps for `jas run` (exit 7; checked before each
+   request).
+4. Opt-in sandbox.
+5. Benchmarks with n>1.
+6. `jas farm plan` / `jas farm run`, then the reviewer part, then `jas attach`,
+   then interactive `/farm`.
+
+**Track B — core loop, can ship before farm and overlap A:**
+
+- Session awareness (item below). Prefer this before or with the memory store
+  so overlapping sessions also warn on writes in the memory dir.
+- Spec-driven flow (`jas spec`). Farm can later plan from an approved spec.
+
+**Track C — memory, after the event-log spec is stable:**
+
+1. Memory store (layers 2–4): a dir on the active profile and, when the
+   project is trusted, under `<project>/.jas/memory/`. `MEMORY.md` is a short
+   index loaded at session start with a hard cap (match Claude Code: first
+   200 lines or 25 KB). Topic notes are read on demand and may link to each
+   other. In-session writes are lifted only inside those dirs (same symlink
+   and overlap guards, and the same write prompt, as the active profile's
+   `skills/` — #173). Store durable
+   lessons, not repo state the next session can see by reading the tree.
+   `AGENTS.md` and skills stay owner-edited. Details: §12.3.
+2. `jas dream`: a reviewed command, not a background daemon and not a wrapper
+   around Anthropic's managed-agents Dreams API. It reads recent event logs
+   plus the current memory store, writes a *proposed* cleanup (a new store or
+   a diff; default is not an in-place rewrite), and waits for owner approval.
+   The run is logged. It may flag notes that look ready to become a skill or
+   an `AGENTS.md` rule; it does not edit those files. A later scheduled run,
+   if added, only prepares the proposal.
+3. Promotion (v3, with `jas learn`): owner-approved graduation of a verified
+   note into a skill or `AGENTS.md`.
+
+Interactive TUI fixes (long paste, the 10-line Shift+Enter cap, skill-path
+reads) stay on `main` and are not milestones on these tracks.
 
 - [ ] **Spec-driven flow** (proposed; core loop, works without farm) —
       `jas spec` grill-me interview → approved spec (hash in the event log);
@@ -426,6 +484,13 @@ per-task containers ship in v3).
       tool; warn/ask before writing a file another active session touched.
       Can ship before farm. Spec:
       [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md)
+- [ ] **Memory store** (proposed; Track C.1, after the event-log spec) —
+      profile `~/.jas/profiles/<name>/memory/` and trusted project
+      `<project>/.jas/memory/`; capped `MEMORY.md` index plus on-demand topic
+      notes; write lift only in those dirs. §12.3.
+- [ ] **`jas dream`** (proposed; Track C.2, after the memory store) — read
+      recent event logs and the current store, write a proposed cleanup for
+      owner approval, log the run, do not edit `AGENTS.md` or skills. §12.3.
 - [ ] `jas farm plan` / `jas farm run` — for tasks too big or slow for one
       agent, done safely and auditably (not "better than one agent"; see
       [research](research/farm-multi-agent-community-2026-11.md)). A planner
@@ -479,7 +544,7 @@ per-task containers ship in v3).
   (agentskills.io spec) already shipped (§3)
 - optional `.mcp.json` interop alongside `scenario.yaml`'s `mcp:` block
   (scenario.yaml remains the single runtime-policy format — #9)
-- **`jas learn <topic>`**: research → draft → human approval → save a skill (§12.2)
+- **`jas learn <topic>`**: research → draft → human approval → save a skill (§12.2); also the promotion path for a verified memory note into a skill or an `AGENTS.md` draft (§12.3)
 - codemode: model-written JS in a **goja** (pure-Go JS) sandbox, tools as the
   only capability (absorbs backlog #14 mini-codemode)
 - virtual models: routing model that dispatches each request to a physical
@@ -673,7 +738,8 @@ fallback there. jas does the same from v1 with plain subcommands and chat `/sett
 ├── auth.json                  # saved API keys (chmod 0600; global-only forever)
 ├── trust.json                 # project trust answers (global-only forever)
 ├── scenarios/                 # saved scenario presets (not blueprints — #9)
-├── sessions/                  # session dirs: <session>/events.jsonl (§3)
+├── sessions/                  # session dirs: <session>/events.jsonl (§3) — already global
+├── profiles/<name>/memory/    # proposed: MEMORY.md index + topic notes (§12.3)
 ├── farms/                     # farm state (farm spec)
 ├── run/                       # supervisor sockets for attach
 └── AGENTS.md                  # global instructions appended to every system prompt
@@ -684,6 +750,7 @@ fallback there. jas does the same from v1 with plain subcommands and chat `/sett
 ├── scenario.yaml              # runtime policy only: tools/hooks/sandbox/MCP (§8) — NOT prefs
 ├── hooks/                     # project hook scripts
 ├── sessions/                  # session-awareness records (git-excluded; proposed)
+├── memory/                    # proposed: project memory store; needs trust (§12.3)
 └── worktrees/                 # farm worktrees (git-excluded)
 
 <project>/AGENTS.md            # loaded in v1 (#8); complements scenario.yaml
@@ -916,6 +983,58 @@ Guardrails:
 - `learn` never overwrites an existing skill without `--force`.
 - `jas skills list` shows what's installed (and pending); `jas skills rm <name>`.
 
+### 12.3 Memory & dreaming (proposed)
+
+Anthropic's 2026-11 [agent memory](https://www.anthropic.com/research/components-of-agent-memory)
+write-up (and the walkthroughs of it) split memory into four layers: raw
+session transcripts, in-session scratch notes, linked topic notes, and a short
+index that is injected at the start of a session. Dreaming is idle-time
+cleanup of that store, checked against the transcripts. jas already has the
+bottom layer — the versioned JSONL event log at
+`~/.jas/sessions/<id>/events.jsonl`. This section is the plan for the other
+three, plus a reviewed `jas dream`. It is not a plan to wrap Anthropic's
+managed-agents Dreams API, and it is not a background AutoDream-style daemon.
+
+**What memory is for.** A note is worth keeping only if a future session
+cannot rediscover it by reading the repo, and would otherwise repeat a
+mistake: a correction, a hard-won lesson, or why plan A was chosen over plan
+B. Project state that is already in the tree is not memory; writing it down
+goes stale and then gets trusted.
+
+**Layers, mapped to jas.**
+
+| Layer | Where | How it is loaded |
+|---|---|---|
+| 1. Transcripts | `~/.jas/sessions/<id>/events.jsonl` (already global; do not move) | not injected; the ground truth a dream verifies against |
+| 2–3. Scratch and topic notes | `~/.jas/profiles/<name>/memory/` and, if the project is trusted, `<project>/.jas/memory/` | read on demand; notes may link to each other (progressive disclosure) |
+| 4. Index | `MEMORY.md` in that dir | injected at session start, hard-capped (first 200 lines or 25 KB) |
+
+`AGENTS.md` stays the owner-written handbook. Skills stay stable, approved
+workflows. Memory is the draft pad between them: the model may write there
+during a session; it may not rewrite the handbook or a skill on the fly.
+Writes are path-confined to the memory dirs, with the same symlink and
+jas-home overlap guards as the active profile's `skills/` (#173), and writes
+there always prompt. A project memory dir joins the
+catalog only after trust, like project skills and `AGENTS.md`.
+
+**`jas dream`.** After the event-log spec is published and the memory store
+exists, `jas dream` reads recent event logs plus the current store and writes
+a *proposed* reorganization: stale facts corrected against the log, duplicates
+merged, the index pruned back under the cap. The default is a new store or a
+diff, not an in-place rewrite of the live dir. The owner approves before it
+replaces the store; the run is itself an event. The command may *flag*
+promotion candidates (this note looks like a skill; this one looks like an
+`AGENTS.md` rule) and must not edit those files. A scheduled run, if added
+later, only prepares the proposal.
+
+**Promotion (v3).** Once a note has been verified and has recurred, the owner
+graduates it: into a skill if it is a repeatable workflow, into `AGENTS.md` if
+it is a hard rule. That is the same approval bar as `jas learn` (§12.2).
+
+**Order and non-goals.** Track C in §5. Compaction is not memory. Session
+awareness is not memory, but memory writes should honor it once it ships.
+Do not start this ahead of the event-log spec.
+
 ## 13. Risks
 
 - **API compat drift** — pin to chat-completions + SSE via a provider-neutral
@@ -935,6 +1054,12 @@ Guardrails:
   (checked **before** each request, exit 7) are a farm prerequisite; farm adds
   a farm-wide total, an integrator reserve and a shared rate limiter (farm
   spec, Budgets). Usage is logged per request into events.jsonl from day one.
+- **Memory drift** — a model-written `MEMORY.md` is injected into later
+  sessions, so a wrong or stale note (or a note drafted from untrusted
+  content) becomes a persistent prompt-injection channel, the same risk
+  already called out for `jas learn` (§12.2). Mitigation: keep the injected
+  index small, store only durable lessons, require owner approval of
+  `jas dream`, and never let a dream edit `AGENTS.md` or skills.
 - **Deny-list gaps** — deny semantics are regex/path-glob based and will have
   blind spots (novel secret formats; shell commands that read files indirectly,
   e.g. `python -c`). Symlinks are handled by resolving paths before matching
