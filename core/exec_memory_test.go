@@ -135,6 +135,24 @@ func TestMemoryWrite_PreviewFailureRefuses(t *testing.T) {
 	assert.Eq(t, r.hasEvent(core.EvApproval), false)
 }
 
+func TestMemoryWrite_PrecheckRunsBeforePreview(t *testing.T) {
+	gate := &countGate{}
+	r := newMemRig(t, gate)
+	var prechecked []string
+	r.ex.WritePrecheck = func(tool, resolved string) error {
+		prechecked = append(prechecked, tool+" "+resolved)
+		return errors.New("memory is read-only in this run: no one can approve the write")
+	}
+	path := filepath.Join(r.memory, "missing.md") // an edit here cannot preview
+	out := r.run(t, "edit", map[string]string{"path": path, "old_string": "a", "new_string": "b"})
+	assert.Eq(t, out[0].IsError, true)
+	assert.Eq(t, out[0].Text, "memory is read-only in this run: no one can approve the write")
+	assert.Eq(t, r.log.result(t)["status"].(string), "error")
+	assert.Eq(t, strings.Join(prechecked, ";"), "edit "+path)
+	assert.Eq(t, len(r.guarded), 0)
+	assert.Eq(t, gate.calls, 0)
+}
+
 func TestMemoryWrite_AlwaysAsks(t *testing.T) {
 	for _, nilGuard := range []bool{false, true} {
 		var prompt bytes.Buffer

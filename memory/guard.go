@@ -63,10 +63,11 @@ func (g Guard) Holds(resolved string) bool {
 	return within(evalDir(g.Dirs.Profile), resolved)
 }
 
-// Check applies the write rules to a write or edit whose result is
-// newContent. It returns nil for paths outside the memory dir, and for
-// ModeOff (callers skip memory then).
-func (g Guard) Check(tool, resolved string, existed bool, newContent string) error {
+// Precheck applies the write rules that need no content: a headless run or
+// memory: read refuses every write, and a write must target a .md file
+// directly in one of the two folders. It returns nil for paths outside the
+// memory dir, and for ModeOff (callers skip memory then).
+func (g Guard) Precheck(tool, resolved string) error {
 	if g.Mode == ModeOff || !g.Holds(resolved) {
 		return nil
 	}
@@ -80,10 +81,22 @@ func (g Guard) Check(tool, resolved string, existed bool, newContent string) err
 	if dir := filepath.Dir(resolved); dir != profile && dir != project {
 		return fmt.Errorf("memory notes belong directly in %s or %s, not %s", g.Dirs.Profile, g.Dirs.Project, dir)
 	}
-	name := filepath.Base(resolved)
-	if !strings.HasSuffix(name, ".md") {
+	if name := filepath.Base(resolved); !strings.HasSuffix(name, ".md") {
 		return fmt.Errorf("memory holds .md notes only, not %s", name)
 	}
+	return nil
+}
+
+// Check applies every write rule (Precheck's first) to a write or edit
+// whose result is newContent. It returns nil where Precheck does.
+func (g Guard) Check(tool, resolved string, existed bool, newContent string) error {
+	if g.Mode == ModeOff || !g.Holds(resolved) {
+		return nil
+	}
+	if err := g.Precheck(tool, resolved); err != nil {
+		return err
+	}
+	name := filepath.Base(resolved)
 	if name == indexFile {
 		if tool == "write" && existed {
 			return errors.New("change MEMORY.md with edit, not a whole-file write")

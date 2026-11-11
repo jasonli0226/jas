@@ -310,8 +310,9 @@ func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerI
 	meta["farm_id"], meta["role"] = farmID, "planner"
 	exec := &core.Executor{
 		Reg: core.NewRegistry(tools.ReadOnly()...), Policy: e.policy, Log: log,
-		Filter: e.red.Filter, Redact: e.red.Redact, WriteGuard: memoryGuard(e.mem, true, e.red.Redact),
+		Filter: e.red.Filter, Redact: e.red.Redact,
 	}
+	guardMemory(exec, e.mem, true, e.red.Redact)
 	pl, err := farm.NewPlanner(core.SessionConfig{
 		Provider: e.provider, Model: model, System: e.pc.readOnlyMemory(e.pc.system), Exec: exec, Log: log,
 		UI: core.NewQuietUI(), MaxTurns: e.cfg.MaxTurns, Budget: e.budget(model), Meta: meta,

@@ -45,6 +45,11 @@ type Executor struct {
 	// the call. A non-nil error refuses the call with that text. nil means
 	// no content checks; memory writes still always ask.
 	WriteGuard func(tool, resolved string, existed bool, newContent string) error
+	// WritePrecheck, when set, runs before WriteGuard and before the change
+	// is previewed, on the same calls: the checks that need no content (a
+	// read-only run, a wrong folder), so they are reported even when the
+	// preview itself would fail. A non-nil error refuses the call.
+	WritePrecheck func(tool, resolved string) error
 }
 
 type slot struct {
@@ -281,13 +286,14 @@ func (r *run) profileWrite(s *slot) bool {
 	return ok && (r.e.Policy.InProfileSkills(full) || r.e.Policy.InProfileMemory(full))
 }
 
-// refuseMemoryWrite runs Executor.WriteGuard on a write or edit into the
-// profile memory, against the whole file the call would leave. It settles s
-// and reports true when the call is refused: the guard said no, or the
-// change could not be previewed. A cancelled preview settles s cancelled.
+// refuseMemoryWrite runs Executor.WritePrecheck, then Executor.WriteGuard
+// on a write or edit into the profile memory, against the whole file the
+// call would leave. It settles s and reports true when the call is refused:
+// a check said no, or the change could not be previewed. A cancelled
+// preview settles s cancelled.
 func (r *run) refuseMemoryWrite(ctx context.Context, s *slot) bool {
-	guard := r.e.WriteGuard
-	if guard == nil {
+	guard, precheck := r.e.WriteGuard, r.e.WritePrecheck
+	if guard == nil && precheck == nil {
 		return false
 	}
 	full, ok := r.writeTarget(s)
@@ -297,6 +303,14 @@ func (r *run) refuseMemoryWrite(ctx context.Context, s *slot) bool {
 	refuse := func(msg string) bool {
 		s.settle(Result{Output: msg, IsError: true}, statusError)
 		return true
+	}
+	if precheck != nil {
+		if err := precheck(s.call.Name, full); err != nil {
+			return refuse(err.Error())
+		}
+	}
+	if guard == nil {
+		return false
 	}
 	p, ok := s.tool.(Previewer)
 	if !ok {

@@ -90,8 +90,8 @@ func runCmd(ctx context.Context, args []string) error {
 			Level: e.level, In: e.stdin, Out: os.Stderr, Interactive: e.interactive,
 		},
 		Log: log, Filter: red.Filter, Redact: red.Redact,
-		WriteGuard: memoryGuard(e.mem, !e.interactive, red.Redact),
 	}
+	guardMemory(exec, e.mem, !e.interactive, red.Redact)
 	if rec != nil {
 		exec.Touched = touchHook(rec, e.root)
 	}

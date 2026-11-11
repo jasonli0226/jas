@@ -177,3 +177,36 @@ func TestResolveMode(t *testing.T) {
 		}
 	}
 }
+
+func TestGuard_PrecheckNeedsNoContent(t *testing.T) {
+	g := newGuard(t)
+	hl := g
+	hl.Headless = true
+	ro := g
+	ro.Mode = ModeRead
+	p := g.Dirs.Profile
+	for _, tt := range []struct {
+		g    Guard
+		path string
+		want string
+	}{
+		{hl, filepath.Join(p, "x.md"), "memory is read-only in this run"},
+		{ro, filepath.Join(p, "x.md"), "memory is read-only in this session"},
+		{g, filepath.Join(p, "sub", "x.md"), "memory notes belong directly in"},
+		{g, filepath.Join(p, "x.txt"), "memory holds .md notes only"},
+		{g, filepath.Join(p, "x.md"), ""},      // content rules wait for Check
+		{g, filepath.Join(p, "MEMORY.md"), ""}, // so does the whole-file rule
+		{hl, "/work/repo/main.go", ""},         // outside memory
+	} {
+		err := tt.g.Precheck("write", tt.path)
+		if tt.want == "" {
+			if err != nil {
+				t.Errorf("%s: want nil, got %v", tt.path, err)
+			}
+			continue
+		}
+		if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+			t.Errorf("%s: want prefix %q, got %v", tt.path, tt.want, err)
+		}
+	}
+}

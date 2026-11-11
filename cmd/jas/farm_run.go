@@ -124,7 +124,7 @@ func farmSession(e *env) func(farm.WorkerSession) (*core.Session, error) {
 		}
 		c := ws.Config(e.provider, model) // wraps the provider in the farm's limiter
 		c.Exec.Filter, c.Exec.Redact = e.red.Filter, e.red.Redact
-		c.Exec.WriteGuard = memoryGuard(e.mem, true, e.red.Redact)
+		guardMemory(c.Exec, e.mem, true, e.red.Redact)
 		if c.UI == nil { // the chat gives each worker its own UI
 			c.UI = core.NewQuietUI()
 		}

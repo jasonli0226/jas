@@ -253,7 +253,10 @@ func TestMemory_FarmWorkerReadOnly(t *testing.T) {
 	assert.NoErr(t, err)
 	t.Cleanup(func() { _ = log.Close() })
 	ws := farm.WorkerSession{Part: farm.Part{ID: "a"}, Root: e.root, Log: log, System: "FARM-PART",
-		Tools: tools.SessionTools(false, ""), Policy: e.policy, Gate: core.AllowAll{}}
+		Tools: tools.SessionTools(false, ""), Gate: core.AllowAll{},
+		// The real worker policy: owned paths that don't cover the memory
+		// dir, so a preview of the write would fail on the write limit.
+		Policy: farm.WorkerPolicy(e.policy, farm.Role{Writes: []core.WriteRule{{All: []string{"src/**"}}}}, e.root)}
 	s, err := farmSession(e)(ws)
 	assert.NoErr(t, err)
 	assert.Contains(t, s.System(), "Memory writes are not available")

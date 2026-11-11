@@ -208,6 +208,16 @@ func (b *chatBackend) checkMemoryWrite(tool, resolved string, existed bool, newC
 	return g.Check(tool, resolved, existed, newContent)
 }
 
+// precheckMemoryWrite is the chat's Executor.WritePrecheck, against the
+// current guard like checkMemoryWrite.
+func (b *chatBackend) precheckMemoryWrite(tool, resolved string) error {
+	g := b.memGuard.Load()
+	if g == nil {
+		return nil
+	}
+	return g.Precheck(tool, resolved)
+}
+
 var _ tui.Backend = (*chatBackend)(nil)
 
 // providerFor resolves a model reference to its provider (name and
@@ -325,7 +335,7 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 	exec := &core.Executor{
 		Reg:    core.NewRegistry(toolset...),
 		Policy: e.policy, Gate: gate, Log: log, Filter: e.red.Filter, Redact: e.red.Redact,
-		WriteGuard: b.checkMemoryWrite,
+		WriteGuard: b.checkMemoryWrite, WritePrecheck: b.precheckMemoryWrite,
 	}
 	meta := e.sessionMeta(model)
 	meta["provider"], meta["base_url"] = provName, baseURL

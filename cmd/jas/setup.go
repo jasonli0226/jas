@@ -118,12 +118,13 @@ func newMemoryGuard(m memoryState, headless bool, redact func(string) string) *m
 	return &memory.Guard{Dirs: m.dirs, Mode: m.mode, Headless: headless, Redact: redact}
 }
 
-// memoryGuard is newMemoryGuard as an Executor.WriteGuard (nil when off).
-func memoryGuard(m memoryState, headless bool, redact func(string) string) func(tool, resolved string, existed bool, newContent string) error {
+// guardMemory sets x's WritePrecheck and WriteGuard to newMemoryGuard's
+// checks (both nil when memory is off).
+func guardMemory(x *core.Executor, m memoryState, headless bool, redact func(string) string) {
+	x.WritePrecheck, x.WriteGuard = nil, nil
 	if g := newMemoryGuard(m, headless, redact); g != nil {
-		return g.Check
+		x.WritePrecheck, x.WriteGuard = g.Precheck, g.Check
 	}
-	return nil
 }
 
 // memoryMeta is the session_started / session_resumed memory object, or nil
