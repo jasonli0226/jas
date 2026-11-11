@@ -628,7 +628,7 @@ one bumps `v`.
 | `check_ran` | cmd, dir, exit_code, duration_ms, timed_out, output tail |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens; reason on non-zero exits |
 
-Field-level detail and the resume rules: [design §3](design.md).
+Field-level detail, reader rules and the resume rules: [event-log.md](event-log.md).
 
 ## Files
 

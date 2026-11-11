@@ -1,0 +1,26 @@
+{"v":1,"id":"e000001","parent_id":null,"seq":1,"ts":"2026-11-12T09:00:00Z","type":"session_started","approve":"ask","base_url":"https://openrouter.ai/api/v1","context_files":[{"loaded":true,"path":"AGENTS.md","sha256":"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}],"context_window":200000,"model":"z-ai/glm-4.6","profile":"default","provider":"openrouter","root":"/work/demo","skills":[{"location":"/home/u/.jas/profiles/default/skills/tdd/SKILL.md","name":"tdd","scope":"user"}],"title":"demo","web_tools":true,"window_known":true}
+{"v":1,"id":"e000002","parent_id":"e000001","seq":2,"ts":"2026-11-12T09:00:01.5Z","type":"turn_started"}
+{"v":1,"id":"e000003","parent_id":"e000002","seq":3,"ts":"2026-11-12T09:00:01.6Z","type":"user_message","content":[{"text":"create a.txt","type":"text"}]}
+{"v":1,"id":"e000004","parent_id":"e000003","seq":4,"ts":"2026-11-12T09:00:03Z","type":"usage","cached_tokens":0,"completion_tokens":20,"prompt_tokens":900}
+{"v":1,"id":"e000005","parent_id":"e000004","seq":5,"ts":"2026-11-12T09:00:03.1Z","type":"assistant_message","content":[{"text":"Writing it.","type":"text"},{"input":{"content":"hi\n","path":"a.txt"},"name":"write","tool_use_id":"t1","type":"tool_use"}],"final":false,"text":"Writing it."}
+{"v":1,"id":"e000006","parent_id":"e000005","seq":6,"ts":"2026-11-12T09:00:04Z","type":"approval","call_id":"t1","decision":"granted","tool":"write"}
+{"v":1,"id":"e000007","parent_id":"e000006","seq":7,"ts":"2026-11-12T09:00:04.1Z","type":"tool_started","args":{"content":"hi\n","path":"a.txt"},"call_id":"t1","mutating":true,"tool":"write"}
+{"v":1,"id":"e000008","parent_id":"e000007","seq":8,"ts":"2026-11-12T09:00:04.2Z","type":"tool_result","call_id":"t1","diff":{"hunks":[[{"k":"+","n":1,"t":"hi"}]],"path":"a.txt"},"output":"wrote a.txt (3 bytes)","status":"ok","tool":"write"}
+{"v":1,"id":"e000009","parent_id":"e000008","seq":9,"ts":"2026-11-12T09:00:04.3Z","type":"injected","board_seqs":[1],"text":"board: part b posted done"}
+{"v":1,"id":"e000010","parent_id":"e000009","seq":10,"ts":"2026-11-12T09:00:05Z","type":"check_ran","cmd":"go test ./...","dir":"/work/demo","duration_ms":1200,"exit_code":0,"output":"ok","timed_out":false}
+{"v":1,"id":"e000011","parent_id":"e000010","seq":11,"ts":"2026-11-12T09:00:05.1Z","type":"elided","count":1,"tokens_after":800,"tokens_before":950}
+{"v":1,"id":"e000012","parent_id":"e000011","seq":12,"ts":"2026-11-12T09:00:06Z","type":"usage","cached_tokens":512,"completion_tokens":5,"prompt_tokens":960}
+{"v":1,"id":"e000013","parent_id":"e000012","seq":13,"ts":"2026-11-12T09:00:06.1Z","type":"assistant_message","content":[{"text":"Done.","type":"text"}],"final":true,"text":"Done."}
+{"v":1,"id":"e000014","parent_id":"e000013","seq":14,"ts":"2026-11-12T09:00:06.2Z","type":"turn_ended","completion_tokens":25,"exit_code":0,"prompt_tokens":1860,"reason":"","status":"ok","turns":2}
+{"v":1,"id":"e000015","parent_id":"e000014","seq":15,"ts":"2026-11-12T09:01:00Z","type":"session_titled","title":"create a.txt"}
+{"v":1,"id":"e000016","parent_id":"e000015","seq":16,"ts":"2026-11-12T09:01:10Z","type":"model_changed","base_url":"https://openrouter.ai/api/v1","model":"deepseek/deepseek-chat","provider":"openrouter"}
+{"v":1,"id":"e000017","parent_id":"e000016","seq":17,"ts":"2026-11-12T09:01:20Z","type":"shell_ran","command":"ls","exit_code":0,"output":"a.txt\n"}
+{"v":1,"id":"e000018","parent_id":"e000017","seq":18,"ts":"2026-11-12T09:02:00Z","type":"turn_started"}
+{"v":1,"id":"e000019","parent_id":"e000018","seq":19,"ts":"2026-11-12T09:02:00.1Z","type":"user_message","content":[{"text":"now b.txt","type":"text"}]}
+{"v":1,"id":"e000020","parent_id":"e000019","seq":20,"ts":"2026-11-12T09:02:00.2Z","type":"budget_stop","limit":2000,"pool":"run","reason":"tokens","used":1860,"want":980}
+{"v":1,"id":"e000021","parent_id":"e000020","seq":21,"ts":"2026-11-12T09:02:00.3Z","type":"turn_ended","completion_tokens":0,"exit_code":7,"prompt_tokens":0,"reason":"tokens","status":"budget_exceeded","turns":0}
+{"v":1,"id":"e000022","parent_id":"e000021","seq":22,"ts":"2026-11-12T09:03:00Z","type":"compaction","first_kept_id":"e000019","summary":"Created a.txt; tests pass.","tokens_after":120,"tokens_before":1900,"usage":{"completion_tokens":40,"prompt_tokens":1500}}
+{"v":1,"id":"e000023","parent_id":"e000022","seq":23,"ts":"2026-11-12T09:03:10Z","type":"context_reloaded","bytes":4096,"context_files":[{"loaded":true,"path":"AGENTS.md","sha256":"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}],"skills":[]}
+{"v":1,"id":"e000024","parent_id":"e000023","seq":24,"ts":"2026-11-12T09:03:20Z","type":"profile_changed","context_files":[],"deferred":["model"],"from":"default","skills":[],"to":"work"}
+{"v":1,"id":"e000025","parent_id":"e000024","seq":25,"ts":"2026-11-12T09:04:00Z","type":"session_ended","completion_tokens":65,"exit_code":7,"prompt_tokens":3360,"reason":"tokens","status":"budget_exceeded","turns":2}
+{"v":1,"id":"e000026","parent_id":"e000025","seq":26,"ts":"2026-11-13T08:00:00Z","type":"session_resumed","approve":"ask","base_url":"https://openrouter.ai/api/v1","context_files":[],"context_window":128000,"model":"deepseek/deepseek-chat","profile":"work","provider":"openrouter","root":"/work/demo","skills":[],"web_tools":true,"window_known":true}
