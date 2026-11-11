@@ -11,6 +11,7 @@ import (
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
 	"github.com/jasonli0226/jas/providers/fake"
+	"github.com/jasonli0226/jas/skills"
 )
 
 func TestManualSkill_InstalledToCacheDir(t *testing.T) {
@@ -26,7 +27,24 @@ func TestManualSkill_InstalledToCacheDir(t *testing.T) {
 	assert.Eq(t, code, 0)
 	_, err := os.Stat(filepath.Join(cache, "jas", "manual", "jas", "SKILL.md"))
 	assert.NoErr(t, err)
-	assert.Contains(t, systemPrompt(t, bodies()[0]), "<name>jas</name>")
+	prompt := systemPrompt(t, bodies()[0])
+	assert.Contains(t, prompt, "<name>jas</name>")
+	assert.Contains(t, prompt, "<name>skill-creator</name>")
+}
+
+// TestBuiltinSkills_Valid installs every embedded skill and runs discovery
+// over it: each must load with no warning (name matches its folder, valid
+// frontmatter, description within the spec limit).
+func TestBuiltinSkills_Valid(t *testing.T) {
+	root := t.TempDir()
+	assert.NoErr(t, installManualSkills(root))
+	got, warns := skills.Discover(skills.BuiltinSources(root), func(string) bool { return false })
+	assert.Eq(t, len(warns), 0)
+	var names []string
+	for _, s := range got {
+		names = append(names, s.Name)
+	}
+	assert.Eq(t, strings.Join(names, ","), "jas,skill-creator")
 }
 
 func TestInstallManualSkills(t *testing.T) {

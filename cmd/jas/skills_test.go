@@ -127,8 +127,8 @@ func TestRun_SessionStartedListsSkills(t *testing.T) {
 			continue
 		}
 		sk := m["skills"].([]any)
-		// meta plus jas's own manual, installed under the cache dir.
-		assert.Eq(t, len(sk), 2)
+		// meta plus jas's built-in jas and skill-creator, under the cache dir.
+		assert.Eq(t, len(sk), 3)
 		var meta map[string]any
 		for _, e := range sk {
 			e := e.(map[string]any)
