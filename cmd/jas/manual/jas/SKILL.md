@@ -96,9 +96,11 @@ but the farm's `max_turns`, budget and approval level stay fixed).
   TTY exits 5.
 - Deny floor, always on for file tools: `.env*`, `secrets/**`, `*.pem`,
   `id_rsa*`, `*.p12`, `.git-credentials`, `~/.aws/**`, `~/.ssh/**`,
-  `~/.jas/**` (reads of the active profile's `skills/` folder are allowed,
-  through symlinks too; a `skills/` linked into the jas home is ignored with
-  a warning).
+  `~/.jas/**` (the active profile's `skills/` folder may be read, through
+  symlinks too, and written with `write`/`edit` — always after a prompt, at
+  every level, with no always grant; a `skills/` linked into the jas home is
+  ignored with a warning). Install a personal skill there; a project-only
+  skill goes in `.agents/skills/`.
 - The `shell` tool is not sandboxed: confinement and the deny floor do not
   filter it. Secrets are redacted from tool output and logs. Review untrusted
   work with `--approve=shell`, or run jas under bubblewrap/Docker.

@@ -61,7 +61,8 @@ type ExecPolicy struct {
 	// ~/.jas (the home, its profiles, another profile's skills) gets no
 	// exception and ProfileSkillsIgnored says why. Denied still checks every
 	// resolved path against the full floor, so a link inside a skill into
-	// the jas home stays denied, and Resolve and DeniedToken never lift.
+	// the jas home stays denied. Resolve lets writes through only inside
+	// the lifted directory (see profileWrite); DeniedToken never lifts.
 	ProfileSkills string
 	// HomeDeny is the absolute deny pattern for a moved jas home (also in
 	// Deny); the profile read exception lifts it with JasHomeFloor.

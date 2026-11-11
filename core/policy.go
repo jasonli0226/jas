@@ -41,18 +41,67 @@ func FindRoot(cwd string) string {
 // Root. Relative paths are joined with Root. For a path that does not exist
 // yet, the nearest existing ancestor is resolved and the rest re-appended.
 //
-// Resolve serves write and edit, so it always applies the full deny floor:
-// the profile read lift is cleared even on a scope from ProfileScope.
+// Resolve serves write and edit, so it applies the full deny floor, with
+// one exception: a path that resolves inside the active profile's skills
+// directory is allowed outside Root and through the jas home floor (see
+// profileWrite). A leading ~/ is expanded first, as ResolveRead does.
 func (p ExecPolicy) Resolve(path string) (string, error) {
 	p.liftHome = false
+	path = expandHome(path)
 	resolved, err := p.resolveInRoot(path)
-	if err != nil {
+	if err == nil {
+		err = p.checkDeny(path, resolved)
+	}
+	if err == nil {
+		return resolved, nil
+	}
+	if !errors.Is(err, errOutsideRoot) && !errors.Is(err, errDenied) {
 		return "", err
 	}
-	if err := p.checkDeny(path, resolved); err != nil {
-		return "", err
+	if abs, ok, werr := p.profileWrite(path); ok {
+		return abs, werr
 	}
-	return resolved, nil
+	return "", err
+}
+
+// profileWrite resolves path for a write in the active profile's skills
+// directory. ok reports that path resolves inside it; the deny floor then
+// applies there without JasHomeFloor and HomeDeny, rooted at the skills
+// directory (and at the project too when the project holds it), so a
+// skill's .env or a link out to auth.json stays refused.
+func (p ExecPolicy) profileWrite(path string) (_ string, ok bool, _ error) {
+	l, _ := p.profileLift()
+	if l.resolved == "" {
+		return "", false, nil
+	}
+	abs := path
+	if !filepath.IsAbs(abs) {
+		root, err := filepath.EvalSymlinks(p.Root)
+		if err != nil {
+			return "", false, nil
+		}
+		abs = filepath.Join(root, abs)
+	}
+	resolved, err := evalExisting(filepath.Clean(abs))
+	if err != nil || !within(l.resolved, resolved) {
+		return "", false, nil
+	}
+	scope := p
+	scope.Root, scope.ReadRoots, scope.liftHome, scope.projectRoot = l.resolved, nil, true, ""
+	if project, err := filepath.EvalSymlinks(p.Root); err == nil && within(project, l.resolved) {
+		scope.projectRoot = project
+	}
+	if err := scope.checkDeny(path, resolved); err != nil {
+		return "", true, err
+	}
+	return resolved, true, nil
+}
+
+// InProfileSkills reports whether the resolved path lies in the active
+// profile's skills directory, where writes are always put to the user.
+func (p ExecPolicy) InProfileSkills(resolved string) bool {
+	l, _ := p.profileLift()
+	return l.resolved != "" && within(l.resolved, resolved)
 }
 
 // resolveInRoot is Resolve without the deny check.
@@ -106,6 +155,9 @@ func (p ExecPolicy) ResolveRead(path string) (string, error) {
 		abs, scope = a, s
 	case errors.Is(err, errDenied):
 		a, rerr := p.resolveInRoot(path)
+		if errors.Is(rerr, errOutsideRoot) { // denied in the profile skills
+			return "", err
+		}
 		if rerr != nil {
 			return "", rerr
 		}
@@ -300,7 +352,8 @@ func (l lift) holds(abs string) bool {
 }
 
 // profileLift resolves ProfileSkills. The exception is on when the
-// directory exists, is spelled <home>/profiles/<name>/skills, and resolves
+// directory exists (or is missing with no link on its way, so a write can
+// create it), is spelled <home>/profiles/<name>/skills, and resolves
 // either to <home>/profiles/<name>/skills under the resolved jas home (so a
 // symlinked $HOME, jas home or profile directory still works) or to a place
 // that neither holds nor sits inside the jas home or ~/.jas (a skills link to
@@ -317,18 +370,26 @@ func (p ExecPolicy) profileLift() (_ lift, why string) {
 	if !filepath.IsAbs(clean) || filepath.Base(clean) != "skills" || filepath.Base(profiles) != "profiles" {
 		return lift{}, ""
 	}
+	jasHome, err := filepath.EvalSymlinks(filepath.Dir(profiles))
+	if err != nil {
+		return lift{}, ""
+	}
+	want := filepath.Join(jasHome, "profiles", name, "skills")
 	r, err := filepath.EvalSymlinks(clean)
+	if os.IsNotExist(err) {
+		// No skills/ yet (the first personal skill creates it): lift only
+		// when nothing on the way there is a link elsewhere.
+		if r, err := evalExisting(clean); err == nil && r == want {
+			return lift{lexical: clean, resolved: r}, ""
+		}
+		return lift{}, ""
+	}
 	if err != nil {
 		return lift{}, ""
 	}
 	if fi, err := os.Stat(r); err != nil || !fi.IsDir() {
 		return lift{}, ""
 	}
-	jasHome, err := filepath.EvalSymlinks(filepath.Dir(profiles))
-	if err != nil {
-		return lift{}, ""
-	}
-	want := filepath.Join(jasHome, "profiles", name, "skills")
 	if r == want {
 		return lift{lexical: clean, resolved: r}, ""
 	}

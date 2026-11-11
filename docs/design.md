@@ -603,7 +603,9 @@ Concretely, four layers (defense in depth — any one failing must not leak):
 1. **File deny-list.** v1 ships a **hard floor** compiled into the binary:
    `.env*`, `**/.env`, `secrets/**`, `*.pem`, `id_rsa*`, `*.p12`,
    `.git-credentials`, `~/.aws/**`, `~/.ssh/**`, `~/.jas/**` (plus `$JAS_HOME`
-   when set). From v2, scenarios can add
+   when set; reads, and writes after a prompt that no level or grant skips,
+   are let through under the active profile's `skills/` only). From v2,
+   scenarios can add
    patterns via `sandbox.deny`; `deny` is additive and the floor cannot be
    lifted. Patterns are matched against the symlink-resolved path (§3).
 2. **Output redaction** (core middleware, runs on every tool result before it
@@ -899,8 +901,9 @@ jas learn --auto "topic"                         # non-interactive → pending q
 Flow: agent researches (§12.1 tools) → drafts `SKILL.md` + `references/` per the
 agentskills.io spec (same as pi, so skills interop across Claude Code/Hermes)
 → shows the draft for approval → saves to the active profile's `skills/` or project
-`.agents/skills/<name>/` (the directories jas scans; reads are lifted past the
-`~/.jas/**` deny floor only under the active profile's `skills/`). The skill is then advertised to future sessions
+`.agents/skills/<name>/` (the directories jas scans; reads and writes are
+lifted past the `~/.jas/**` deny floor only under the active profile's
+`skills/`, and writes there always prompt). The skill is then advertised to future sessions
 (name + description only; full instructions load on demand — pi's model).
 
 Guardrails:

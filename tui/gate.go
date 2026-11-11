@@ -28,6 +28,9 @@ type (
 
 const noGrantNotice = "this command can't get an always grant; allowed once"
 
+// mustAskNotice answers "always" on a must-ask call (core.MustAsk).
+const mustAskNotice = "writes to the profile's skills always ask; allowed once"
+
 // Gate is the chat's core.Gate. Gated calls not covered by a session grant
 // are put to the user as an inline prompt. One Gate lives as long as the
 // chat, so it is shared by every session the chat opens.
@@ -84,10 +87,16 @@ func (g *Gate) Grants() *core.Grants {
 	return g.grants
 }
 
+// covered reports whether t needs no prompt: its level does not gate it, or
+// a session grant covers it (never for a must-ask call).
+func (g *Gate) covered(t core.Tool, args json.RawMessage) bool {
+	return !core.Gated(g.Level(), t) || (!core.MustAsk(t) && g.Grants().Covers(t.Name(), args))
+}
+
 // Allow implements core.Gate. It returns on ctx done even while another
 // call's prompt is open.
 func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, preview func() *core.Diff) (core.Decision, error) {
-	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
+	if g.covered(t, args) {
 		return core.AutoGranted, nil
 	}
 	select {
@@ -97,7 +106,7 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, pre
 	}
 	defer func() { <-g.ask }()
 	// An answer to the prompt we waited behind may have granted this call.
-	if !core.Gated(g.Level(), t) || g.Grants().Covers(t.Name(), args) {
+	if g.covered(t, args) {
 		return core.AutoGranted, nil
 	}
 	var (
@@ -131,7 +140,9 @@ func (g *Gate) decide(t core.Tool, args json.RawMessage, text string) core.Decis
 	case replyYes:
 		return core.Granted
 	case replyAlways:
-		if grant, ok := g.Grants().Add(t.Name(), args); ok {
+		if core.MustAsk(t) {
+			g.send(noticeMsg{mustAskNotice})
+		} else if grant, ok := g.Grants().Add(t.Name(), args); ok {
 			g.send(noticeMsg{g.redact("always: " + core.Sanitize(grant) + " (covers any arguments)")})
 		} else {
 			g.send(noticeMsg{g.redact(noGrantNotice)})
@@ -200,7 +211,10 @@ type partGate struct {
 }
 
 func (p *partGate) covered(t core.Tool, args json.RawMessage) bool {
-	return !core.Gated(p.level, t) || p.grants.Covers(t.Name(), args) || p.farm.Covers(t.Name(), args)
+	if !core.Gated(p.level, t) {
+		return true
+	}
+	return !core.MustAsk(t) && (p.grants.Covers(t.Name(), args) || p.farm.Covers(t.Name(), args))
 }
 
 // Allow implements core.Gate.
@@ -251,6 +265,10 @@ func (p *partGate) decide(t core.Tool, args json.RawMessage, text string) core.D
 		grants = p.farm
 	default:
 		return core.Denied
+	}
+	if core.MustAsk(t) {
+		p.g.send(noticeMsg{mustAskNotice})
+		return core.Granted
 	}
 	if grant, ok := grants.Add(t.Name(), args); ok {
 		p.g.send(noticeMsg{p.g.redact(fmt.Sprintf("[%s] always: %s (covers any arguments)", p.part, core.Sanitize(grant)))})

@@ -207,7 +207,11 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	if gate == nil {
 		gate = AllowAll{}
 	}
-	d, err := gate.Allow(ctx, s.tool, s.call.Input, r.preview(ctx, s))
+	t := s.tool
+	if r.profileSkillWrite(s) {
+		t = AskAlways(t)
+	}
+	d, err := gate.Allow(ctx, t, s.call.Input, r.preview(ctx, s))
 	if err != nil {
 		if ctx.Err() != nil {
 			s.settle(Result{Output: cancelledOutput, IsError: true}, statusCancelled)
@@ -243,6 +247,20 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	}
 	r.execute(ctx, s)
 	r.emitResult(s)
+}
+
+// profileSkillWrite reports whether s is a write or edit that lands in the
+// active profile's skills directory.
+func (r *run) profileSkillWrite(s *slot) bool {
+	if s.call.Name != "write" && s.call.Name != "edit" {
+		return false
+	}
+	var a struct{ Path string }
+	if json.Unmarshal(s.call.Input, &a) != nil || a.Path == "" {
+		return false
+	}
+	full, err := r.e.Policy.Resolve(a.Path)
+	return err == nil && r.e.Policy.InProfileSkills(full)
 }
 
 // preview returns the gate's preview of s: the diff its tool would make, or
