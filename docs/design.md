@@ -359,8 +359,9 @@ after TUI dogfood):
 
 **Track C — memory, after the event-log spec is stable:**
 
-1. Memory store (layers 2–4): a dir on the active profile and, when the
-   project is trusted, under `<project>/.jas/memory/`. `MEMORY.md` is a short
+1. Memory store (layers 2–4): one store on the active profile,
+   `~/.jas/profiles/<name>/memory/`, with a `projects/<key>/` folder for notes
+   that apply to one project. Nothing lives in the repo. `MEMORY.md` is a short
    index loaded at session start with a hard cap (match Claude Code: first
    200 lines or 25 KB). Topic notes are read on demand and may link to each
    other. In-session writes are lifted only inside those dirs (same symlink
@@ -399,9 +400,10 @@ resume (`jas --continue`, `/resume`); `web_fetch` / `web_search` (§12.1;
       touched. Spec:
       [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md)
 - [ ] **Memory store** (proposed; Track C.1, after the event-log spec) —
-      profile `~/.jas/profiles/<name>/memory/` and trusted project
-      `<project>/.jas/memory/`; capped `MEMORY.md` index plus on-demand topic
-      notes; write lift only in those dirs. §12.3.
+      `~/.jas/profiles/<name>/memory/` (per-project notes in
+      `projects/<key>/`, never in the repo); capped `MEMORY.md` index plus
+      on-demand topic notes; write lift only there. Design:
+      [superpowers/specs/2026-11-12-memory-store-design.md](superpowers/specs/2026-11-12-memory-store-design.md).
 - [ ] **`jas dream`** (proposed; Track C.2, after the memory store) — read
       recent event logs and the current store, write a proposed cleanup for
       owner approval, log the run, do not edit `AGENTS.md` or skills. §12.3.
@@ -640,7 +642,6 @@ fallback there. jas does the same with plain subcommands and chat `/settings`.
 ├── scenario.yaml              # planned: runtime policy only (§8) — NOT prefs
 ├── hooks/                     # planned: project hook scripts
 ├── sessions/                  # live session records, <id>.json (git-excluded)
-├── memory/                    # proposed: project memory store; needs trust (§12.3)
 └── worktrees/                 # farm worktrees (git-excluded)
 
 <project>/AGENTS.md            # project instructions (#8)
@@ -810,7 +811,7 @@ goes stale and then gets trusted.
 | Layer | Where | How it is loaded |
 |---|---|---|
 | 1. Transcripts | `~/.jas/sessions/<id>/events.jsonl` (already global; do not move) | not injected; the ground truth a dream verifies against |
-| 2–3. Scratch and topic notes | `~/.jas/profiles/<name>/memory/` and, if the project is trusted, `<project>/.jas/memory/` | read on demand; notes may link to each other (progressive disclosure) |
+| 2–3. Scratch and topic notes | `~/.jas/profiles/<name>/memory/`, with `projects/<key>/` for notes about one project | read on demand; notes may link to each other (progressive disclosure) |
 | 4. Index | `MEMORY.md` in that dir | injected at session start, hard-capped (first 200 lines or 25 KB) |
 
 `AGENTS.md` stays the owner-written handbook. Skills stay stable, approved
@@ -818,8 +819,10 @@ workflows. Memory is the draft pad between them: the model may write there
 during a session; it may not rewrite the handbook or a skill on the fly.
 Writes are path-confined to the memory dirs, with the same symlink and
 jas-home overlap guards as the active profile's `skills/` (#173), and writes
-there always prompt. A project memory dir joins the
-catalog only after trust, like project skills and `AGENTS.md`.
+there always prompt. Memory belongs to the owner, not a repo (owner,
+2026-11-12): it holds who they are, how they work, project management and
+references, so it lives only under the profile and never in a cloned tree.
+Design: [superpowers/specs/2026-11-12-memory-store-design.md](superpowers/specs/2026-11-12-memory-store-design.md).
 
 **`jas dream`.** After the event-log spec is published and the memory store
 exists, `jas dream` reads recent event logs plus the current store and writes
