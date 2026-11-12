@@ -151,8 +151,8 @@ an existing file logs added lines only. An `edit` logs no diff.
 - Required: `model`, `profile`, `provider`, `base_url`, `approve`, `root`,
   `context_files` (list of context file), `skills` (list of skill),
   `context_window` (int), `window_known` (bool), `web_tools`.
-- Optional: `title` (`jas run --name`), `record_path`, `memory` (below), and
-  the farm additions below.
+- Optional: `title` (`jas run --name`), `record_path`, `memory` and `dream`
+  (below), and the farm additions below.
 - Logs from before profiles shipped lack `profile`. Readers treat it as
   missing, not as an error.
 
@@ -168,6 +168,16 @@ an existing file logs added lines only. An `edit` logs no diff.
 
 The `MEMORY.md` files that were loaded also appear in `context_files`.
 Readers that do not know `memory` ignore it.
+
+*Dream* (optional `dream` object on `session_started`; present only in the
+session `jas dream` runs to build a proposal):
+
+| field | type | meaning |
+|---|---|---|
+| `id` | string | the dream's id |
+| `window_sessions` | int | how many sessions the dream reads |
+
+Readers that do not know `dream` ignore it.
 
 *Farm additions* (optional `session_started` fields, only in farm sessions):
 
@@ -263,6 +273,27 @@ deliveries add `board_seqs`.
 
 **`check_ran`** — `cmd`, `dir`, `exit_code`, `duration_ms`, `timed_out`,
 `output` (redacted tail).
+
+### Dreams
+
+`jas dream` proposes memory changes, and the owner applies or drops them.
+These events are additive; v1 stays. Each carries the dream's `id`
+(`<UTC timestamp>-<4 hex>`).
+
+`counts` is `{changed, added, removed, lint_fixed, lint_open, promote}`, all
+ints: notes changed, added and removed, lint findings fixed and left open,
+and notes the dream suggests promoting to the profile.
+
+**`dream_proposed`** — a proposal was written. `id`, `counts`, `partial`
+(bool: the dream stopped at a cap and the proposal is incomplete), `report`
+(path of `report.md`).
+
+**`dream_applied`** — `jas dream apply` changed memory. `id`, `counts`.
+
+**`dream_discarded`** — `jas dream discard` dropped a proposal. `id`.
+
+**`dream_undone`** — `jas dream undo` restored memory from before an apply.
+`id`.
 
 ## Ordering and durability
 

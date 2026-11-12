@@ -129,3 +129,31 @@ func TestEventLogFixture_MemoryField(t *testing.T) {
 	assert.NoErr(t, sc.Err())
 	assert.Eq(t, len(seen), 2)
 }
+
+// session_started may carry an optional dream object (docs/event-log.md);
+// the fixture shows it on the one session that has it.
+func TestEventLogFixture_DreamField(t *testing.T) {
+	f, err := os.Open(eventLogFixture)
+	assert.NoErr(t, err)
+	defer f.Close()
+	found := 0
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var e struct {
+			Type  string `json:"type"`
+			Dream *struct {
+				ID             string `json:"id"`
+				WindowSessions int    `json:"window_sessions"`
+			} `json:"dream"`
+		}
+		assert.NoErr(t, json.Unmarshal(sc.Bytes(), &e))
+		if e.Type != EvSessionStarted || e.Dream == nil {
+			continue
+		}
+		found++
+		assert.Eq(t, e.Dream.ID != "", true)
+		assert.Eq(t, e.Dream.WindowSessions, 3)
+	}
+	assert.NoErr(t, sc.Err())
+	assert.Eq(t, found, 1)
+}
