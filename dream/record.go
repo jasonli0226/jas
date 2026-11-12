@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"sort"
 	"time"
+
+	"github.com/jasonli0226/jas/core"
 )
 
 // State is where a dream stands in its life cycle.
@@ -181,8 +183,21 @@ func SetWatermark(dreamsDir string, t time.Time) error {
 }
 
 // Prune deletes the oldest non-pending dreams beyond keep. Pending dreams
-// are never deleted and do not count against keep.
+// are never deleted and do not count against keep. It holds the dreams lock
+// so it never deletes a store an undo is swapping; when another process
+// holds the lock it skips quietly (the next run prunes).
 func Prune(dreamsDir string, keep int) error {
+	if ok, err := pathExists(dreamsDir); err != nil || !ok {
+		return err
+	}
+	release, err := lockDreams(dreamsDir)
+	if errors.Is(err, core.ErrLocked) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("dream: prune: %w", err)
+	}
+	defer func() { _ = release() }() // closing drops the lock
 	ms, err := List(dreamsDir)
 	if err != nil {
 		return err

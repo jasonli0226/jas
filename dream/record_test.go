@@ -184,3 +184,22 @@ func TestWatermark_CorruptFallsBack(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestPrune_SkipsWhileLocked(t *testing.T) {
+	dir := t.TempDir()
+	ids := []string{"20260101T000000-0001", "20260102T000000-0002", "20260103T000000-0003"}
+	for _, id := range ids {
+		assert.NoErr(t, Save(dir, meta(id, Applied)))
+	}
+	release, err := lockDreams(dir)
+	assert.NoErr(t, err)
+	assert.NoErr(t, Prune(dir, 0))
+	ms, err := List(dir)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(ms), len(ids))
+	assert.NoErr(t, release())
+	assert.NoErr(t, Prune(dir, 0))
+	ms, err = List(dir)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(ms), 0)
+}

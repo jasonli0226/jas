@@ -69,12 +69,13 @@ func (e *leftoverError) Unwrap() error { return e.err }
 // fsOps are the file operations a swap uses; tests replace them to inject
 // failures.
 type fsOps struct {
-	rename   func(oldpath, newpath string) error
-	copyTree func(src, dst string) error
-	save     func(dreamsDir string, m Meta) error
+	rename    func(oldpath, newpath string) error
+	copyTree  func(src, dst string) error
+	save      func(dreamsDir string, m Meta) error
+	removeAll func(path string) error
 }
 
-var osOps = fsOps{rename: os.Rename, copyTree: CopyTree, save: Save}
+var osOps = fsOps{rename: os.Rename, copyTree: copyPlainTree, save: Save, removeAll: os.RemoveAll}
 
 type swapTags struct{ stage, old string }
 
@@ -145,6 +146,12 @@ func finishApply(ops fsOps, memDir, dreamsDir string, cur Meta, proposed, before
 	applied := cur
 	applied.State = Applied
 	if err := ops.save(dreamsDir, applied); err != nil {
+		// Whatever is left of proposed/ is a partial copy of the now-live
+		// proposal; clear it so the reverse swap has somewhere to put it.
+		if rbErr := clearCopy(proposed); rbErr != nil {
+			return cur, fmt.Errorf("dream %s: apply: record it: %v; reversing the swap failed, so the proposal is live: %w",
+				cur.ID, err, rbErr)
+		}
 		if rbErr := swap(ops, memDir, before, proposed, cur.ID, undoTags); rbErr != nil && !isLeftover(rbErr) {
 			return cur, fmt.Errorf("dream %s: apply: record it: %v; reversing the swap also failed, so the proposal is live: %w",
 				cur.ID, err, rbErr)
@@ -241,6 +248,12 @@ func undo(ops fsOps, memDir, dreamsDir string, m Meta) (Meta, error) {
 	undone := cur
 	undone.State = Undone
 	if err := ops.save(dreamsDir, undone); err != nil {
+		// As in finishApply: before/ now only holds a partial copy of the
+		// live store.
+		if rbErr := clearCopy(before); rbErr != nil {
+			return cur, fmt.Errorf("dream %s: undo: record it: %v; reversing the swap failed, so the old store is live: %w",
+				cur.ID, err, rbErr)
+		}
 		if rbErr := swap(ops, memDir, proposed, before, cur.ID, applyTags); rbErr != nil && !isLeftover(rbErr) {
 			return cur, fmt.Errorf("dream %s: undo: record it: %v; reversing the swap also failed, so the old store is live: %w",
 				cur.ID, err, rbErr)
@@ -298,21 +311,22 @@ func Discard(dreamsDir string, m Meta) (Meta, error) {
 	if cur.State != Pending {
 		return cur, fmt.Errorf("dream %s is %s, not pending", cur.ID, cur.State)
 	}
-	cur.State = Discarded
-	if err := Save(dreamsDir, cur); err != nil {
-		return m, err
+	discarded := cur
+	discarded.State = Discarded
+	if err := Save(dreamsDir, discarded); err != nil {
+		return cur, err
 	}
 	var follow []error
-	if err := SetWatermark(dreamsDir, cur.EndedAt); err != nil {
+	if err := SetWatermark(dreamsDir, discarded.EndedAt); err != nil {
 		follow = append(follow, err)
 	}
-	if err := os.RemoveAll(filepath.Join(dreamsDir, cur.ID, proposedDir)); err != nil {
+	if err := os.RemoveAll(filepath.Join(dreamsDir, discarded.ID, proposedDir)); err != nil {
 		follow = append(follow, fmt.Errorf("delete the proposal: %w", err))
 	}
 	if len(follow) > 0 {
-		return cur, &FollowUpError{ID: cur.ID, Err: errors.Join(follow...)}
+		return discarded, &FollowUpError{ID: discarded.ID, Err: errors.Join(follow...)}
 	}
-	return cur, nil
+	return discarded, nil
 }
 
 // swap puts the tree at from in place at live and moves the store it
@@ -394,13 +408,21 @@ func swapAtTarget(ops fsOps, target, from, to, id string, tags swapTags) error {
 		}
 		return fmt.Errorf("%s exists from an earlier attempt and may hold your old store; move it away first", old)
 	}
+	// A copy would drop links and special files, and from is deleted after
+	// the swap: refuse up front, nothing changed.
+	if err := checkPlainTree(from); err != nil {
+		return err
+	}
 	// stage only ever holds a copy of a store kept elsewhere; a leftover one
 	// is safe to drop.
 	if err := os.RemoveAll(stage); err != nil {
 		return err
 	}
-	// Fails: target untouched.
+	// Fails (or the copy differs): target untouched.
 	if err := ops.copyTree(from, stage); err != nil {
+		return errors.Join(err, cleanup(stage))
+	}
+	if err := sameTree(from, stage); err != nil {
 		return errors.Join(err, cleanup(stage))
 	}
 	// Fails: target untouched.
@@ -420,9 +442,9 @@ func swapAtTarget(ops fsOps, target, from, to, id string, tags swapTags) error {
 	if err := moveTree(ops, old, to); err != nil && !isLeftover(err) {
 		return reverseTargetSwap(ops, target, stage, old, err)
 	} else if err != nil {
-		return errors.Join(err, leftover(from))
+		return errors.Join(err, leftover(ops, from))
 	}
-	return leftover(from)
+	return leftover(ops, from)
 }
 
 // reverseTargetSwap undoes a target swap whose old store could not be moved
@@ -447,27 +469,47 @@ func moveTree(ops fsOps, src, dst string) error {
 	if err := ops.rename(src, dst); err == nil {
 		return nil
 	}
+	// A copy would drop links and special files before src is deleted.
+	if err := checkPlainTree(src); err != nil {
+		return err
+	}
 	if err := ops.copyTree(src, dst); err != nil {
 		return errors.Join(fmt.Errorf("move %s to %s: %w", src, dst, err), cleanup(dst))
 	}
+	if err := sameTree(src, dst); err != nil {
+		return errors.Join(err, cleanup(dst))
+	}
+	return leftover(ops, src)
+}
+
+// sameTree refuses a copy whose files differ from its source's.
+func sameTree(src, dst string) error {
 	want, err := HashTree(src)
 	if err != nil {
-		return errors.Join(err, cleanup(dst))
+		return err
 	}
 	got, err := HashTree(dst)
 	if err != nil {
-		return errors.Join(err, cleanup(dst))
+		return err
 	}
 	if changed := ChangedPaths(want, got); len(changed) > 0 {
-		return errors.Join(fmt.Errorf("copy %s to %s differs (%s)", src, dst, strings.Join(changed, ", ")), cleanup(dst))
+		return fmt.Errorf("copy %s to %s differs (%s)", src, dst, strings.Join(changed, ", "))
 	}
-	return leftover(src)
+	return nil
 }
 
 // leftover deletes a copy no longer needed; failing to is not fatal.
-func leftover(path string) error {
-	if err := os.RemoveAll(path); err != nil {
+func leftover(ops fsOps, path string) error {
+	if err := ops.removeAll(path); err != nil {
 		return &leftoverError{err: fmt.Errorf("delete leftover %s: %w", path, err)}
+	}
+	return nil
+}
+
+// clearCopy deletes a leftover copy of the live store after a swap.
+func clearCopy(path string) error {
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("delete leftover copy %s: %w", path, err)
 	}
 	return nil
 }

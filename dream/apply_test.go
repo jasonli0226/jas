@@ -374,7 +374,7 @@ func failOps(dst string) fsOps {
 			copyFailed = true
 			return errors.New("injected copy failure")
 		}
-		return CopyTree(a, b)
+		return copyPlainTree(a, b)
 	}
 	return ops
 }
@@ -504,4 +504,101 @@ func TestUndo_SaveFailsRollsBack(t *testing.T) {
 		assert.Eq(t, got.State, Undone)
 		treeEq(t, readTree(t, f.memDir), liveFiles)
 	}
+}
+
+func TestUndo_SymlinkedStoreWithInnerLinkRefused(t *testing.T) {
+	f, target := symlinkSetup(t)
+	inner := filepath.Join(target, "link.md")
+	assert.NoErr(t, os.Symlink("a.md", inner))
+	_, err := Apply(f.memDir, f.dreamsDir, f.m)
+	assert.NoErr(t, err) // the old store moved by rename, link and all
+	keptLink := f.idPath("before", "link.md")
+	if _, err := os.Lstat(keptLink); err != nil {
+		t.Fatalf("link not kept in before/: %v", err)
+	}
+	_, err = Undo(f.memDir, f.dreamsDir, f.m)
+	if err == nil {
+		t.Fatal("want undo refused: a copy of before/ would drop its link")
+	}
+	assert.Contains(t, err.Error(), "link.md")
+	assertLink(t, f.memDir)
+	treeEq(t, readTree(t, target), propFiles)
+	treeEq(t, readTree(t, f.idPath("before")), liveFiles)
+	if _, err := os.Lstat(keptLink); err != nil {
+		t.Fatalf("link lost from before/: %v", err)
+	}
+	assertNoSiblings(t, target)
+	assert.Eq(t, loadState(t, f.dreamsDir), Applied)
+}
+
+// crossDevice fails every rename into dst, as across file systems.
+func crossDevice(dst string) fsOps {
+	ops := osOps
+	ops.rename = func(a, b string) error {
+		if b == dst {
+			return errors.New("injected cross-device rename")
+		}
+		return os.Rename(a, b)
+	}
+	return ops
+}
+
+func TestApply_CopyFallbackKeepsMode(t *testing.T) {
+	f, target := symlinkSetup(t)
+	assert.NoErr(t, os.Chmod(filepath.Join(target, "a.md"), 0o600))
+	assert.NoErr(t, os.Chmod(f.idPath("proposed", "c.md"), 0o600))
+	_, err := apply(crossDevice(f.idPath("before")), f.memDir, f.dreamsDir, f.m)
+	assert.NoErr(t, err)
+	treeEq(t, readTree(t, f.idPath("before")), liveFiles)
+	for _, p := range []string{f.idPath("before", "a.md"), filepath.Join(target, "c.md")} {
+		fi, err := os.Stat(p)
+		assert.NoErr(t, err)
+		assert.Perm(t, fi.Mode().Perm(), 0o600)
+	}
+}
+
+func TestApply_CopyFallbackRefusesInnerLink(t *testing.T) {
+	f, target := symlinkSetup(t)
+	assert.NoErr(t, os.Symlink("a.md", filepath.Join(target, "link.md")))
+	_, err := apply(crossDevice(f.idPath("before")), f.memDir, f.dreamsDir, f.m)
+	if err == nil {
+		t.Fatal("want refusal: the copy fallback would drop the link")
+	}
+	assertLink(t, f.memDir)
+	treeEq(t, readTree(t, target), liveFiles)
+	if _, err := os.Lstat(filepath.Join(target, "link.md")); err != nil {
+		t.Fatalf("link lost: %v", err)
+	}
+	assertNoSiblings(t, target)
+	treeEq(t, readTree(t, f.idPath("proposed")), propFiles)
+	assert.Eq(t, loadState(t, f.dreamsDir), Pending)
+}
+
+func TestApply_SymlinkLeftoverAndSaveFailRollsBack(t *testing.T) {
+	f, target := symlinkSetup(t)
+	proposed := f.idPath("proposed")
+	ops := osOps
+	ops.removeAll = func(p string) error {
+		if p == proposed { // delete part of the copy, then fail
+			assert.NoErr(t, os.Remove(filepath.Join(p, "c.md")))
+			return errors.New("injected partial delete")
+		}
+		return os.RemoveAll(p)
+	}
+	ops.save = func(dreamsDir string, m Meta) error {
+		if m.State == Applied {
+			return errors.New("injected save failure")
+		}
+		return Save(dreamsDir, m)
+	}
+	_, err := apply(ops, f.memDir, f.dreamsDir, f.m)
+	if err == nil {
+		t.Fatal("want injected failure")
+	}
+	assert.Contains(t, err.Error(), "old store is back in place")
+	assertLink(t, f.memDir)
+	treeEq(t, readTree(t, target), liveFiles)
+	treeEq(t, readTree(t, proposed), propFiles)
+	assertNoSiblings(t, target)
+	assert.Eq(t, loadState(t, f.dreamsDir), Pending)
 }

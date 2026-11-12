@@ -139,3 +139,89 @@ func ChangedPaths(a, b map[string]string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// checkPlainTree refuses a tree holding anything but regular files and
+// folders (a link, device, socket...), which a copy would drop.
+func checkPlainTree(dir string) error {
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a plain file or folder (%s); only those can be copied", p, d.Type())
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("dream: check %s: %w", dir, err)
+	}
+	return nil
+}
+
+// copyPlainTree copies src (a real folder, not a link) to dst, which must
+// not exist, keeping permission bits. Any entry that is not a regular file
+// or folder is an error, so nothing is silently dropped.
+func copyPlainTree(src, dst string) error {
+	if err := checkPlainTree(src); err != nil {
+		return err
+	}
+	type dirMode struct {
+		path string
+		mode fs.FileMode
+	}
+	var dirs []dirMode
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm()
+		switch {
+		case d.IsDir():
+			// Writable while filling; the real mode is set at the end.
+			if err := os.Mkdir(target, mode|0o700); err != nil {
+				return err
+			}
+			dirs = append(dirs, dirMode{target, mode})
+			return nil
+		case d.Type().IsRegular():
+			return copyFileMode(p, target, mode)
+		}
+		return fmt.Errorf("%s is not a plain file or folder (%s)", p, d.Type())
+	})
+	for i := len(dirs) - 1; err == nil && i >= 0; i-- {
+		err = os.Chmod(dirs[i].path, dirs[i].mode)
+	}
+	if err != nil {
+		return fmt.Errorf("dream: copy %s: %w", src, err)
+	}
+	return nil
+}
+
+func copyFileMode(src, dst string, mode fs.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(dst, mode) // OpenFile's mode is masked by the umask
+}
