@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/providers"
+	"github.com/jasonli0226/jas/tools"
 )
 
 func call(t *testing.T, tool core.Tool, ws string, args any) core.Result {
@@ -107,3 +109,83 @@ func TestReportChange_CollectsAndValidates(t *testing.T) {
 		t.Error("rejected call was recorded")
 	}
 }
+
+func TestRemoveNote_RefusesSymlink(t *testing.T) {
+	g, ws := guardFixture(t)
+	ev := filepath.Join(ws, "evidence.md")
+	touch(t, ev)
+	link := filepath.Join(g.Proposed, "link.md")
+	if err := os.Symlink(ev, link); err != nil {
+		t.Skip(err)
+	}
+	inner := filepath.Join(g.Proposed, "real.md")
+	touch(t, inner)
+	link2 := filepath.Join(g.Proposed, "link2.md")
+	if err := os.Symlink(inner, link2); err != nil {
+		t.Skip(err)
+	}
+	for _, p := range []string{"proposed/link.md", "proposed/link2.md"} {
+		if res := call(t, RemoveNote(g.Proposed), ws, map[string]string{"path": p}); !res.IsError {
+			t.Errorf("%s: want refusal", p)
+		}
+	}
+	if !exists(ev) || !exists(inner) {
+		t.Fatal("target removed")
+	}
+}
+
+func TestReportChange_RejectsEmptyReasonAndPath(t *testing.T) {
+	var c Changes
+	tool := ReportChange(&c)
+	if !call(t, tool, "", map[string]any{"kind": "fix", "paths": []string{"a.md"}, "reason": " "}).IsError {
+		t.Error("empty reason accepted")
+	}
+	if !call(t, tool, "", map[string]any{"kind": "fix", "paths": []string{""}, "reason": "r"}).IsError {
+		t.Error("empty path accepted")
+	}
+}
+
+func TestExecutor_DreamGuardConfinesWrites(t *testing.T) {
+	g, ws := guardFixture(t)
+	var changes Changes
+	ex := &core.Executor{
+		Reg:            core.NewRegistry(tools.Write{}, tools.Edit{}, RemoveNote(g.Proposed), ReportChange(&changes)),
+		Policy:         core.ExecPolicy{Root: ws},
+		Log:            nopLog{},
+		GuardAllWrites: true,
+		WritePrecheck:  g.Precheck,
+		WriteGuard:     g.Check,
+	}
+	run := func(tool string, args any) providers.ContentBlock {
+		raw, _ := json.Marshal(args)
+		out, err := ex.Run(context.Background(), []providers.ContentBlock{{Type: providers.BlockToolUse, ToolUseID: "c", Name: tool, Input: raw}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out[0]
+	}
+	if r := run("write", map[string]string{"path": "evidence.md", "content": "pwn"}); !r.IsError {
+		t.Error("evidence.md write allowed")
+	}
+	if exists(filepath.Join(ws, "evidence.md")) {
+		t.Error("evidence.md created")
+	}
+	if r := run("write", map[string]string{"path": "proposed/x.md", "content": "no frontmatter"}); !r.IsError {
+		t.Error("invalid note allowed")
+	}
+	if r := run("write", map[string]string{"path": "proposed/a-note.md", "content": goodNote}); r.IsError {
+		t.Fatalf("valid note refused: %s", r.Text)
+	}
+	if !exists(filepath.Join(g.Proposed, "a-note.md")) {
+		t.Error("valid note not written")
+	}
+}
+
+// nopLog discards events; the executor needs a log.
+type nopLog struct{}
+
+func (nopLog) Append(string, any) error             { return nil }
+func (nopLog) AppendID(string, any) (string, error) { return "", nil }
+func (nopLog) AppendSync(string, any) error         { return nil }
+func (nopLog) Sync() error                          { return nil }
+func (nopLog) Close() error                         { return nil }

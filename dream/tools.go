@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/memory"
 )
 
 // Change kinds the model may report.
@@ -59,8 +60,9 @@ func (reportChange) Description() string {
 }
 func (reportChange) Kind() core.Kind { return core.ReadOnly }
 func (reportChange) Schema() json.RawMessage {
+	kinds, _ := json.Marshal(changeKinds)
 	return json.RawMessage(`{"type":"object","properties":{` +
-		`"kind":{"type":"string","enum":["fix","merge","correct","add","remove","prune","promote"],"description":"What sort of change this is."},` +
+		`"kind":{"type":"string","enum":` + string(kinds) + `,"description":"What sort of change this is."},` +
 		`"paths":{"type":"array","items":{"type":"string"},"description":"Store paths the change touches."},` +
 		`"reason":{"type":"string","description":"Why the change is right."},` +
 		`"evidence":{"type":"array","items":{"type":"string"},"description":"Evidence items as <session-id>#<seq>."}},` +
@@ -82,6 +84,12 @@ func (r reportChange) Call(_ context.Context, _ core.ExecPolicy, args json.RawMe
 	}
 	if len(a.Paths) == 0 {
 		return errResult("paths must list at least one path")
+	}
+	if strings.TrimSpace(a.Reason) == "" {
+		return errResult("reason must not be empty")
+	}
+	if slices.Contains(a.Paths, "") {
+		return errResult("paths must not contain an empty string")
 	}
 	r.c.add(Change{Kind: a.Kind, Paths: a.Paths, Reason: a.Reason, Evidence: a.Evidence})
 	return core.Result{Output: "recorded"}, nil
@@ -114,11 +122,14 @@ func (t removeNote) Call(_ context.Context, p core.ExecPolicy, args json.RawMess
 	if err != nil {
 		return errResult("%v", err)
 	}
-	root := evalDir(t.proposed)
-	if !within(root, full) || full == root {
+	if err := refuseLink(p, a.Path); err != nil {
+		return errResult("%v", err)
+	}
+	root := memory.EvalDir(t.proposed)
+	if !memory.Within(root, full) || full == root {
 		return errResult("dreams write only inside proposed/")
 	}
-	if isIndex(filepath.Base(full)) {
+	if memory.IsIndex(filepath.Base(full)) {
 		return errResult("MEMORY.md cannot be removed; edit it instead")
 	}
 	info, err := os.Lstat(full)
@@ -135,4 +146,19 @@ func (t removeNote) Call(_ context.Context, p core.ExecPolicy, args json.RawMess
 		_ = os.Remove(dir) // fails harmlessly unless the folder is empty
 	}
 	return core.Result{Output: "removed " + a.Path}, nil
+}
+
+// refuseLink refuses a path whose in-tree entry is a symlink: proposed/ is a
+// copy and holds none, so a link is never removed through the tool.
+func refuseLink(p core.ExecPolicy, path string) error {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(p.Root, abs)
+	}
+	for _, cand := range []string{filepath.Clean(abs), filepath.Join(memory.EvalDir(filepath.Dir(abs)), filepath.Base(abs))} {
+		if info, err := os.Lstat(cand); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("remove_note %s: is a symbolic link", path)
+		}
+	}
+	return nil
 }

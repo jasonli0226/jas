@@ -60,7 +60,7 @@ type Guard struct {
 // Holds reports whether resolved (absolute, symlinks resolved) lies in the
 // profile memory dir.
 func (g Guard) Holds(resolved string) bool {
-	return within(evalDir(g.Dirs.Profile), resolved)
+	return Within(EvalDir(g.Dirs.Profile), resolved)
 }
 
 // Precheck applies the write rules that need no content: a headless run or
@@ -77,11 +77,11 @@ func (g Guard) Precheck(tool, resolved string) error {
 	if g.Mode == ModeRead {
 		return errors.New("memory is read-only in this session (memory: read)")
 	}
-	profile, project := evalDir(g.Dirs.Profile), evalDir(g.Dirs.Project)
+	profile, project := EvalDir(g.Dirs.Profile), EvalDir(g.Dirs.Project)
 	if dir := filepath.Dir(resolved); dir != profile && dir != project {
 		return fmt.Errorf("memory notes belong directly in %s or %s, not %s", g.Dirs.Profile, g.Dirs.Project, dir)
 	}
-	if name := filepath.Base(resolved); !strings.HasSuffix(name, ".md") && !isIndex(name) {
+	if name := filepath.Base(resolved); !strings.HasSuffix(name, ".md") && !IsIndex(name) {
 		return fmt.Errorf("memory holds .md notes only, not %s", name)
 	}
 	return nil
@@ -97,7 +97,7 @@ func (g Guard) Check(tool, resolved string, existed bool, newContent string) err
 		return err
 	}
 	name := filepath.Base(resolved)
-	if isIndex(name) {
+	if IsIndex(name) {
 		if tool == "write" && existed {
 			return errors.New("change MEMORY.md with edit, not a whole-file write")
 		}
@@ -110,16 +110,16 @@ func (g Guard) Check(tool, resolved string, existed bool, newContent string) err
 	return nil
 }
 
-// isIndex reports whether name is MEMORY.md in any case: on a
+// IsIndex reports whether name is MEMORY.md in any case: on a
 // case-insensitive file system every variant is the index, so none may be
 // written as a note.
-func isIndex(name string) bool {
+func IsIndex(name string) bool {
 	return strings.EqualFold(name, indexFile)
 }
 
-// evalDir resolves symlinks in the nearest existing ancestor of dir and
+// EvalDir resolves symlinks in the nearest existing ancestor of dir and
 // re-appends the missing tail. On an unexpected error it returns dir as is.
-func evalDir(dir string) string {
+func EvalDir(dir string) string {
 	dir = filepath.Clean(dir)
 	var tail []string
 	for cur := dir; ; {
@@ -140,7 +140,8 @@ func evalDir(dir string) string {
 	}
 }
 
-func within(root, path string) bool {
+// Within reports whether path is root or lies under it (lexically).
+func Within(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return false

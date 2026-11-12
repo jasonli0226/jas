@@ -87,7 +87,7 @@ func readIndex(dir string) (Index, []string, error) {
 	if err != nil {
 		return Index{}, nil, fmt.Errorf("memory: read index: %w", err)
 	}
-	if !within(evalDir(dir), resolved) {
+	if !Within(EvalDir(dir), resolved) {
 		idx.Ignored = fmt.Sprintf("memory index %s ignored: it links to %s, outside %s", path, resolved, dir)
 		return idx, nil, nil
 	}

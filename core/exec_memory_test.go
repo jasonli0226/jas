@@ -231,3 +231,17 @@ func TestSession_SetProfileMemory(t *testing.T) {
 	newSession(t, r).SetProfileMemory("/p/memory")
 	assert.Eq(t, r.cfg.Exec.Policy.ProfileMemory, "/p/memory")
 }
+
+func TestExecutor_GuardAllWrites(t *testing.T) {
+	for _, all := range []bool{false, true} {
+		r := newMemRig(t, nil)
+		r.ex.GuardAllWrites = all
+		r.guardErr = errors.New("nope")
+		path := filepath.Join(r.ex.Policy.Root, "plain.txt")
+		out := r.run(t, "write", map[string]string{"path": path, "content": "x"})
+		assert.Eq(t, out[0].IsError, all)
+		assert.Eq(t, len(r.guarded) == 1, all)
+		_, err := os.Stat(path)
+		assert.Eq(t, err == nil, !all)
+	}
+}

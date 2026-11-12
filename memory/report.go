@@ -45,7 +45,7 @@ func countNotes(dir string) int {
 	}
 	n := 0
 	for _, e := range entries {
-		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") && !isIndex(e.Name()) {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") && !IsIndex(e.Name()) {
 			n++
 		}
 	}
