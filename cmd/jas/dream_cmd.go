@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,19 +31,12 @@ const (
 	dreamEvidence   = "evidence.md"
 	dreamReport     = "report.md"
 	dreamFileMode   = 0o644
-	dreamApplyAsk   = "apply? [y/N] "
-	dreamRunAsk     = "apply? [y/N/d=diff] "
-	warningsHeading = "## Warnings"
 	hoursPerDay     = 24
 )
 
-// validSessionID is core.NewSessionID's shape; a dream record's session id
-// becomes a path, so anything else is refused.
-var validSessionID = regexp.MustCompile(`^\d{8}T\d{6}-[0-9a-f]{6}$`)
-
 // dreamArgs are the jas dream run flags.
 type dreamArgs struct {
-	since     string        // --since: "" means the watermark
+	since     time.Time     // --since, parsed; zero means the watermark
 	sessions  int           // --sessions: window size cap
 	maxTokens int           // --max-tokens
 	timeout   time.Duration // --timeout
@@ -74,6 +66,8 @@ func dreamRun(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// ResolveMode cannot fail: an unknown value resolves to on. Its second
+	// result hides a project's index, which a dream (no project) ignores.
 	if mode, _ := memory.ResolveMode(memorySetting(e.layers, os.Getenv)); mode == memory.ModeOff {
 		return errors.New("memory is off for this profile")
 	}
@@ -83,15 +77,15 @@ func dreamRun(ctx context.Context, args []string, out io.Writer) error {
 	}
 	dreamsDir := dream.Dir(filepath.Dir(live))
 
-	m, err := dreamSession(ctx, e, da, ws, live, dreamsDir)
+	m, stop, err := dreamSession(ctx, e, da, ws, live, dreamsDir)
 	if err != nil {
 		return err
 	}
 	if err := dreamOutput(ctx, e, da, out, m, live, dreamsDir); err != nil {
 		return err
 	}
-	if m.Partial {
-		return &core.ExitError{Code: core.ExitBudget, Reason: "dream stopped at its cap; the proposal is partial"}
+	if stop != nil {
+		return stop
 	}
 	return nil
 }
@@ -100,7 +94,7 @@ func parseDream(args []string) (dreamArgs, error) {
 	fs := flag.NewFlagSet("dream", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	da := dreamArgs{sessions: dreamMaxWindow, maxTokens: dreamMaxTokens, timeout: dreamTimeout}
-	fs.StringVar(&da.since, "since", "", "read sessions since this duration ago (36h, 7d) or date, instead of the watermark")
+	since := fs.String("since", "", "read sessions since this duration ago (36h, 7d) or date, instead of the watermark")
 	sessions := fs.String("sessions", "", "read at most this many sessions")
 	maxTokens := fs.String("max-tokens", "", "stop with exit 7 before a request that would cross this many total tokens")
 	timeout := fs.String("timeout", "", "stop with exit 7 after this wall-clock duration")
@@ -125,8 +119,8 @@ func parseDream(args []string) (dreamArgs, error) {
 			return da, usageErr("--timeout must be a positive duration such as 30m, got %q", *timeout)
 		}
 	}
-	if da.since != "" {
-		if _, err := parseSince(da.since, time.Now()); err != nil {
+	if *since != "" {
+		if da.since, err = parseSince(*since, time.Now()); err != nil {
 			return da, usageErr("%v", err)
 		}
 	}
@@ -185,22 +179,32 @@ type dreamInputs struct {
 
 // dreamSession snapshots the store, builds the evidence, runs the model
 // pass and persists the proposal. Nothing lands under dreamsDir until the
-// pass ended or hit its cap.
-func dreamSession(ctx context.Context, e *env, da dreamArgs, ws, live, dreamsDir string) (dream.Meta, error) {
+// pass ended or was stopped by a cap; stop is that cap's exit error (the
+// proposal is then partial), nil when the model finished.
+func dreamSession(ctx context.Context, e *env, da dreamArgs, ws, live, dreamsDir string) (m dream.Meta, stop *core.ExitError, err error) {
 	in, err := dreamPrepare(e, da, ws, live, dreamsDir)
 	if err != nil {
-		return dream.Meta{}, err
+		return m, nil, err
 	}
 	changes := &dream.Changes{}
-	tokens, partial, err := dreamModelPass(ctx, e, da, in, changes)
+	tokens, stop, err := dreamModelPass(ctx, e, da, in, changes)
 	if err != nil {
-		return dream.Meta{}, err
+		return m, nil, err
 	}
 	if ctx.Err() != nil {
-		return dream.Meta{}, &core.ExitError{Code: core.ExitInterrupted, Reason: "interrupted"}
+		return m, nil, errInterrupted()
 	}
-	return dreamPersist(e, in, changes.All(), tokens, partial, dreamsDir)
+	m, err = dreamPersist(e, in, changes.All(), tokens, stop != nil, dreamsDir)
+	return m, stop, err
 }
+
+func errInterrupted() error {
+	return &core.ExitError{Code: core.ExitInterrupted, Reason: "interrupted"}
+}
+
+// dreamStops are the exits that end the model pass early but keep its
+// work: a token or time cap, the turn cap, a full context.
+var dreamStops = []int{core.ExitBudget, core.ExitTurnCap, core.ExitContextFull}
 
 // dreamPrepare fills the workspace: proposed/ (a copy of the live store),
 // logs/ (the window's event logs) and evidence.md.
@@ -222,11 +226,9 @@ func dreamPrepare(e *env, da dreamArgs, ws, live, dreamsDir string) (dreamInputs
 	}
 	in.before = dreamLint(e, in.proposed)
 
-	in.since = dream.Watermark(dreamsDir, now)
-	if da.since != "" {
-		if in.since, err = parseSince(da.since, now); err != nil {
-			return in, usageErr("%v", err)
-		}
+	in.since = da.since
+	if in.since.IsZero() {
+		in.since = dream.Watermark(dreamsDir, now)
 	}
 	logs, notices, err := dream.SelectWindow(filepath.Join(e.home, sessionsDir), e.profile, in.since, da.sessions)
 	if err != nil {
@@ -269,9 +271,9 @@ func dreamRegistry(proposed string, changes *dream.Changes) *core.Registry {
 }
 
 // dreamModelPass runs the model session in its own event log. It returns
-// the tokens used and whether the pass stopped at a cap; an interrupt or
-// any other stop is an error.
-func dreamModelPass(ctx context.Context, e *env, da dreamArgs, in dreamInputs, changes *dream.Changes) (int, bool, error) {
+// the tokens used and, when a cap stopped the pass (dreamStops), that exit;
+// an interrupt or any other stop is an error.
+func dreamModelPass(ctx context.Context, e *env, da dreamArgs, in dreamInputs, changes *dream.Changes) (int, *core.ExitError, error) {
 	runCtx, cancel := context.WithTimeout(ctx, da.timeout)
 	defer cancel()
 	var ui core.UI = core.NewQuietUI()
@@ -281,7 +283,7 @@ func dreamModelPass(ctx context.Context, e *env, da dreamArgs, in dreamInputs, c
 	ui = core.NewRedactingUI(ui, e.red.Redact)
 	log, err := core.OpenEventLog(dreamLogPath(e.home, in.sessionID), nil, e.red.Redact)
 	if err != nil {
-		return 0, false, err
+		return 0, nil, err
 	}
 	defer log.Close() // idempotent; closed below before dream_proposed reopens it
 	log = core.NewUILog(log, ui)
@@ -303,16 +305,16 @@ func dreamModelPass(ctx context.Context, e *env, da dreamArgs, in dreamInputs, c
 		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: pool,
 	})
 	if closeErr := log.Close(); closeErr != nil && err == nil {
-		return 0, false, closeErr
+		return 0, nil, closeErr
 	}
 	var ee *core.ExitError
 	switch {
 	case err == nil:
-		return pool.Used(), false, nil
-	case errors.As(err, &ee) && ee.Code == core.ExitBudget:
-		return pool.Used(), true, nil
+		return pool.Used(), nil, nil
+	case errors.As(err, &ee) && slices.Contains(dreamStops, ee.Code):
+		return pool.Used(), &core.ExitError{Code: ee.Code, Reason: "dream stopped early (" + ee.Reason + "); the proposal is partial"}, nil
 	}
-	return 0, false, err
+	return 0, nil, err
 }
 
 func dreamLogPath(home, sessionID string) string {
@@ -353,6 +355,7 @@ func dreamPersist(e *env, in dreamInputs, changes []dream.Change, tokens int, pa
 		StartedAt: in.started, EndedAt: time.Now().UTC(), SessionID: in.sessionID,
 		Window: dream.Window{Since: in.since.UTC(), Until: in.started, Sessions: sessionIDs(in.logs)},
 		Base:   in.base, Counts: f.Counts, Partial: partial,
+		Warnings: redactWarnings(dream.NewWarnings(f, changes), e.red.Redact),
 	}
 	// Apply checks the copy it will swap in, so hash that, not the workspace.
 	if m.Proposed, err = dream.HashTree(kept); err != nil {
@@ -386,18 +389,6 @@ func sessionIDs(logs []dream.LogRef) []string {
 	return ids
 }
 
-// appendDreamEvent reopens a dream's session log and appends one event.
-func appendDreamEvent(home, sessionID, typ string, data map[string]any, redact func(string) string) error {
-	if !validSessionID.MatchString(sessionID) {
-		return fmt.Errorf("invalid session id %q", sessionID)
-	}
-	log, err := core.OpenEventLog(dreamLogPath(home, sessionID), nil, redact)
-	if err != nil {
-		return err
-	}
-	return errors.Join(log.Append(typ, data), log.Close())
-}
-
 // copyRegular copies one file, creating dst's folder.
 func copyRegular(src, dst string) error {
 	data, err := os.ReadFile(src)
@@ -408,167 +399,4 @@ func copyRegular(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, dreamFileMode)
-}
-
-// dreamJSON is jas dream --json's one object: dream.json plus the report
-// path and the open lint count.
-type dreamJSON struct {
-	dream.Meta
-	Report   string `json:"report"`
-	LintOpen int    `json:"lint_open"`
-}
-
-// dreamOutput prints the JSON object, or the summary and, on a terminal,
-// the apply question.
-func dreamOutput(ctx context.Context, e *env, da dreamArgs, out io.Writer, m dream.Meta, live, dreamsDir string) error {
-	reportPath := filepath.Join(dreamsDir, m.ID, dreamReport)
-	if da.json {
-		data, err := json.Marshal(dreamJSON{Meta: m, Report: reportPath, LintOpen: m.Counts.LintOpen})
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(out, "%s\n", data)
-		return err
-	}
-	c := m.Counts
-	fmt.Fprintf(out, "dream %s: %d changed, %d added, %d removed; lint %d fixed, %d open; %d promotion candidates\n",
-		m.ID, c.Changed, c.Added, c.Removed, c.LintFixed, c.LintOpen, c.Promote)
-	if m.Partial {
-		fmt.Fprintln(out, "partial: the dream stopped at its cap")
-	}
-	warnings := reportWarnings(reportPath)
-	if warnings != "" {
-		fmt.Fprintln(out, warnings)
-	}
-	fmt.Fprintf(out, "report: %s\n", reportPath)
-	if !e.interactive {
-		return nil
-	}
-	ask := func(p string) string { return askLine(ctx, e.stdin, os.Stderr, p) }
-	for {
-		switch strings.ToLower(strings.TrimSpace(ask(dreamRunAsk))) {
-		case "d", "diff":
-			rows, err := dreamDiff(live, filepath.Join(dreamsDir, m.ID, dreamProposed), e.red.Redact)
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				fmt.Fprintln(out, r)
-			}
-		case "y", "yes":
-			req := dreamApply{home: e.home, memDir: live, dreamsDir: dreamsDir, id: m.ID, out: out, redact: e.red.Redact}
-			if warnings != "" { // apply asks again when the report warns
-				req.ask = ask
-			}
-			return applyDreamAndLog(req)
-		default:
-			fmt.Fprintf(out, "kept pending: jas dream apply %s\n", m.ID)
-			return nil
-		}
-	}
-}
-
-// reportWarnings is the report's Warnings section, or "" when it has none.
-func reportWarnings(reportPath string) string {
-	data, err := os.ReadFile(reportPath)
-	if err != nil {
-		return ""
-	}
-	s := string(data)
-	i := strings.Index(s, "\n"+warningsHeading+"\n")
-	if i < 0 {
-		return ""
-	}
-	s = s[i+1:]
-	if j := strings.Index(s[len(warningsHeading):], "\n## "); j >= 0 {
-		s = s[:len(warningsHeading)+j]
-	}
-	return strings.TrimSpace(s)
-}
-
-// dreamDiff renders, per path that differs between the live store and a
-// proposal, a "--- path" header and the plain diff rows.
-func dreamDiff(live, proposed string, redact func(string) string) ([]string, error) {
-	a, err := dream.HashTree(live)
-	if err != nil {
-		return nil, err
-	}
-	b, err := dream.HashTree(proposed)
-	if err != nil {
-		return nil, err
-	}
-	var rows []string
-	for _, p := range dream.ChangedPaths(a, b) {
-		old, err := readOptional(filepath.Join(live, filepath.FromSlash(p)))
-		if err != nil {
-			return nil, err
-		}
-		nw, err := readOptional(filepath.Join(proposed, filepath.FromSlash(p)))
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, "--- "+p)
-		rows = append(rows, core.FormatDiffPlain(core.ComputeDiff(core.Change{Path: p, Old: old, New: nw}, redact))...)
-	}
-	return rows, nil
-}
-
-// readOptional reads a file, "" when it does not exist.
-func readOptional(p string) (string, error) {
-	data, err := os.ReadFile(p)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	return string(data), err
-}
-
-// dreamApply is one apply of a pending dream.
-type dreamApply struct {
-	home, memDir, dreamsDir, id string
-	out                         io.Writer
-	// ask, when set, asks the owner to confirm after the diff stat and
-	// warnings; nil means they already agreed (--yes).
-	ask    func(prompt string) string
-	redact func(string) string
-}
-
-// applyDreamAndLog shows a pending dream's diff stat and warnings, confirms,
-// applies it and logs dream_applied in the dream's session log. A
-// *dream.StaleError is returned (exit 1); a *dream.FollowUpError means the
-// apply took effect, so it is logged and only warned about.
-func applyDreamAndLog(a dreamApply) error {
-	m, err := dream.Load(a.dreamsDir, a.id)
-	if err != nil {
-		return err
-	}
-	if m.State != dream.Pending {
-		return fmt.Errorf("dream %s is %s, not pending", m.ID, m.State)
-	}
-	c := m.Counts
-	fmt.Fprintf(a.out, "dream %s: %d changed, %d added, %d removed\n", m.ID, c.Changed, c.Added, c.Removed)
-	if w := reportWarnings(filepath.Join(a.dreamsDir, m.ID, dreamReport)); w != "" {
-		fmt.Fprintln(a.out, w)
-	}
-	if a.ask != nil {
-		if ans := strings.ToLower(strings.TrimSpace(a.ask(dreamApplyAsk))); ans != "y" && ans != "yes" {
-			fmt.Fprintf(a.out, "kept pending: jas dream apply %s\n", m.ID)
-			return nil
-		}
-	}
-	applied, err := dream.Apply(a.memDir, a.dreamsDir, m)
-	var follow *dream.FollowUpError
-	if err != nil && !errors.As(err, &follow) {
-		return err
-	}
-	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(a.redact("jas: warning: "+w))) }
-	if err := appendDreamEvent(a.home, applied.SessionID, core.EvDreamApplied, map[string]any{
-		"dream_id": applied.ID, "counts": applied.Counts,
-	}, a.redact); err != nil {
-		warn("dream " + applied.ID + ": log dream_applied: " + err.Error())
-	}
-	if follow != nil {
-		warn(follow.Error())
-	}
-	fmt.Fprintf(a.out, "applied dream %s (undo: jas dream undo %s)\n", applied.ID, applied.ID)
-	return nil
 }

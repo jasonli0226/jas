@@ -685,8 +685,11 @@ asks again, `y` shows the diff stat and applies (asking once more when the
 report has warnings). Off a terminal it stops after writing the proposal.
 
 **Exit codes.** `0` proposal written; `1` failure (including memory off);
-`2` usage; `7` a cap was reached, and the partial proposal is still written
-and marked `partial`; `130` interrupted, and no proposal is written.
+`2` usage; `130` interrupted, and no proposal is written (Ctrl+C at the
+apply question also exits 130 and leaves the dream pending). When the model
+pass is stopped early, the proposal it has so far is still written and
+marked `partial`, and the exit code says why: `7` the `--max-tokens` or
+`--timeout` cap, `4` the turn cap (`max_turns`), `3` the context is full.
 
 **Storage.** Dreams live beside the store, never inside it:
 
@@ -696,7 +699,9 @@ and marked `partial`; `130` interrupted, and no proposal is written.
   <id>/
     dream.json      id, profile, state, started_at, ended_at, session_id,
                     window (since, until, sessions), base and proposed
-                    (path -> sha256), counts, partial
+                    (path -> sha256), counts, partial, and the
+                    warnings apply shows (unexplained paths, unsupported
+                    changes, large removal)
     report.md       the report you read
     evidence.md     the evidence digest the model saw
     proposed/       the full proposed store
@@ -786,8 +791,8 @@ Full design:
 | 0 | the model gave a final answer |
 | 1 | provider failure after retries, unreadable config/auth/trust file, or internal error |
 | 2 | usage error: bad flags, invalid setting, missing model or key |
-| 3 | context full |
-| 4 | turn cap (`max_turns`) hit |
+| 3 | context full (`jas dream` still writes its partial proposal) |
+| 4 | turn cap (`max_turns`) hit (`jas dream` still writes its partial proposal) |
 | 5 | approval needed but no terminal to ask |
 | 6 | a check run by jas failed, or required work is unmet (farm) |
 | 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`); `jas dream` still writes its partial proposal |

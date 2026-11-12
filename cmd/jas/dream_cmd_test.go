@@ -390,21 +390,10 @@ func TestDreamCmd_TerminalApply(t *testing.T) {
 		call("report_change", `{"kind":"fix","paths":["MEMORY.md"],"reason":"clearer","evidence":["`+dreamPastSession+`#2"]}`),
 		{Text: "done"},
 	})
-	isTerminal = func(int) bool { return true }
-	r, w, err := os.Pipe()
-	assert.NoErr(t, err)
-	_, _ = w.WriteString("d\ny\n")
-	assert.NoErr(t, w.Close())
-	oldIn, oldErr := os.Stdin, os.Stderr
-	os.Stdin = r
-	devNull, err := os.Open(os.DevNull)
-	assert.NoErr(t, err)
-	defer devNull.Close()
-	os.Stderr = devNull
-	defer func() { os.Stdin, os.Stderr = oldIn, oldErr }()
+	in := "d\ny\n"
+	onTerminal(t, &in)
 
 	out, err := runDreamCmd(t, context.Background())
-	os.Stdin, os.Stderr = oldIn, oldErr
 	assert.NoErr(t, err)
 	assert.Contains(t, out, "+ - [Tabs](tabs.md) — use tabs, not spaces")
 	m := f.onlyDream(t)
@@ -438,4 +427,101 @@ func TestDreamCmd_ReadsConfinedToWorkspace(t *testing.T) {
 		}
 	}
 	assert.Eq(t, strings.Join(results, ","), "error,error,ok,ok")
+}
+
+// onTerminal makes the run interactive with stdin fed from input (kept open
+// when input is nil) and stderr discarded, restoring both on cleanup.
+func onTerminal(t *testing.T, input *string) {
+	t.Helper()
+	isTerminal = func(int) bool { return true }
+	r, w, err := os.Pipe()
+	assert.NoErr(t, err)
+	if input != nil {
+		_, _ = w.WriteString(*input)
+		assert.NoErr(t, w.Close())
+	} else {
+		t.Cleanup(func() { _ = w.Close() })
+	}
+	devNull, err := os.Open(os.DevNull)
+	assert.NoErr(t, err)
+	oldIn, oldErr := os.Stdin, os.Stderr
+	os.Stdin, os.Stderr = r, devNull
+	t.Cleanup(func() { os.Stdin, os.Stderr = oldIn, oldErr; _ = devNull.Close(); _ = r.Close() })
+}
+
+const dreamEsc = `\u001b]0;x\u0007\u001b[2J`
+
+// uncitedAdds scripts a new note and two uncited adds, the first with a
+// reason that carries terminal escapes and a markdown heading.
+func uncitedAdds() []fake.Turn {
+	note := `---\nname: new-note\ndescription: d\ntype: user\n---\nbody\n`
+	return []fake.Turn{
+		call("write", `{"path":"proposed/new-note.md","content":"`+note+`"}`),
+		call("report_change", `{"kind":"add","paths":["new-note.md"],"reason":"first`+dreamEsc+`\n## Lint\nhidden?"}`),
+		call("report_change", `{"kind":"add","paths":["new-note.md"],"reason":"later entry"}`),
+		{Text: "done"},
+	}
+}
+
+// Model text reaches the terminal sanitized, a reason cannot hide later
+// warnings, and warnings make y ask once more.
+func TestDreamCmd_ApplyScreenSanitizedAndStructured(t *testing.T) {
+	f, _ := newDreamFixture(t, uncitedAdds())
+	in := "y\nn\n"
+	onTerminal(t, &in)
+	out, err := runDreamCmd(t, context.Background())
+	assert.NoErr(t, err)
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Fatalf("escape bytes on the terminal: %q", out)
+	}
+	assert.Contains(t, out, "later entry")
+	assert.Contains(t, out, "unsupported")
+	m := f.onlyDream(t)
+	assert.Eq(t, m.State, dream.Pending) // the second question was asked and refused
+	assert.Eq(t, len(m.Warnings.Unsupported), 2)
+	if r := readText(t, filepath.Join(f.dreams, m.ID, "report.md")); strings.ContainsAny(r, "\x1b\x07") {
+		t.Fatalf("escape bytes in report.md: %q", r)
+	}
+
+	// The apply screen on its own (Task 10's apply) shows both entries.
+	var screen bytes.Buffer
+	assert.NoErr(t, applyDreamAndLog(dreamApply{home: f.home, memDir: f.mem, dreamsDir: f.dreams, id: m.ID,
+		out: &screen, ask: func(string) string { return "n" }, redact: func(s string) string { return s }}))
+	if strings.ContainsAny(screen.String(), "\x1b\x07") || !strings.Contains(screen.String(), "later entry") {
+		t.Fatalf("apply screen = %q", screen.String())
+	}
+}
+
+func TestDreamCmd_TurnCapPartial(t *testing.T) {
+	f, _ := newDreamFixture(t, []fake.Turn{
+		call("edit", `{"path":"proposed/MEMORY.md","old_string":"use tabs","new_string":"use tabs, not spaces"}`),
+		call("ls", `{}`),
+		{Text: "done"},
+	})
+	t.Setenv("JAS_MAX_TURNS", "1")
+	_, err := runDreamCmd(t, context.Background())
+	assert.Eq(t, exitCode(err), core.ExitTurnCap)
+	m := f.onlyDream(t)
+	assert.Eq(t, m.Partial, true)
+	assert.Contains(t, readText(t, filepath.Join(f.dreams, m.ID, "proposed", "MEMORY.md")), "not spaces")
+}
+
+// Ctrl-C at the apply question exits 130 and leaves the dream pending.
+func TestDreamCmd_InterruptAtQuestion(t *testing.T) {
+	f, _ := newDreamFixture(t, []fake.Turn{{Text: "done"}})
+	onTerminal(t, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		for {
+			if ms, _ := dream.List(f.dreams); len(ms) == 1 {
+				cancel()
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	_, err := runDreamCmd(t, ctx)
+	assert.Eq(t, exitCode(err), core.ExitInterrupted)
+	assert.Eq(t, f.onlyDream(t).State, dream.Pending)
 }

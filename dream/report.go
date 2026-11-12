@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/jasonli0226/jas/core"
 )
 
 const dateLayout = "2006-01-02"
@@ -12,11 +14,16 @@ var kindOrder = []string{"fix", "merge", "correct", "add", "remove", "prune"}
 
 // RenderReport writes report.md: header, warnings, changes by kind, promotion
 // candidates, lint, diff stat.
+// Every string the model or a log supplied is sanitized first, so the report
+// carries no terminal escapes and no line breaks of the model's making.
 func RenderReport(m Meta, model string, tokens int, changes []Change, f Findings, logs []LogRef) string {
 	var b strings.Builder
+	changes, f = sanitizeChanges(changes), sanitizeFindings(f)
+	model = core.Sanitize(model)
 	refs := map[string]LogRef{}
 	for _, l := range logs {
-		refs[l.SessionID] = l
+		l.Root = core.Sanitize(l.Root)
+		refs[core.Sanitize(l.SessionID)] = l
 	}
 
 	fmt.Fprintf(&b, "# Dream %s\n\n", m.ID)
@@ -24,7 +31,7 @@ func RenderReport(m Meta, model string, tokens int, changes []Change, f Findings
 	fmt.Fprintf(&b, "- Window: %s to %s (%d sessions)\n", m.Window.Since.Format(dateLayout), m.Window.Until.Format(dateLayout), len(m.Window.Sessions))
 	fmt.Fprintf(&b, "- Model: %s\n- Tokens: %d\n", model, tokens)
 	if m.Partial {
-		b.WriteString("- Status: partial (stopped at the token cap)\n")
+		b.WriteString("- Status: partial (stopped at a cap before the model finished)\n")
 	}
 
 	writeWarnings(&b, changes, f, refs)
@@ -157,4 +164,43 @@ func joinPaths(ps []string) string {
 		q[i] = "`" + p + "`"
 	}
 	return strings.Join(q, ", ")
+}
+
+func sanitizeAll(ss []string) []string {
+	if ss == nil {
+		return nil
+	}
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = core.Sanitize(s)
+	}
+	return out
+}
+
+func sanitizeChanges(cs []Change) []Change {
+	out := make([]Change, len(cs))
+	for i, c := range cs {
+		out[i] = Change{Kind: core.Sanitize(c.Kind), Paths: sanitizeAll(c.Paths),
+			Reason: core.Sanitize(c.Reason), Evidence: sanitizeAll(c.Evidence)}
+	}
+	return out
+}
+
+func sanitizeIssues(is []Issue) []Issue {
+	out := make([]Issue, len(is))
+	for i, x := range is {
+		out[i] = Issue{Kind: x.Kind, Path: core.Sanitize(x.Path), Detail: core.Sanitize(x.Detail)}
+	}
+	return out
+}
+
+func sanitizeFindings(f Findings) Findings {
+	f.Unexplained = sanitizeAll(f.Unexplained)
+	unverified := make(map[int][]string, len(f.Unverified))
+	for i, cs := range f.Unverified {
+		unverified[i] = sanitizeAll(cs)
+	}
+	f.Unverified = unverified
+	f.LintBefore, f.LintAfter = sanitizeIssues(f.LintBefore), sanitizeIssues(f.LintAfter)
+	return f
 }

@@ -102,3 +102,37 @@ func TestRenderReport_Order(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderReport_SanitizesModelText(t *testing.T) {
+	d := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	m := Meta{ID: "20261113T000000-abcd", Profile: "default", Window: Window{Since: d, Until: d}}
+	esc := "\x1b]0;x\x07\x1b[2J"
+	ch := []Change{{Kind: "add", Paths: []string{"n" + esc + ".md"}, Reason: "why" + esc + "\n## Lint", Evidence: []string{"s1#1" + esc}}}
+	f := Verify(map[string]string{}, map[string]string{"n.md": "1"}, ch, Seqs{}, nil,
+		[]Issue{{KindOrphan, "o" + esc + ".md", esc}}, false)
+	out := RenderReport(m, "glm", 1, ch, f, []LogRef{{SessionID: "s1", Root: "/r" + esc}})
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Fatalf("report holds escapes: %q", out)
+	}
+	if strings.Count(out, "\n## Lint") != 1 {
+		t.Fatalf("a reason opened a section:\n%s", out)
+	}
+}
+
+func TestNewWarnings(t *testing.T) {
+	ch := []Change{
+		{Kind: "fix", Paths: []string{"a.md"}, Reason: "ok", Evidence: []string{"s1#1"}},
+		{Kind: "add", Paths: []string{"b.md"}, Reason: "uncited"},
+	}
+	f := Verify(map[string]string{"x.md": "1"}, map[string]string{"a.md": "2", "b.md": "3"}, ch, Seqs{"s1": {1: true}}, nil, nil, true)
+	w := NewWarnings(f, ch)
+	if !w.Any() || !w.BestEffort || !w.LargeRemoval || len(w.Unexplained) != 1 || w.Unexplained[0] != "x.md" {
+		t.Fatalf("warnings = %+v", w)
+	}
+	if len(w.Unsupported) != 1 || w.Unsupported[0].Kind != "add" || w.Unsupported[0].Reason != "uncited" {
+		t.Fatalf("unsupported = %+v", w.Unsupported)
+	}
+	if (Warnings{BestEffort: true}).Any() {
+		t.Fatal("best-effort alone is no warning")
+	}
+}

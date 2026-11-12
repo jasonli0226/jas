@@ -65,6 +65,7 @@ type Meta struct {
 	Proposed  map[string]string `json:"proposed"`
 	Counts    Counts            `json:"counts"`
 	Partial   bool              `json:"partial"`
+	Warnings  Warnings          `json:"warnings"` // what apply shows before asking
 }
 
 type watermarkFile struct {

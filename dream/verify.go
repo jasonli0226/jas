@@ -140,3 +140,36 @@ func lintCounts(before, after []Issue) (fixed, open int) {
 	}
 	return
 }
+
+// Warnings is what apply shows before asking, kept in dream.json so the
+// apply screen never parses the report. Strings are as reported (redacted
+// by the caller); printing them is the printer's job to sanitize.
+type Warnings struct {
+	Unexplained  []string      `json:"unexplained,omitempty"`
+	Unsupported  []Unsupported `json:"unsupported,omitempty"`
+	LargeRemoval bool          `json:"large_removal,omitempty"`
+	BestEffort   bool          `json:"best_effort,omitempty"` // Unexplained may be incomplete: the run was partial
+}
+
+// Unsupported is a correct or add change with no valid citation.
+type Unsupported struct {
+	Kind   string   `json:"kind"`
+	Paths  []string `json:"paths"`
+	Reason string   `json:"reason"`
+}
+
+// Any reports whether there is anything to warn about.
+func (w Warnings) Any() bool {
+	return len(w.Unexplained) > 0 || len(w.Unsupported) > 0 || w.LargeRemoval
+}
+
+// NewWarnings extracts the apply-time warnings from f; changes is the list
+// f was verified against.
+func NewWarnings(f Findings, changes []Change) Warnings {
+	w := Warnings{Unexplained: f.Unexplained, LargeRemoval: f.LargeRemoval, BestEffort: f.BestEffort}
+	for _, i := range f.Unsupported {
+		c := changes[i]
+		w.Unsupported = append(w.Unsupported, Unsupported{Kind: c.Kind, Paths: c.Paths, Reason: c.Reason})
+	}
+	return w
+}
