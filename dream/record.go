@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 )
@@ -68,6 +69,12 @@ type watermarkFile struct {
 	Watermark time.Time `json:"watermark"`
 }
 
+var validID = regexp.MustCompile(`^\d{8}T\d{6}-[0-9a-f]{4}$`)
+
+// ValidID reports whether id has the shape NewID produces. Ids reach paths,
+// so Load and Save refuse anything else.
+func ValidID(id string) bool { return validID.MatchString(id) }
+
 // NewID returns "<UTC timestamp>-<4 hex>", e.g. 20061029T150405-a1b2.
 func NewID(now time.Time) string {
 	var b [2]byte
@@ -82,8 +89,8 @@ func Dir(profileDir string) string { return filepath.Join(profileDir, "dreams") 
 
 // Save writes <dreamsDir>/<id>/dream.json atomically.
 func Save(dreamsDir string, m Meta) error {
-	if m.ID == "" {
-		return errors.New("dream: save: empty id")
+	if !ValidID(m.ID) {
+		return fmt.Errorf("dream: save: invalid id %q", m.ID)
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -98,6 +105,9 @@ func Save(dreamsDir string, m Meta) error {
 // Load reads <dreamsDir>/<id>/dream.json.
 func Load(dreamsDir, id string) (Meta, error) {
 	var m Meta
+	if !ValidID(id) {
+		return m, fmt.Errorf("dream: load: invalid id %q", id)
+	}
 	data, err := os.ReadFile(filepath.Join(dreamsDir, id, dreamFile))
 	if err != nil {
 		return m, fmt.Errorf("dream: load %s: %w", id, err)
@@ -120,11 +130,11 @@ func List(dreamsDir string) ([]Meta, error) {
 	}
 	var ms []Meta
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || !ValidID(e.Name()) {
 			continue
 		}
 		m, err := Load(dreamsDir, e.Name())
-		if err != nil {
+		if err != nil || m.ID != e.Name() {
 			continue
 		}
 		ms = append(ms, m)

@@ -55,3 +55,36 @@ func TestChangedPaths(t *testing.T) {
 	assert.Eq(t, got[1], "mod")
 	assert.Eq(t, got[2], "new")
 }
+
+func TestHashTree_SymlinkedRoot(t *testing.T) {
+	real := t.TempDir()
+	assert.NoErr(t, os.MkdirAll(filepath.Join(real, "projects"), 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(real, "MEMORY.md"), []byte("x"), 0o644))
+	assert.NoErr(t, os.WriteFile(filepath.Join(real, "projects", "n.md"), []byte("y"), 0o644))
+	link := filepath.Join(t.TempDir(), "memory")
+	assert.NoErr(t, os.Symlink(real, link))
+	want, err := HashTree(real)
+	assert.NoErr(t, err)
+	got, err := HashTree(link)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(got), 2)
+	assert.Eq(t, len(ChangedPaths(want, got)), 0)
+}
+
+func TestCopyTree_SymlinkedRoot(t *testing.T) {
+	real := t.TempDir()
+	assert.NoErr(t, os.MkdirAll(filepath.Join(real, "sub"), 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(real, "sub", "a.md"), []byte("a"), 0o644))
+	link := filepath.Join(t.TempDir(), "memory")
+	assert.NoErr(t, os.Symlink(real, link))
+	dst := filepath.Join(t.TempDir(), "out")
+	assert.NoErr(t, CopyTree(link, dst))
+	b, err := os.ReadFile(filepath.Join(dst, "sub", "a.md"))
+	assert.NoErr(t, err)
+	assert.Eq(t, string(b), "a")
+}
+
+func TestCopyTree_MissingSource(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "out")
+	assert.NoErr(t, CopyTree(filepath.Join(t.TempDir(), "none"), dst))
+}

@@ -26,13 +26,13 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	m := Meta{
-		ID: "a-1", Profile: "p", State: Pending, StartedAt: at, EndedAt: at.Add(time.Minute),
+		ID: "20260102T030405-a1b2", Profile: "p", State: Pending, StartedAt: at, EndedAt: at.Add(time.Minute),
 		SessionID: "s1", Window: Window{Since: at, Until: at.Add(time.Hour), Sessions: []string{"x", "y"}},
 		Base: map[string]string{"a.md": "h1"}, Proposed: map[string]string{"b.md": "h2"},
 		Counts: Counts{Changed: 1, Added: 2, Removed: 3, LintFixed: 4, LintOpen: 5, Promote: 6}, Partial: true,
 	}
 	assert.NoErr(t, Save(dir, m))
-	got, err := Load(dir, "a-1")
+	got, err := Load(dir, "20260102T030405-a1b2")
 	assert.NoErr(t, err)
 	assert.Eq(t, got.ID, m.ID)
 	assert.Eq(t, got.State, Pending)
@@ -44,7 +44,7 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	if !got.StartedAt.Equal(at) || !got.Window.Until.Equal(at.Add(time.Hour)) {
 		t.Fatalf("times lost: %+v", got)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "a-1", "dream.json"))
+	raw, err := os.ReadFile(filepath.Join(dir, "20260102T030405-a1b2", "dream.json"))
 	assert.NoErr(t, err)
 	assert.Contains(t, string(raw), `"started_at"`)
 	assert.Contains(t, string(raw), `"lint_fixed"`)
@@ -74,14 +74,14 @@ func TestList_MissingDir(t *testing.T) {
 
 func TestNewest_ByState(t *testing.T) {
 	ms := []Meta{
-		meta("3", Pending), meta("2", Applied), meta("1", Pending),
+		meta("20260103T000000-aaaa", Pending), meta("20260102T000000-aaaa", Applied), meta("20260101T000000-aaaa", Pending),
 	}
 	p, ok := Newest(ms, Pending)
 	assert.Eq(t, ok, true)
-	assert.Eq(t, p.ID, "3")
+	assert.Eq(t, p.ID, "20260103T000000-aaaa")
 	a, ok := Newest(ms, Applied)
 	assert.Eq(t, ok, true)
-	assert.Eq(t, a.ID, "2")
+	assert.Eq(t, a.ID, "20260102T000000-aaaa")
 	_, ok = Newest(ms, Undone)
 	assert.Eq(t, ok, false)
 }
@@ -128,5 +128,59 @@ func TestPrune_KeepsPending(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, id)); !os.IsNotExist(err) {
 			t.Fatalf("%s should be gone", id)
 		}
+	}
+}
+
+func TestValidID(t *testing.T) {
+	assert.Eq(t, ValidID(NewID(time.Now())), true)
+	for _, id := range []string{"", "..", "../x", "a/b", "20260102T030405-A1B2", "20260102T030405-a1b", "20260102T030405-a1b2/x", "x20260102T030405-a1b2"} {
+		assert.Eq(t, ValidID(id), false)
+	}
+}
+
+func TestLoadSave_RejectInvalidID(t *testing.T) {
+	dir := t.TempDir()
+	if err := Save(dir, meta("../evil", Pending)); err == nil {
+		t.Fatal("Save accepted bad id")
+	}
+	if _, err := Load(dir, "../evil"); err == nil {
+		t.Fatal("Load accepted bad id")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "evil")); err == nil {
+		t.Fatal("wrote outside dir")
+	}
+}
+
+func TestList_IDFromDirName(t *testing.T) {
+	dir := t.TempDir()
+	good := "20260101T000000-aaaa"
+	assert.NoErr(t, Save(dir, meta(good, Applied)))
+	// Valid dir name whose dream.json claims another id.
+	other := "20260102T000000-bbbb"
+	assert.NoErr(t, os.MkdirAll(filepath.Join(dir, other), 0o755))
+	raw, err := os.ReadFile(filepath.Join(dir, good, "dream.json"))
+	assert.NoErr(t, err)
+	assert.NoErr(t, os.WriteFile(filepath.Join(dir, other, "dream.json"), raw, 0o644))
+	// Invalid dir name with a well-formed record.
+	assert.NoErr(t, os.MkdirAll(filepath.Join(dir, "evil"), 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(dir, "evil", "dream.json"), raw, 0o644))
+	ms, err := List(dir)
+	assert.NoErr(t, err)
+	assert.Eq(t, len(ms), 1)
+	assert.Eq(t, ms[0].ID, good)
+	assert.NoErr(t, Prune(dir, 0))
+	for _, n := range []string{other, "evil"} {
+		if _, err := os.Stat(filepath.Join(dir, n)); err != nil {
+			t.Fatalf("%s removed: %v", n, err)
+		}
+	}
+}
+
+func TestWatermark_CorruptFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	assert.NoErr(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte("{not json"), 0o644))
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if got := Watermark(dir, now); !got.Equal(now.Add(-30 * 24 * time.Hour)) {
+		t.Fatalf("got %v", got)
 	}
 }

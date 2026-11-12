@@ -16,7 +16,15 @@ import (
 // to its sha256 hex. A missing dir yields an empty map.
 func HashTree(dir string) (map[string]string, error) {
 	out := map[string]string{}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	root, err := resolveRoot(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("dream: hash %s: %w", dir, err)
+	}
+	dir = root
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -34,18 +42,20 @@ func HashTree(dir string) (map[string]string, error) {
 		out[filepath.ToSlash(rel)] = sum
 		return nil
 	})
-	if errors.Is(err, fs.ErrNotExist) && !pathExists(dir) {
-		return map[string]string{}, nil
-	}
 	if err != nil {
 		return nil, fmt.Errorf("dream: hash %s: %w", dir, err)
 	}
 	return out, nil
 }
 
-func pathExists(p string) bool {
-	_, err := os.Lstat(p)
-	return err == nil
+// resolveRoot follows symlinks on the root itself (the store may be a link
+// to a folder elsewhere); links inside the tree are never followed.
+func resolveRoot(p string) (string, error) {
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	return r, nil
 }
 
 func hashFile(p string) (string, error) {
@@ -62,9 +72,17 @@ func hashFile(p string) (string, error) {
 }
 
 // CopyTree copies the regular files and folders under src into dst. Symlinks
-// inside src are skipped, never followed.
+// inside src are skipped, never followed; src itself may be a symlink.
 func CopyTree(src, dst string) error {
-	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	root, err := resolveRoot(src)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // a missing source has nothing to copy
+	}
+	if err != nil {
+		return fmt.Errorf("dream: copy %s: %w", src, err)
+	}
+	src = root
+	err = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
