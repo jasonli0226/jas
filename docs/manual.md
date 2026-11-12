@@ -745,10 +745,10 @@ one bumps `v`.
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage |
 | `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`) |
 | `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat) |
-| `dream_proposed` | `jas dream` wrote a proposal: id, counts, partial, report |
-| `dream_applied` | `jas dream apply` changed memory: id, counts |
-| `dream_discarded` | `jas dream discard` dropped a proposal: id |
-| `dream_undone` | `jas dream undo` restored memory: id |
+| `dream_proposed` | `jas dream` wrote a proposal: dream_id, counts, partial, report |
+| `dream_applied` | `jas dream apply` changed memory: dream_id, counts |
+| `dream_discarded` | `jas dream discard` dropped a proposal: dream_id |
+| `dream_undone` | `jas dream undo` restored memory: dream_id |
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |

@@ -277,23 +277,28 @@ deliveries add `board_seqs`.
 ### Dreams
 
 `jas dream` proposes memory changes, and the owner applies or drops them.
-These events are additive; v1 stays. Each carries the dream's `id`
-(`<UTC timestamp>-<4 hex>`).
+These events are additive; v1 stays. Each carries the dream's id in
+`dream_id` (`<UTC timestamp>-<4 hex>`); the envelope `id` stays the event id.
+
+They go in the dream's own session log, the one whose `session_started` has
+the `dream` object. `dream_proposed` is written at the end of the run.
+`dream_applied`, `dream_discarded` and `dream_undone` are written later, when
+the owner acts: the log is reopened, as a log may span many opens.
 
 `counts` is `{changed, added, removed, lint_fixed, lint_open, promote}`, all
 ints: notes changed, added and removed, lint findings fixed and left open,
 and notes the dream suggests promoting to the profile.
 
-**`dream_proposed`** — a proposal was written. `id`, `counts`, `partial`
+**`dream_proposed`** — a proposal was written. `dream_id`, `counts`, `partial`
 (bool: the dream stopped at a cap and the proposal is incomplete), `report`
 (path of `report.md`).
 
-**`dream_applied`** — `jas dream apply` changed memory. `id`, `counts`.
+**`dream_applied`** — `jas dream apply` changed memory. `dream_id`, `counts`.
 
-**`dream_discarded`** — `jas dream discard` dropped a proposal. `id`.
+**`dream_discarded`** — `jas dream discard` dropped a proposal. `dream_id`.
 
 **`dream_undone`** — `jas dream undo` restored memory from before an apply.
-`id`.
+`dream_id`.
 
 ## Ordering and durability
 
@@ -307,6 +312,9 @@ user_message
   injected? )*
 turn_ended
 ```
+
+`dream_proposed` ends a dream's own log, and `dream_applied`,
+`dream_discarded` and `dream_undone` follow when the owner acts.
 
 `budget_stop`, `compaction`, `model_changed`, `session_titled`,
 `context_reloaded`, `profile_changed`, `shell_ran` and `check_ran` can appear
