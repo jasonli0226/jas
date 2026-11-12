@@ -178,8 +178,8 @@ func openEventLog(path string, tee io.Writer, redact func(string) string, syncFn
 	}
 	if err := lockFile(f); err != nil {
 		f.Close()
-		if errors.Is(err, ErrSessionLocked) {
-			return nil, err
+		if errors.Is(err, ErrLocked) {
+			return nil, ErrSessionLocked
 		}
 		return nil, fmt.Errorf("lock event log: %w", err)
 	}
