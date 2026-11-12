@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/dream"
 	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/settings"
 )
@@ -86,7 +87,7 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 	}
 	mode, hide := memory.ResolveMode(memorySetting(layers, os.Getenv))
 	if mode == memory.ModeOff {
-		return memory.Report(dirs, memory.Index{}, memory.Index{}, mode), dirs, nil
+		return memory.Report(dirs, memory.Index{}, memory.Index{}, mode, ""), dirs, nil
 	}
 	// A folder the lift refuses is never read: what a link reaches is not
 	// memory, so there are no indexes or notes to count.
@@ -105,11 +106,26 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 	if hide {
 		proj = memory.Index{}
 	}
-	text := memory.Report(dirs, prof, proj, mode)
+	text := memory.Report(dirs, prof, proj, mode, pendingDreamID(home, profile))
 	for _, why := range []string{prof.Ignored, proj.Ignored} {
 		if why != "" {
 			text += "\n" + why
 		}
 	}
 	return text, dirs, nil
+}
+
+// pendingDreamID is the id of the profile's newest pending dream, or "" when
+// there is none or the dreams directory is unreadable (the report still
+// answers).
+func pendingDreamID(home, profile string) string {
+	ms, err := dream.List(dream.Dir(settings.ProfileDir(home, profile)))
+	if err != nil {
+		return ""
+	}
+	m, ok := dream.Newest(ms, dream.Pending)
+	if !ok {
+		return ""
+	}
+	return m.ID
 }

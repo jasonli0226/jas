@@ -1,7 +1,7 @@
 # Memory store — design
 
 **Status:** proposed (2026-11-12). Track C.1 in [design §5](../../design.md#5-v2-roadmap);
-background and layer model in [design §12.3](../../design.md#123-memory--dreaming-proposed).
+background and layer model in [design §12.3](../../design.md#123-memory--dreaming-memory-store-and-dreaming-shipped).
 **Depends on:** the v1 event-log contract ([event-log.md](../../event-log.md), shipped #186).
 **Followed by:** `jas dream` (Track C.2), which reads this store plus the event logs.
 

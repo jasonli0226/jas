@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/dream"
 	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
@@ -452,4 +453,28 @@ func TestMemory_SessionResumedCarriesMemory(t *testing.T) {
 		t.Fatalf("index_bytes = %v, want > 0", mem["index_bytes"])
 	}
 	assert.Contains(t, strings.Join(contextPaths(t, resumed["context_files"]), "\n"), filepath.Join(e.mem.dirs.Profile, "MEMORY.md"))
+}
+
+func TestMemoryReport_PendingDream(t *testing.T) {
+	t.Setenv("JAS_MEMORY", "")
+	jasHome, root := t.TempDir(), memProject(t)
+	d := memDirs(t, jasHome, root)
+	writeIndex(t, d.Profile, profileNote)
+	layers := settings.Layers{ProfileName: settings.DefaultProfile}
+
+	text, _, err := memoryReport(jasHome, settings.DefaultProfile, root, layers)
+	assert.NoErr(t, err)
+	assert.Eq(t, strings.Contains(text, "dream"), false)
+
+	const id = "20261113T101500-ab12"
+	dreams := dream.Dir(settings.ProfileDir(jasHome, settings.DefaultProfile))
+	assert.NoErr(t, dream.Save(dreams, dream.Meta{ID: id, State: dream.Pending}))
+	text, _, err = memoryReport(jasHome, settings.DefaultProfile, root, layers)
+	assert.NoErr(t, err)
+	assert.Contains(t, text, "dream "+id+" pending: jas dream diff")
+
+	assert.NoErr(t, dream.Save(dreams, dream.Meta{ID: id, State: dream.Applied}))
+	text, _, err = memoryReport(jasHome, settings.DefaultProfile, root, layers)
+	assert.NoErr(t, err)
+	assert.Eq(t, strings.Contains(text, "pending"), false)
 }

@@ -21,6 +21,9 @@ jas is a single static Go binary for day-to-day coding with a receipt:
 - **profiles** — named bundles of skills, `AGENTS.md` and settings under
   `~/.jas/profiles/<name>/`; pick one with `--profile` or `JAS_PROFILE`, or
   switch live in the chat with `/profile` (see the [manual](docs/manual.md#profiles)).
+- **dreams** — `jas dream` reads recent sessions and the profile's memory
+  store and proposes a cleanup; you review it with `jas dream diff` and
+  nothing changes until `jas dream apply` (see the [manual](docs/manual.md#dreams)).
 - **visible** — every step is a versioned JSONL event (audit + resume)
 - **CI-ready** — `jas run --json`, stable exit codes, secrets deny/redact
 - **lean** — cache-friendly prompts, parallel reads, capped and elided tool

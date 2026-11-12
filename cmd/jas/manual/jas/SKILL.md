@@ -23,6 +23,7 @@ flags, keys, defaults, exit codes and event fields, read
 | `jas config get/set/unset/list`, `jas config init` | settings in `~/.jas/config.json` (`--in-profile`: the active profile's `config.json`) |
 | `jas profile list/use/new/show` | profiles: skills, `AGENTS.md`, settings under `~/.jas/profiles/<name>/` |
 | `jas auth add <provider>` | store a key in `~/.jas/auth.json` (0600) |
+| `jas dream [list\|diff\|apply\|discard\|undo]` | propose a cleanup of the profile's memory from recent sessions; the live store changes only on `apply` (`undo` reverts) |
 | `jas farm …` | experimental parallel worktree runner (below) |
 
 Shared flags: `--model <ref>` (`provider/model`; with OpenRouter as the

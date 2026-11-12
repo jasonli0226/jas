@@ -144,7 +144,8 @@ branch, files touched, last heartbeat.
 Prints the memory report for this project: mode, the profile and project
 memory dirs, index size against the cap and note counts. When the memory dir
 is ignored (see [Memory](#memory)) the report ends with
-`profile memory ignored: <reason>`. It reads the same settings a session
+`profile memory ignored: <reason>`, and when a dream is waiting for review
+with `dream <id> pending: jas dream diff` (see [Dreams](#dreams)). It reads the same settings a session
 would, counting the project as trusted only when you already trusted it.
 
 | flag | does |
@@ -638,7 +639,9 @@ that links out of its dir is not loaded, with a warning. The `shell` filter
 keeps the whole jas home denied.
 
 **Commands.** `/memory` in the chat and `jas memory [--path]` show the mode, both
-dirs, index size against the cap and note counts.
+dirs, index size against the cap and note counts. When the profile has a
+pending dream, the report ends with `dream <id> pending: jas dream diff`
+(see [Dreams](#dreams)).
 
 ## Dreams
 

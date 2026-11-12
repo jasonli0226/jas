@@ -1,7 +1,7 @@
 # `jas dream` — design
 
-**Status:** proposed (2026-11-13). Track C.2 in [design §5](../../design.md#5-v2-roadmap);
-background in [design §12.3](../../design.md#123-memory--dreaming-memory-store-shipped-dreaming-proposed).
+**Status:** shipped (this branch) (2026-11-13). Track C.2 in [design §5](../../design.md#5-v2-roadmap);
+background in [design §12.3](../../design.md#123-memory--dreaming-memory-store-and-dreaming-shipped).
 **Depends on:** the memory store ([2026-11-12-memory-store-design.md](2026-11-12-memory-store-design.md), shipped #188)
 and the v1 event-log contract ([event-log.md](../../event-log.md), shipped #186).
 **Followed by:** promotion with `jas learn` (v3).
@@ -129,7 +129,10 @@ Errors still go to stderr with the usual exit code.
 Exit codes: existing ones only. `0` proposal written or command done; `1`
 failure (including apply refused because the store changed: the message
 says to re-run the dream); `2` usage; `7` cap reached (proposal still
-written); `130` interrupted (no proposal).
+written); `130` interrupted (no proposal). Runs stopped by the turn cap (`4`)
+or a full context (`3`) also keep their partial proposal. The subcommands
+(`list`, `diff`, `apply`, `discard`, `undo`) need no provider key and work
+with memory off.
 
 ## Storage
 
@@ -297,7 +300,7 @@ After the model pass:
   with a warning and `apply` shows it *(my call)*.
 
 Then write `dream.json` with state `pending` and log a `dream_proposed`
-event in the dream's session: `id`, `counts`, `partial`, `report` (path).
+event in the dream's session: `dream_id`, `counts`, `partial`, `report` (path).
 
 ## The report
 
@@ -351,8 +354,8 @@ All additive under the v1 contract; update `docs/event-log.md` and the
 fixture in the same change:
 
 - `session_started.dream` (optional object): `{id, window_sessions}`.
-- `dream_proposed`: `id`, `counts`, `partial`, `report`.
-- `dream_applied`, `dream_discarded`, `dream_undone`: `id`; `counts` on
+- `dream_proposed`: `dream_id` (not `id`, which is the envelope's event id), `counts`, `partial`, `report`.
+- `dream_applied`, `dream_discarded`, `dream_undone`: `dream_id`; `counts` on
   applied.
 - Tool names `remove_note` and `report_change` appear in ordinary
   `tool_started` / `tool_result` events in dream sessions.
@@ -360,7 +363,7 @@ fixture in the same change:
 ## Interaction with existing features
 
 - **Memory setting:** `memory: off` at the global or profile layer makes
-  `jas dream` fail with a clear message (exit 1). `memory: read` does not
+  the `jas dream` run fail with a clear message (exit 1); the review subcommands still work. `memory: read` does not
   block a dream: reading is allowed, and applying is an explicit owner act
   *(my call)*. Project-level settings do not apply; a dream covers the whole
   profile store.
@@ -415,7 +418,7 @@ and mark the item shipped when it is.
 - `--max-tokens` reached: exit 7, proposal written, report marked `partial`.
 - Off a terminal, `jas dream` never applies, and `apply` without `--yes`
   fails with exit 2.
-- `dream_proposed` and `dream_applied` appear in the dream's event log and
+- `dream_proposed` (payload field `dream_id`) and `dream_applied` appear in the dream's event log and
   the contract fixture.
 
 ## Left to the builder
