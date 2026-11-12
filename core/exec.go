@@ -50,6 +50,10 @@ type Executor struct {
 	// read-only run, a wrong folder), so they are reported even when the
 	// preview itself would fail. A non-nil error refuses the call.
 	WritePrecheck func(tool, resolved string) error
+	// GuardAllWrites, when true, runs WritePrecheck and WriteGuard on every
+	// write and edit, not only those into the profile memory. The dream
+	// executor sets it: its guard confines writes to the proposed store.
+	GuardAllWrites bool
 }
 
 type slot struct {
@@ -297,7 +301,7 @@ func (r *run) refuseMemoryWrite(ctx context.Context, s *slot) bool {
 		return false
 	}
 	full, ok := r.writeTarget(s)
-	if !ok || !r.e.Policy.InProfileMemory(full) {
+	if !ok || !(r.e.GuardAllWrites || r.e.Policy.InProfileMemory(full)) {
 		return false
 	}
 	refuse := func(msg string) bool {

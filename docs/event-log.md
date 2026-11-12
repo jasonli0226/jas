@@ -151,8 +151,8 @@ an existing file logs added lines only. An `edit` logs no diff.
 - Required: `model`, `profile`, `provider`, `base_url`, `approve`, `root`,
   `context_files` (list of context file), `skills` (list of skill),
   `context_window` (int), `window_known` (bool), `web_tools`.
-- Optional: `title` (`jas run --name`), `record_path`, `memory` (below), and
-  the farm additions below.
+- Optional: `title` (`jas run --name`), `record_path`, `memory` and `dream`
+  (below), and the farm additions below.
 - Logs from before profiles shipped lack `profile`. Readers treat it as
   missing, not as an error.
 
@@ -168,6 +168,16 @@ an existing file logs added lines only. An `edit` logs no diff.
 
 The `MEMORY.md` files that were loaded also appear in `context_files`.
 Readers that do not know `memory` ignore it.
+
+*Dream* (optional `dream` object on `session_started`; present only in the
+session `jas dream` runs to build a proposal):
+
+| field | type | meaning |
+|---|---|---|
+| `id` | string | the dream's id |
+| `window_sessions` | int | how many sessions the dream reads |
+
+Readers that do not know `dream` ignore it.
 
 *Farm additions* (optional `session_started` fields, only in farm sessions):
 
@@ -264,6 +274,32 @@ deliveries add `board_seqs`.
 **`check_ran`** — `cmd`, `dir`, `exit_code`, `duration_ms`, `timed_out`,
 `output` (redacted tail).
 
+### Dreams
+
+`jas dream` proposes memory changes, and the owner applies or drops them.
+These events are additive; v1 stays. Each carries the dream's id in
+`dream_id` (`<UTC timestamp>-<4 hex>`); the envelope `id` stays the event id.
+
+They go in the dream's own session log, the one whose `session_started` has
+the `dream` object. `dream_proposed` is written at the end of the run.
+`dream_applied`, `dream_discarded` and `dream_undone` are written later, when
+the owner acts: the log is reopened, as a log may span many opens.
+
+`counts` is `{changed, added, removed, lint_fixed, lint_open, promote}`, all
+ints: notes changed, added and removed, lint findings fixed and left open,
+and notes the dream suggests promoting to the profile.
+
+**`dream_proposed`** — a proposal was written. `dream_id`, `counts`, `partial`
+(bool: the dream stopped at a cap and the proposal is incomplete), `report`
+(path of `report.md`).
+
+**`dream_applied`** — `jas dream apply` changed memory. `dream_id`, `counts`.
+
+**`dream_discarded`** — `jas dream discard` dropped a proposal. `dream_id`.
+
+**`dream_undone`** — `jas dream undo` restored memory from before an apply.
+`dream_id`.
+
 ## Ordering and durability
 
 Within one user message, the order is:
@@ -276,6 +312,9 @@ user_message
   injected? )*
 turn_ended
 ```
+
+`dream_proposed` ends a dream's own log, and `dream_applied`,
+`dream_discarded` and `dream_undone` follow when the owner acts.
 
 `budget_stop`, `compaction`, `model_changed`, `session_titled`,
 `context_reloaded`, `profile_changed`, `shell_ran` and `check_ran` can appear

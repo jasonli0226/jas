@@ -25,7 +25,7 @@ func TestReport_Counts(t *testing.T) {
 	writeNotes(t, d.Project, "MEMORY.md")
 	prof, proj, err := LoadIndexes(d, false)
 	assert.NoErr(t, err)
-	out := Report(d, prof, proj, ModeOn)
+	out := Report(d, prof, proj, ModeOn, "")
 	assert.Contains(t, out, "memory: on")
 	assert.Contains(t, out, d.Profile)
 	assert.Contains(t, out, d.Project)
@@ -38,16 +38,25 @@ func TestReport_Counts(t *testing.T) {
 	assert.NoErr(t, os.WriteFile(filepath.Join(d.Profile, "MEMORY.md"), []byte(big), 0o600))
 	prof, proj, err = LoadIndexes(d, false)
 	assert.NoErr(t, err)
-	assert.Contains(t, Report(d, prof, proj, ModeOn), "truncated")
+	assert.Contains(t, Report(d, prof, proj, ModeOn, ""), "truncated")
 }
 
 func TestReport_HiddenAndOff(t *testing.T) {
 	d := Dirs{Profile: "/m/p", Project: "/m/p/projects/k"}
-	out := Report(d, Index{Path: "/m/p/MEMORY.md"}, Index{}, ModeRead)
+	out := Report(d, Index{Path: "/m/p/MEMORY.md"}, Index{}, ModeRead, "")
 	assert.Contains(t, out, "memory: read")
 	assert.Contains(t, out, "hidden")
-	off := Report(d, Index{}, Index{}, ModeOff)
+	off := Report(d, Index{}, Index{}, ModeOff, "")
 	assert.Contains(t, off, "memory is off")
 	assert.Contains(t, off, d.Profile)
 	assert.Eq(t, strings.Count(off, "\n"), 0)
+}
+
+func TestReport_PendingDreamLine(t *testing.T) {
+	d := Dirs{Profile: "/m/p", Project: "/m/p/projects/k"}
+	idx := Index{Path: "/m/p/MEMORY.md"}
+	with := Report(d, idx, idx, ModeOn, "20261113T101500-ab12")
+	assert.Contains(t, with, "dream 20261113T101500-ab12 pending: jas dream diff")
+	assert.Eq(t, strings.HasSuffix(with, "jas dream diff"), true)
+	assert.Eq(t, strings.Contains(Report(d, idx, idx, ModeOn, ""), "dream"), false)
 }

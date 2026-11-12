@@ -14,7 +14,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 [Providers and models](#providers-and-models) ·
 [Approvals](#approvals) · [Tools](#tools) ·
 [Project context and skills](#project-context-and-skills) ·
-[Profiles](#profiles) · [Memory](#memory) · [Farm](#farm) · [Exit codes](#exit-codes) · [Event log](#event-log) ·
+[Profiles](#profiles) · [Memory](#memory) · [Dreams](#dreams) · [Farm](#farm) · [Exit codes](#exit-codes) · [Event log](#event-log) ·
 [Files](#files)
 
 ## Commands
@@ -28,6 +28,8 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas auth add\|list\|rm\|rotate` | API keys |
 | `jas sessions [--prune]` | other jas sessions working in this repo |
 | `jas memory [--path]` | memory dirs, index size and note counts; `--path` prints the project memory dir |
+| `jas dream [flags]` | consolidate the profile's memory into a reviewed proposal ([Dreams](#dreams)) |
+| `jas dream list\|diff\|apply\|discard\|undo` | review, apply, drop or revert a dream ([Dreams](#dreams)) |
 | `jas farm …` | experimental parallel worktree runner |
 | `jas --version` | print the version |
 
@@ -142,7 +144,8 @@ branch, files touched, last heartbeat.
 Prints the memory report for this project: mode, the profile and project
 memory dirs, index size against the cap and note counts. When the memory dir
 is ignored (see [Memory](#memory)) the report ends with
-`profile memory ignored: <reason>`. It reads the same settings a session
+`profile memory ignored: <reason>`, and when a dream is waiting for review
+with `dream <id> pending: jas dream diff` (see [Dreams](#dreams)). It reads the same settings a session
 would, counting the project as trusted only when you already trusted it.
 
 | flag | does |
@@ -636,7 +639,112 @@ that links out of its dir is not loaded, with a warning. The `shell` filter
 keeps the whole jas home denied.
 
 **Commands.** `/memory` in the chat and `jas memory [--path]` show the mode, both
-dirs, index size against the cap and note counts.
+dirs, index size against the cap and note counts. When the profile has a
+pending dream, the report ends with `dream <id> pending: jas dream diff`
+(see [Dreams](#dreams)).
+
+## Dreams
+
+`jas dream` reads your recent sessions and the profile's memory store and
+proposes a cleaned-up store: lint fixes, merged duplicates, corrections and
+new notes, each cited to the session events behind it. It never changes the
+live `memory/`; you review the proposal and apply it.
+
+`jas dream [--since D] [--sessions N] [--max-tokens N] [--timeout D] [--json] [--profile NAME]`
+
+| flag | default | does |
+|---|---|---|
+| `--since D` | the watermark | read sessions since D: a duration back from now (`36h`, `7d`), a date (`2026-11-01`, local midnight) or an RFC 3339 time |
+| `--sessions N` | 50 | read at most the N most recently written sessions |
+| `--max-tokens N` | 400000 | stop the model pass with exit 7 before a request that would cross N total tokens |
+| `--timeout D` | `20m` | stop the model pass with exit 7 after wall-clock duration D |
+| `--json` | off | print nothing until the run ends, then one JSON object: `dream.json` plus `report` (its path) and `lint_open`; no apply question |
+| `--profile NAME` | the active profile | dream for that profile's store |
+
+**How it runs.** jas copies `memory/` into a temporary workspace (removed when
+the run ends), lints it, and picks the window: event logs of this profile
+(logs without a profile count as `default`) written after the watermark,
+newest first, skipping other dreams' sessions. It writes a cited evidence
+digest (capped at 200 KB, each quoted string trimmed to 2 KB) and runs one
+model session, logged like any other with a `dream` object on
+`session_started`. That session's tools are `read`, `ls` and `grep` over the
+workspace (the copied store, the digest and copies of the window's logs),
+`write` and `edit` inside the copied store only, `remove_note` and
+`report_change`. There is no shell, no web, no approval prompt and no access
+to the repo or the live store. Inside the copy every memory write rule holds
+(top-level `.md` notes or `projects/<key>/`, valid frontmatter, no secrets)
+except that `MEMORY.md` may be rewritten whole. jas then lints again,
+checks every change against the model's `report_change` calls and every
+citation against the logs, and writes the report.
+
+**Memory setting.** `memory: off` in the global or profile config (or
+`JAS_MEMORY=off`) makes `jas dream` fail with exit 1; `read` does not block
+it. Project settings do not apply: a dream covers the whole profile store. A
+`memory/` the store's guards ignore ([Memory](#memory)) gets no dream.
+
+**Output.** The run prints a summary (notes changed, added and removed, lint
+fixed and open, promotion candidates, the report's warnings and its path).
+On a terminal it then asks `apply? [y/N/d=diff]`: `d` prints the diff and
+asks again, `y` shows the diff stat and applies (asking once more when the
+report has warnings). Off a terminal it stops after writing the proposal.
+
+**Reviewing a dream.** Subcommands work on the active profile (or
+`--profile NAME`) and take an optional `<id>`; an invalid id is a usage
+error (exit 2).
+
+| command | does |
+|---|---|
+| `jas dream list [--json]` | one row per dream: id, state, counts. `--json` prints an array of `dream.json` objects, each with `stale` |
+| `jas dream diff [id]` | a `pending` dream: a warning first if memory changed since it started, then the diff live to proposed, then the report. An `applied` dream: the diff of the store it replaced (`before/`) to the live store. Any other state: exit 1 |
+| `jas dream apply [id] [--yes]` | shows the diff stat and the warnings (unexplained changes, a large removal, unsupported changes with their reasons), asks `apply? [y/N]`, swaps the proposal in and logs `dream_applied`. `--yes` skips the question; off a terminal it is required (exit 2 without it) |
+| `jas dream discard [id]` | drops a pending proposal, keeps its report, moves the watermark and logs `dream_discarded` |
+| `jas dream undo [id]` | puts back the store an applied dream replaced and logs `dream_undone`; exit 1 when that store was pruned or the live store changed since the apply |
+
+Default ids: `diff`, `apply` and `discard` use the newest `pending` dream;
+`undo` uses the newest `applied` one. With none, the command exits 1 with
+"no pending dream" (or "no applied dream"). Stale is decided at apply time
+and shown in `list`: `list` shows a pending dream whose live store differs from the one it
+started from as `pending (stale)` without saving anything, `diff` prints a
+warning line first, and `apply` then refuses (exit 1) and records the dream
+as `stale`. The subcommands call no model, so they need no API key and work
+with `memory: off`; only the run needs both.
+The events go to the dream's own session log.
+
+**Exit codes.** `0` proposal written (or the subcommand done); `1` failure (including memory off);
+`2` usage (including `apply` off a terminal without `--yes`); `130` interrupted, and no proposal is written (Ctrl+C at the
+apply question also exits 130 and leaves the dream pending). When the model
+pass is stopped early, the proposal it has so far is still written and
+marked `partial`, and the exit code says why: `7` the `--max-tokens` or
+`--timeout` cap, `4` the turn cap (`max_turns`), `3` the context is full.
+
+**Storage.** Dreams live beside the store, never inside it:
+
+```text
+~/.jas/profiles/<name>/dreams/
+  state.json        watermark: end time of the last applied or discarded dream
+  <id>/
+    dream.json      id, profile, state, started_at, ended_at, session_id,
+                    window (since, until, sessions), base and proposed
+                    (path -> sha256), counts, partial, and the
+                    warnings apply shows (unexplained paths, unsupported
+                    changes, large removal)
+    report.md       the report you read
+    evidence.md     the evidence digest the model saw
+    proposed/       the full proposed store
+    before/         after apply: the store it replaced (for undo)
+```
+
+An id is `<UTC timestamp>-<4 hex>`. A dream's state is `pending`,
+`applied`, `discarded`, `stale` or `undone`. Each run keeps the newest 10
+dreams that are not pending and deletes older ones. Nothing is written under
+`dreams/` until the model pass ends, so a failed or interrupted run leaves
+no `<id>/`.
+
+**Watermark.** With no `--since`, the window starts at the watermark, or 30
+days ago when there is none. Applying or discarding a dream moves the
+watermark to that dream's `ended_at`; undo does not move it back, so a
+discarded or undone window is not re-dreamed; use `--since` to revisit it.
+`--since` and `--sessions` change only which logs this dream reads.
 
 ## Farm
 
@@ -709,11 +817,11 @@ Full design:
 | 0 | the model gave a final answer |
 | 1 | provider failure after retries, unreadable config/auth/trust file, or internal error |
 | 2 | usage error: bad flags, invalid setting, missing model or key |
-| 3 | context full |
-| 4 | turn cap (`max_turns`) hit |
+| 3 | context full (`jas dream` still writes its partial proposal) |
+| 4 | turn cap (`max_turns`) hit (`jas dream` still writes its partial proposal) |
 | 5 | approval needed but no terminal to ask |
 | 6 | a check run by jas failed, or required work is unmet (farm) |
-| 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`) |
+| 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`); `jas dream` still writes its partial proposal |
 | 8 | the farm planner refused to split the task |
 | 130 | interrupted (Ctrl+C / SIGTERM) |
 
@@ -729,7 +837,7 @@ one bumps `v`.
 
 | type | payload |
 |---|---|
-| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory |
+| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory, dream (`id`, `window_sessions`: the session `jas dream` runs) |
 | `session_resumed` | as `session_started`, on each reopen |
 | `user_message` | content; `steer: true` for steering text |
 | `turn_started` | — |
@@ -745,6 +853,10 @@ one bumps `v`.
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage |
 | `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`) |
 | `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat) |
+| `dream_proposed` | `jas dream` wrote a proposal: dream_id, counts, partial, report |
+| `dream_applied` | `jas dream apply` changed memory: dream_id, counts |
+| `dream_discarded` | `jas dream discard` dropped a proposal: dream_id |
+| `dream_undone` | `jas dream undo` restored memory: dream_id |
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |
@@ -770,4 +882,5 @@ Field-level detail, reader rules and the resume rules: [event-log.md](event-log.
 | `~/.jas/profiles/<name>/AGENTS.md` | a profile's instructions |
 | `~/.jas/profiles/<name>/skills/` | the active profile's skills |
 | `~/.jas/profiles/<name>/memory/` | the profile's memory: `MEMORY.md`, notes, `projects/<key>/` ([Memory](#memory)) |
+| `~/.jas/profiles/<name>/dreams/` | `jas dream` proposals, reports and the watermark ([Dreams](#dreams)) |
 | `<UserCacheDir>/jas/manual/jas/` | jas's built-in manual skill |

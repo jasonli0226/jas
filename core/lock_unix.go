@@ -13,7 +13,7 @@ import (
 func lockFile(f *os.File) error {
 	err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if errors.Is(err, syscall.EWOULDBLOCK) {
-		return ErrSessionLocked
+		return ErrLocked
 	}
 	return err
 }

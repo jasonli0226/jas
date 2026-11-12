@@ -11,8 +11,10 @@ const bytesPerKB = 1024
 // Report describes both stores for /memory and jas memory: the mode, then
 // per store its dir, index size against the cap (before truncation), a
 // truncated marker and the note count. A zero project Index means the
-// project store is hidden by the project's own memory=off.
-func Report(d Dirs, profile, project Index, mode Mode) string {
+// project store is hidden by the project's own memory=off. A non-empty
+// pendingDream is the id of the newest pending dream and adds a last line
+// pointing at `jas dream diff`.
+func Report(d Dirs, profile, project Index, mode Mode, pendingDream string) string {
 	if mode == ModeOff {
 		return fmt.Sprintf("memory is off; it would live in %s", d.Profile)
 	}
@@ -23,6 +25,9 @@ func Report(d Dirs, profile, project Index, mode Mode) string {
 		fmt.Fprintf(&b, "project: hidden (project memory is off)\n  %s", d.Project)
 	} else {
 		writeStore(&b, "project", d.Project, project)
+	}
+	if pendingDream != "" {
+		fmt.Fprintf(&b, "\ndream %s pending: jas dream diff", pendingDream)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -45,7 +50,7 @@ func countNotes(dir string) int {
 	}
 	n := 0
 	for _, e := range entries {
-		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") && !isIndex(e.Name()) {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") && !IsIndex(e.Name()) {
 			n++
 		}
 	}

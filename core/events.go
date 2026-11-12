@@ -37,6 +37,10 @@ const (
 	EvInjected         = "injected"        // text added to the tool-results message by SessionConfig.Inject
 	EvShellRan         = "shell_ran"       // the owner's ! or !! command finished (ShellRun)
 	EvProfileChanged   = "profile_changed" // /profile switched the session's profile
+	EvDreamProposed    = "dream_proposed"  // jas dream wrote a proposal
+	EvDreamApplied     = "dream_applied"   // jas dream apply changed memory
+	EvDreamDiscarded   = "dream_discarded" // jas dream discard dropped a proposal
+	EvDreamUndone      = "dream_undone"    // jas dream undo restored memory
 )
 
 const (
@@ -174,8 +178,8 @@ func openEventLog(path string, tee io.Writer, redact func(string) string, syncFn
 	}
 	if err := lockFile(f); err != nil {
 		f.Close()
-		if errors.Is(err, ErrSessionLocked) {
-			return nil, err
+		if errors.Is(err, ErrLocked) {
+			return nil, ErrSessionLocked
 		}
 		return nil, fmt.Errorf("lock event log: %w", err)
 	}
