@@ -29,6 +29,7 @@ const usage = `usage:
   jas auth add|list|rm|rotate
   jas sessions [--prune]
   jas memory [--path]
+  jas dream [--since D] [--sessions N] [--max-tokens N] [--timeout D] [--json] [--profile NAME]
   jas --version
 
 full reference: docs/manual.md in the jas repo
@@ -71,6 +72,8 @@ func dispatch(ctx context.Context, args []string) int {
 		return report(memoryCmd(args[1:]))
 	case "sessions":
 		return report(sessionsCmd(args[1:]))
+	case "dream":
+		return report(dreamCmd(ctx, args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "jas: unknown command %q\n%s\n", args[0], usage)
 		return core.ExitUsage

@@ -210,20 +210,83 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	// Project skills join that decision; user skills wait for the profile,
 	// which project config can choose.
 	var early []string // printed once the redactor exists
-	deny := denyPatterns(home)
 	if err := syncManualSkills(); err != nil {
 		early = append(early, "manual skills: "+err.Error())
 	}
-	projectSkills, pw := skills.Discover(skills.ProjectSources(root), core.ExecPolicy{Root: root, Deny: deny}.Denied)
+	projectSkills, pw := skills.Discover(skills.ProjectSources(root), core.ExecPolicy{Root: root, Deny: denyPatterns(home)}.Denied)
 	early = append(early, pw...)
-	stdin := bufio.NewReader(os.Stdin)
-	interactive := isTerminal(int(os.Stdin.Fd())) && isTerminal(int(os.Stderr.Fd())) // tests replace isTerminal
-	ask := func(p string) string { return askLine(ctx, stdin, os.Stderr, p) }
-	pt, err := decideProjectTrust(root, home, projectSkills, interactive, trust, ask)
+	in := newSetupInput(ctx, home, root, files, early)
+	pt, err := decideProjectTrust(root, home, projectSkills, in.interactive, trust, in.ask)
 	if err != nil {
 		return nil, err
 	}
-	layers, _ := files.ForProject(pt.trusted) // warned below, once the profile layer is in
+	in.trusted = pt.trusted
+	var userSkills []skills.Skill
+	in.afterProfile = func(policy core.ExecPolicy, prof profileState) []string {
+		found, uw := discoverUserSkills(policy, home)
+		userSkills = found
+		return append(uw, skillsMigrationWarning(home, prof.name, policy.ProfileSkills, found)...)
+	}
+	e, err := resolveEnv(flags, in)
+	if err != nil {
+		return nil, err
+	}
+	e.trust = trust
+	pc := buildProjectContext(pt, projectSkills, userSkills, e.prof, e.red.Redact, e.warn)
+	skillList, skillDirs := listedSkills(pc.skills)
+	e.policy.ReadRoots = skillDirs
+	e.policy, e.mem = loadMemory(e.policy, home, e.profile, root, e.layers, e.red.Redact, e.warn)
+	e.pc, e.skillList = withMemory(pc, e.mem, !e.interactive), skillList
+	return e, nil
+}
+
+// prepareNoProject is prepare for a session that belongs to no project
+// (jas dream): the same settings, profile, key, redactor and provider, from
+// the global and profile layers only. There is no trust prompt, no project
+// skills or context file, and no memory section; root is used as given.
+func prepareNoProject(ctx context.Context, flags map[string]string, root string) (*env, error) {
+	home, err := settingsHome()
+	if err != nil {
+		return nil, err
+	}
+	files, err := settings.LoadLayers(home, root)
+	if err != nil {
+		return nil, err
+	}
+	return resolveEnv(flags, newSetupInput(ctx, home, root, files, nil))
+}
+
+// setupInput is what resolveEnv starts from: the jas home, the session root,
+// the config files, whether project config applies, the warnings gathered so
+// far, and the terminal the session talks to.
+type setupInput struct {
+	home, root  string
+	files       settings.Layers
+	trusted     bool
+	early       []string // printed once the redactor exists
+	stdin       *bufio.Reader
+	interactive bool
+	ask         func(prompt string) string
+	// afterProfile, when set, runs once the profile is loaded, before the
+	// settings are built; its warnings print with the others.
+	afterProfile func(policy core.ExecPolicy, prof profileState) []string
+}
+
+func newSetupInput(ctx context.Context, home, root string, files settings.Layers, early []string) setupInput {
+	stdin := bufio.NewReader(os.Stdin)
+	return setupInput{
+		home: home, root: root, files: files, early: early, stdin: stdin,
+		interactive: isTerminal(int(os.Stdin.Fd())) && isTerminal(int(os.Stderr.Fd())), // tests replace isTerminal
+		ask:         func(p string) string { return askLine(ctx, stdin, os.Stderr, p) },
+	}
+}
+
+// resolveEnv loads the profile, resolves the settings, approval level, key
+// and redactor, and builds the provider. It sets reportRedactor and prints
+// every warning gathered so far. The env has no project context or memory.
+func resolveEnv(flags map[string]string, in setupInput) (*env, error) {
+	home, files, early := in.home, in.files, in.early
+	layers, _ := files.ForProject(in.trusted) // warned below, once the profile layer is in
 	name, profileSrc := settings.ResolveProfile(flags, os.Getenv, layers)
 	settings.EnsureDefaultProfile(home)
 	prof, profW, err := loadProfile(home, name, profileSrc)
@@ -232,12 +295,12 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	}
 	early = append(early, profW...)
 	files = files.WithProfile(prof.name, prof.layer)
-	layers, lw := files.ForProject(pt.trusted)
+	layers, lw := files.ForProject(in.trusted)
 	early = append(early, lw...)
-	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: deny}, home, prof.name)
-	userSkills, uw := discoverUserSkills(policy, home)
-	early = append(early, uw...)
-	early = append(early, skillsMigrationWarning(home, prof.name, policy.ProfileSkills, userSkills)...)
+	policy := profilePolicy(core.ExecPolicy{Root: in.root, Deny: denyPatterns(home)}, home, prof.name)
+	if in.afterProfile != nil {
+		early = append(early, in.afterProfile(policy, prof)...)
+	}
 
 	cfg, err := settings.Resolve(flags, os.Getenv, layers).Build()
 	if err != nil {
@@ -259,21 +322,21 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	policy.MaxOutput, policy.RedactSkip = cfg.MaxToolOutput, cfg.RedactSkipPaths
 	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
 	reportRedactor = red
-	warn := func(w string) { fmt.Fprintln(os.Stderr, core.Sanitize(red.Redact("jas: "+w))) }
-	for _, w := range append(early, cfg.Warnings...) {
-		warn(w)
-	}
-	pc := buildProjectContext(pt, projectSkills, userSkills, prof, red.Redact, warn)
-	skillList, skillDirs := listedSkills(pc.skills)
-	policy.ReadRoots = skillDirs
-	policy, mem := loadMemory(policy, home, prof.name, root, layers, red.Redact, warn)
-	pc = withMemory(pc, mem, !interactive)
-	return &env{
-		cfg: cfg, layers: layers, files: files, settingsTrusted: pt.trusted, flags: flags, level: level, key: key, auth: auth, root: root, home: home, red: red,
-		policy: policy, pc: pc, skillList: skillList, stdin: stdin, interactive: interactive, trust: trust,
+	e := &env{
+		cfg: cfg, layers: layers, files: files, settingsTrusted: in.trusted, flags: flags, level: level, key: key, auth: auth,
+		root: in.root, home: home, red: red, policy: policy, stdin: in.stdin, interactive: in.interactive,
 		provider: &providers.OpenAI{BaseURL: cfg.BaseURL, APIKey: key, IdleTimeout: sseIdleTimeout},
-		profile:  prof.name, profileSrc: profileSrc, prof: prof, mem: mem,
-	}, nil
+		profile:  prof.name, profileSrc: profileSrc, prof: prof, mem: memoryState{mode: memory.ModeOff},
+	}
+	for _, w := range append(early, cfg.Warnings...) {
+		e.warn(w)
+	}
+	return e, nil
+}
+
+// warn prints a redacted, sanitized jas warning to stderr.
+func (e *env) warn(w string) {
+	fmt.Fprintln(os.Stderr, core.Sanitize(e.red.Redact("jas: "+w)))
 }
 
 // profilePolicy sets the read exception for the named profile's skills: its
