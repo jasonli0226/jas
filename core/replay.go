@@ -144,6 +144,30 @@ func trimEOL(b []byte) []byte {
 	return b
 }
 
+// ScanEvents calls fn for each non-blank line of an event log with its
+// 1-based line number, under the same tolerance as Replay: a line over the
+// 16 MiB limit is consumed and reported with a nil raw so the caller can note
+// it. raw is only valid during the call. It returns a read error, if any.
+func ScanEvents(r io.Reader, fn func(line int, raw []byte)) error {
+	sc := newLogScanner(r)
+	n := 0
+	for {
+		line, over, ok := sc.next()
+		if !ok {
+			return sc.Err()
+		}
+		n++
+		if over {
+			fn(n, nil)
+			continue
+		}
+		if len(strings.TrimSpace(string(line))) == 0 {
+			continue
+		}
+		fn(n, line)
+	}
+}
+
 // Replay rebuilds the conversation from a session file. It fails when the
 // file can't be opened, holds no session_started, or has an event from a newer
 // schema version; damaged lines are skipped with a notice, and a missing
