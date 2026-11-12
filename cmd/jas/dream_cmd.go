@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	dreamUsage = "usage: jas dream [--since <dur|date>] [--sessions N] [--max-tokens N] [--timeout D] [--json] [--profile NAME]"
+	dreamUsage = "usage: jas dream [--since <dur|date>] [--sessions N] [--max-tokens N] [--timeout D] [--json] [--profile NAME]\n       jas dream list [--json] | diff [id] | apply [id] [--yes] | discard [id] | undo [id]   (each takes --profile NAME)"
 
 	dreamMaxTokens  = 400_000
 	dreamTimeout    = 20 * time.Minute
@@ -48,46 +48,70 @@ func dreamCmd(ctx context.Context, args []string) error {
 	return dreamRun(ctx, args, os.Stdout)
 }
 
-// dreamRun runs jas dream with its summary or JSON object on out.
+// dreamRun runs jas dream, or one of its subcommands, with its output on out.
 func dreamRun(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 && slices.Contains(dreamSubcommands, args[0]) {
+		return dreamSub(ctx, args[0], args[1:], out)
+	}
 	da, err := parseDream(args)
 	if err != nil {
 		return err
 	}
-	ws, err := os.MkdirTemp("", dreamWorkPrefix)
-	if err != nil {
-		return fmt.Errorf("dream workspace: %w", err)
-	}
-	defer os.RemoveAll(ws)
-	if r, err := filepath.EvalSymlinks(ws); err == nil {
-		ws = r
-	}
-	e, err := prepareNoProject(ctx, da.flags, ws)
+	st, err := openDreamStore(ctx, da.flags)
 	if err != nil {
 		return err
 	}
-	// ResolveMode cannot fail: an unknown value resolves to on. Its second
-	// result hides a project's index, which a dream (no project) ignores.
-	if mode, _ := memory.ResolveMode(memorySetting(e.layers, os.Getenv)); mode == memory.ModeOff {
-		return errors.New("memory is off for this profile")
-	}
-	live, err := dreamLiveDir(e)
+	defer st.close()
+	m, stop, err := dreamSession(ctx, st.e, da, st.ws, st.live, st.dreamsDir)
 	if err != nil {
 		return err
 	}
-	dreamsDir := dream.Dir(filepath.Dir(live))
-
-	m, stop, err := dreamSession(ctx, e, da, ws, live, dreamsDir)
-	if err != nil {
-		return err
-	}
-	if err := dreamOutput(ctx, e, da, out, m, live, dreamsDir); err != nil {
+	if err := dreamOutput(ctx, st.e, da, out, m, st.live, st.dreamsDir); err != nil {
 		return err
 	}
 	if stop != nil {
 		return stop
 	}
 	return nil
+}
+
+// dreamStore is the profile a dream command works on: its environment, a
+// temporary workspace (removed by close), the live memory dir and the
+// dreams dir beside it.
+type dreamStore struct {
+	e                   *env
+	ws, live, dreamsDir string
+}
+
+func (s dreamStore) close() { _ = os.RemoveAll(s.ws) }
+
+func openDreamStore(ctx context.Context, flags map[string]string) (st dreamStore, err error) {
+	ws, err := os.MkdirTemp("", dreamWorkPrefix)
+	if err != nil {
+		return st, fmt.Errorf("dream workspace: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(ws)
+		}
+	}()
+	if r, err := filepath.EvalSymlinks(ws); err == nil {
+		ws = r
+	}
+	e, err := prepareNoProject(ctx, flags, ws)
+	if err != nil {
+		return st, err
+	}
+	// ResolveMode cannot fail: an unknown value resolves to on. Its second
+	// result hides a project's index, which a dream (no project) ignores.
+	if mode, _ := memory.ResolveMode(memorySetting(e.layers, os.Getenv)); mode == memory.ModeOff {
+		return st, errors.New("memory is off for this profile")
+	}
+	live, err := dreamLiveDir(e)
+	if err != nil {
+		return st, err
+	}
+	return dreamStore{e: e, ws: ws, live: live, dreamsDir: dream.Dir(filepath.Dir(live))}, nil
 }
 
 func parseDream(args []string) (dreamArgs, error) {

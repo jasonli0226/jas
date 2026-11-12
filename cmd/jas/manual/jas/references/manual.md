@@ -29,6 +29,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas sessions [--prune]` | other jas sessions working in this repo |
 | `jas memory [--path]` | memory dirs, index size and note counts; `--path` prints the project memory dir |
 | `jas dream [flags]` | consolidate the profile's memory into a reviewed proposal ([Dreams](#dreams)) |
+| `jas dream list\|diff\|apply\|discard\|undo` | review, apply, drop or revert a dream ([Dreams](#dreams)) |
 | `jas farm …` | experimental parallel worktree runner |
 | `jas --version` | print the version |
 
@@ -684,8 +685,28 @@ On a terminal it then asks `apply? [y/N/d=diff]`: `d` prints the diff and
 asks again, `y` shows the diff stat and applies (asking once more when the
 report has warnings). Off a terminal it stops after writing the proposal.
 
-**Exit codes.** `0` proposal written; `1` failure (including memory off);
-`2` usage; `130` interrupted, and no proposal is written (Ctrl+C at the
+**Reviewing a dream.** Subcommands work on the active profile (or
+`--profile NAME`) and take an optional `<id>`; an invalid id is a usage
+error (exit 2).
+
+| command | does |
+|---|---|
+| `jas dream list [--json]` | one row per dream: id, state, counts. `--json` prints an array of `dream.json` objects, each with `stale` |
+| `jas dream diff [id]` | a `pending` dream: a warning first if memory changed since it started, then the diff live to proposed, then the report. An `applied` dream: the diff of the store it replaced (`before/`) to the live store. Any other state: exit 1 |
+| `jas dream apply [id] [--yes]` | shows the diff stat and the warnings (unexplained changes, a large removal, unsupported changes with their reasons), asks `apply? [y/N]`, swaps the proposal in and logs `dream_applied`. `--yes` skips the question; off a terminal it is required (exit 2 without it) |
+| `jas dream discard [id]` | drops a pending proposal, keeps its report, moves the watermark and logs `dream_discarded` |
+| `jas dream undo [id]` | puts back the store an applied dream replaced and logs `dream_undone`; exit 1 when that store was pruned or the live store changed since the apply |
+
+Default ids: `diff`, `apply` and `discard` use the newest `pending` dream;
+`undo` uses the newest `applied` one. With none, the command exits 1 with
+"no pending dream" (or "no applied dream"). Stale is decided at apply time
+and shown in `list`: `list` and `diff` mark a pending dream whose live store
+differs from the one it started from as `pending (stale)` without saving
+anything, and `apply` then refuses (exit 1) and records the dream as `stale`.
+The events go to the dream's own session log.
+
+**Exit codes.** `0` proposal written (or the subcommand done); `1` failure (including memory off);
+`2` usage (including `apply` off a terminal without `--yes`); `130` interrupted, and no proposal is written (Ctrl+C at the
 apply question also exits 130 and leaves the dream pending). When the model
 pass is stopped early, the proposal it has so far is still written and
 marked `partial`, and the exit code says why: `7` the `--max-tokens` or
