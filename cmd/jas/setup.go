@@ -244,7 +244,10 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 // (jas dream): the same settings, profile, key, redactor and provider, from
 // the global and profile layers only. There is no trust prompt, no project
 // skills or context file, and no memory section; root is used as given.
-func prepareNoProject(ctx context.Context, flags map[string]string, root string) (*env, error) {
+//
+// keyless skips the API key requirement, for commands that call no model: a
+// missing or unreadable key leaves e.key empty and the provider unusable.
+func prepareNoProject(ctx context.Context, flags map[string]string, root string, keyless bool) (*env, error) {
 	home, err := settingsHome()
 	if err != nil {
 		return nil, err
@@ -253,7 +256,9 @@ func prepareNoProject(ctx context.Context, flags map[string]string, root string)
 	if err != nil {
 		return nil, err
 	}
-	return resolveEnv(flags, newSetupInput(ctx, home, root, files, nil))
+	in := newSetupInput(ctx, home, root, files, nil)
+	in.keyless = keyless
+	return resolveEnv(flags, in)
 }
 
 // setupInput is what resolveEnv starts from: the jas home, the session root,
@@ -267,6 +272,8 @@ type setupInput struct {
 	stdin       *bufio.Reader
 	interactive bool
 	ask         func(prompt string) string
+	// keyless: no model call follows, so a missing key is not an error.
+	keyless bool
 	// afterProfile, when set, runs once the profile is loaded, before the
 	// settings are built; its warnings print with the others.
 	afterProfile func(policy core.ExecPolicy, prof profileState) []string
@@ -311,11 +318,11 @@ func resolveEnv(flags map[string]string, in setupInput) (*env, error) {
 		return nil, usageErr("%v", err)
 	}
 	auth, err := loadAuthForRun(filepath.Join(home, authFile), cfg.Provider)
-	if err != nil {
+	if err != nil && !in.keyless {
 		return nil, err
 	}
 	key, _, err := settings.ResolveKey(cfg.Provider, os.Getenv, auth)
-	if err != nil {
+	if err != nil && !in.keyless {
 		return nil, usageErr("%v", err)
 	}
 

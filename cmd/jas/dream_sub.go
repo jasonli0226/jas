@@ -75,7 +75,7 @@ func dreamSub(ctx context.Context, cmd string, args []string, out io.Writer) err
 	if err != nil {
 		return err
 	}
-	st, err := openDreamStore(ctx, sa.flags)
+	st, err := openDreamStore(ctx, sa.flags, false)
 	if err != nil {
 		return err
 	}

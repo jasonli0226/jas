@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -179,5 +181,100 @@ func TestDreamDiscard_ThenPlainRunSkipsWindow(t *testing.T) {
 		if r.ID != m.ID { // ids made in one second sort by their random suffix
 			assert.Eq(t, strings.Join(r.Window.Sessions, ","), "")
 		}
+	}
+}
+
+// The review subcommands call no model: no key and memory off do not block
+// them, while the run still needs both.
+func TestDreamSub_NoKeyAndMemoryOff(t *testing.T) {
+	f, _ := newDreamFixture(t, nil)
+	m := f.newDream(t, "use tabs", "use tabs always")
+	t.Setenv("JAS_API_KEY", "")
+	t.Setenv("JAS_MEMORY", "off")
+	ctx := context.Background()
+	for _, args := range [][]string{{"list"}, {"diff"}, {"apply", "--yes"}, {"undo"}} {
+		if _, err := runDreamCmd(t, ctx, args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	got, err := dream.Load(f.dreams, m.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, got.State, dream.Undone)
+
+	t.Setenv("JAS_MEMORY", "")
+	m2 := f.newDream(t, "use tabs", "use tabs again")
+	t.Setenv("JAS_API_KEY", "")
+	t.Setenv("JAS_MEMORY", "off")
+	_, err = runDreamCmd(t, ctx, "discard")
+	assert.NoErr(t, err)
+	got, err = dream.Load(f.dreams, m2.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, got.State, dream.Discarded)
+}
+
+func TestDreamRun_NoKeyStillFails(t *testing.T) {
+	newDreamFixture(t, nil)
+	t.Setenv("JAS_API_KEY", "")
+	t.Setenv("JAS_PROVIDER", "openrouter")
+	_, err := runDreamCmd(t, context.Background())
+	assert.Eq(t, exitCode(err), core.ExitUsage)
+}
+
+func TestDreamSub_WrongStateExplicitID(t *testing.T) {
+	f, _ := newDreamFixture(t, nil)
+	ctx := context.Background()
+	pending := f.newDream(t, "use tabs", "use tabs always")
+	_, err := runDreamCmd(t, ctx, "undo", pending.ID)
+	assert.Eq(t, exitCode(err), core.ExitFailure)
+	assert.Contains(t, err.Error(), "not applied")
+
+	_, err = runDreamCmd(t, ctx, "apply", "--yes", pending.ID)
+	assert.NoErr(t, err)
+	for _, cmd := range []string{"apply", "discard"} {
+		args := []string{cmd, pending.ID}
+		if cmd == "apply" {
+			args = append(args, "--yes")
+		}
+		_, err = runDreamCmd(t, ctx, args...)
+		assert.Eq(t, exitCode(err), core.ExitFailure)
+		assert.Contains(t, err.Error(), "not pending")
+	}
+}
+
+func TestDreamUndo_NoAppliedExit1(t *testing.T) {
+	f, _ := newDreamFixture(t, nil)
+	f.newDream(t, "use tabs", "use tabs always")
+	_, err := runDreamCmd(t, context.Background(), "undo")
+	assert.Eq(t, exitCode(err), core.ExitFailure)
+	assert.Contains(t, err.Error(), "no applied dream")
+}
+
+func TestDreamUndo_PrunedExit1(t *testing.T) {
+	f, _ := newDreamFixture(t, nil)
+	m := f.newDream(t, "use tabs", "use tabs always")
+	_, err := runDreamCmd(t, context.Background(), "apply", "--yes")
+	assert.NoErr(t, err)
+	assert.NoErr(t, os.RemoveAll(filepath.Join(f.dreams, m.ID, "before")))
+	_, err = runDreamCmd(t, context.Background(), "undo")
+	assert.Eq(t, exitCode(err), core.ExitFailure)
+	var pe *dream.PrunedError
+	if !errors.As(err, &pe) {
+		t.Fatalf("want *PrunedError, got %v", err)
+	}
+}
+
+// A failing watermark write is a follow-up: the apply is saved and logged,
+// so the command warns and exits 0.
+func TestDreamApply_FollowUpExit0(t *testing.T) {
+	f, _ := newDreamFixture(t, nil)
+	m := f.newDream(t, "use tabs", "use tabs always")
+	assert.NoErr(t, os.MkdirAll(filepath.Join(f.dreams, "state.json"), 0o755)) // cannot be replaced by a file
+	_, err := runDreamCmd(t, context.Background(), "apply", "--yes")
+	assert.NoErr(t, err)
+	got, err := dream.Load(f.dreams, m.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, got.State, dream.Applied)
+	if eventOf(f.sessionEvents(t, m), core.EvDreamApplied) == nil {
+		t.Fatal("no dream_applied event")
 	}
 }

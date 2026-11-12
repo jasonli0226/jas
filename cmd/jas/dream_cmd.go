@@ -57,7 +57,7 @@ func dreamRun(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	st, err := openDreamStore(ctx, da.flags)
+	st, err := openDreamStore(ctx, da.flags, true)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,10 @@ type dreamStore struct {
 
 func (s dreamStore) close() { _ = os.RemoveAll(s.ws) }
 
-func openDreamStore(ctx context.Context, flags map[string]string) (st dreamStore, err error) {
+// openDreamStore resolves the store. The run (forRun) needs a provider key
+// and refuses a profile whose memory is off; the review subcommands call no
+// model and must work as recovery paths, so they need neither.
+func openDreamStore(ctx context.Context, flags map[string]string, forRun bool) (st dreamStore, err error) {
 	ws, err := os.MkdirTemp("", dreamWorkPrefix)
 	if err != nil {
 		return st, fmt.Errorf("dream workspace: %w", err)
@@ -98,13 +101,13 @@ func openDreamStore(ctx context.Context, flags map[string]string) (st dreamStore
 	if r, err := filepath.EvalSymlinks(ws); err == nil {
 		ws = r
 	}
-	e, err := prepareNoProject(ctx, flags, ws)
+	e, err := prepareNoProject(ctx, flags, ws, !forRun)
 	if err != nil {
 		return st, err
 	}
 	// ResolveMode cannot fail: an unknown value resolves to on. Its second
 	// result hides a project's index, which a dream (no project) ignores.
-	if mode, _ := memory.ResolveMode(memorySetting(e.layers, os.Getenv)); mode == memory.ModeOff {
+	if mode, _ := memory.ResolveMode(memorySetting(e.layers, os.Getenv)); forRun && mode == memory.ModeOff {
 		return st, errors.New("memory is off for this profile")
 	}
 	live, err := dreamLiveDir(e)

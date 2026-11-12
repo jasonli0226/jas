@@ -700,9 +700,11 @@ error (exit 2).
 Default ids: `diff`, `apply` and `discard` use the newest `pending` dream;
 `undo` uses the newest `applied` one. With none, the command exits 1 with
 "no pending dream" (or "no applied dream"). Stale is decided at apply time
-and shown in `list`: `list` and `diff` mark a pending dream whose live store
-differs from the one it started from as `pending (stale)` without saving
-anything, and `apply` then refuses (exit 1) and records the dream as `stale`.
+and shown in `list`: `list` shows a pending dream whose live store differs from the one it
+started from as `pending (stale)` without saving anything, `diff` prints a
+warning line first, and `apply` then refuses (exit 1) and records the dream
+as `stale`. The subcommands call no model, so they need no API key and work
+with `memory: off`; only the run needs both.
 The events go to the dream's own session log.
 
 **Exit codes.** `0` proposal written (or the subcommand done); `1` failure (including memory off);
