@@ -100,15 +100,23 @@ func readIndex(dir string) (Index, []string, error) {
 	}
 	sum := sha256.Sum256(raw)
 	idx.Exists, idx.Bytes, idx.SHA256 = true, len(raw), hex.EncodeToString(sum[:])
-	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
-	text = strings.TrimSuffix(text, "\n")
-	var ls []string
-	if text != "" {
-		ls = strings.Split(text, "\n")
-	}
+	ls := IndexLines(string(raw))
 	idx.Lines = len(ls)
 	return idx, ls, nil
 }
+
+// IndexLines splits index content into lines the way LoadIndexes counts them:
+// CRLF folded to LF, one trailing newline dropped, empty content has no lines.
+func IndexLines(content string) []string {
+	text := strings.TrimSuffix(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+// IndexBytes is the byte budget lines use against MaxIndexBytes.
+func IndexBytes(lines []string) int { return byteLen(lines) }
 
 func byteLen(ls []string) int {
 	n := 0
