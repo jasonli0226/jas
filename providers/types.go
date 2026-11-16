@@ -54,6 +54,9 @@ type Request struct {
 	Messages []Message
 	// MaxTokens caps the response's output tokens; 0 leaves it to the provider.
 	MaxTokens int
+	// ToolChoice is sent as tool_choice when set ("none" forbids tool calls
+	// while keeping Tools for the history's earlier calls); "" omits it.
+	ToolChoice string
 }
 
 // Usage reports token counts for a request.

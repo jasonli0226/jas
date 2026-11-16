@@ -72,6 +72,7 @@ and `ps`. Use `jas auth add` or `JAS_API_KEY`.
 | `--max-tokens N` | stop with exit 7 before a request that would cross N total tokens |
 | `--timeout D` | stop with exit 7 after wall-clock duration D (e.g. `30m`) |
 | `--compact` | summarize older history when the context fills, as the chat does |
+| `--wrap-up` | at the turn cap (`max_turns`) or `--max-tokens`, send one last request with tools off asking for the final answer, instead of stopping without one; an answer exits 0. The token-cap wrap-up needs room for 1000 output tokens, else exit 7 as usual |
 
 `jas run` prints diffs only on a terminal.
 
@@ -862,6 +863,7 @@ one bumps `v`.
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |
+| `wrap_up` | reason (`turn_cap` \| `tokens`), max_tokens: `--wrap-up` asked for the final answer at that cap |
 | `check_ran` | cmd, dir, exit_code, duration_ms, timed_out, output tail |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens; reason on non-zero exits |
 
