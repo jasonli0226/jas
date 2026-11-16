@@ -114,7 +114,7 @@ fi
 set +e
 (cd "$work/tree" && "${sandbox[@]}" \
 	jas run --profile "$PROFILE" --trust-project \
-	--max-tokens "$MAX_TOKENS" --max-turns "$MAX_TURNS" --timeout "$TIMEOUT" --name "review PR #$pr" \
+	--max-tokens "$MAX_TOKENS" --max-turns "$MAX_TURNS" --wrap-up --timeout "$TIMEOUT" --name "review PR #$pr" \
 	"$prompt") >"$work/out" 2>"$work/err"
 code=$?
 set -e
