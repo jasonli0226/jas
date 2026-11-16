@@ -237,7 +237,8 @@ a same-named skill in your profile or project.
   (read-only tools can open that directory).
 - The skill list in the prompt is capped at 64 KB; project skills are kept
   first, then user skills, and those past the cap are not listed (a warning
-  names them). Paths under your home are written `~/…` (read tools expand it).
+  names them). Paths under your home are written `~/…` (the file tools expand it, as
+  they do `~\…` on Windows).
 - Project skills are found at the project root (the git top level) only, not
   in directories between it and where jas starts, like `AGENTS.md`.
 - Validation is lenient: a bad name warns, a missing description or broken
