@@ -1,7 +1,7 @@
 LDFLAGS := -s -w
 MAX_SIZE := 15728640
 
-.PHONY: build install chat test perf bench size manual
+.PHONY: build install chat test perf bench size manual claude-setup
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/jas ./cmd/jas
@@ -24,6 +24,7 @@ test:
 	go vet ./...
 	go test ./...
 	bash .agents/skills/pr-review-loop/scripts/check-pr-reviewed_test.sh
+	bash .agents/skills/pr-review-loop/scripts/link-claude-code_test.sh
 
 # Links the pr-review-loop skill into .claude/skills and adds its merge hook
 # to .claude/settings.local.json (.claude/ is gitignored; once per clone).

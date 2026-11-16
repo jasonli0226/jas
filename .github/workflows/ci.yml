@@ -42,7 +42,3 @@ jobs:
           else
             go test ./... -race -count=1
           fi
-
-      - name: Merge hook matcher
-        if: runner.os == 'Linux'
-        run: bash .agents/skills/pr-review-loop/scripts/check-pr-reviewed_test.sh
