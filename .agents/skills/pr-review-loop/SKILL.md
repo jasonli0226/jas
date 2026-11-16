@@ -5,6 +5,10 @@ description: Use in the jas repo after opening or updating a pull request and be
 
 # PR review loop
 
+This skill is for the agent that opens and merges PRs. If you are the
+reviewer (jas's `reviewer` profile, asked to review a PR), ignore it and
+use `pr-review`.
+
 Every jas PR gets a jas review of its head commit before it merges. A
 PreToolUse hook (`scripts/check-pr-reviewed.sh`) blocks `gh pr merge` until
 a PASS review for the current head is posted.
