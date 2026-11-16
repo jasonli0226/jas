@@ -204,9 +204,13 @@ func (p ExecPolicy) liftedScope(abs string) (ExecPolicy, bool) {
 }
 
 // expandHome turns a leading ~/ (how the skill catalog writes home paths)
-// into the home directory; other paths are returned as they are.
+// into the home directory, and on Windows ~\ too, the form a model may
+// rewrite it to; other paths are returned as they are.
 func expandHome(path string) string {
 	rest, ok := strings.CutPrefix(path, "~/")
+	if !ok {
+		rest, ok = strings.CutPrefix(path, "~"+string(filepath.Separator))
+	}
 	if !ok {
 		return path
 	}

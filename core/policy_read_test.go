@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jasonli0226/jas/internal/assert"
@@ -69,4 +70,21 @@ func TestResolveRead_ExpandsTildeToHome(t *testing.T) {
 	if _, err := p.ResolveRead("~/elsewhere"); err == nil {
 		t.Fatal("~ reached outside the read roots")
 	}
+}
+
+// TestResolveRead_ExpandsBackslashTildeOnWindows: a Windows model may write
+// the catalog's ~/ path with backslashes (#175).
+func TestResolveRead_ExpandsBackslashTildeOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip(`~\ is a Windows path form`)
+	}
+	home := realpath(t, t.TempDir())
+	t.Setenv("USERPROFILE", home)
+	skill := filepath.Join(home, "AppData", "Local", "jas", "manual", "jas")
+	assert.NoErr(t, os.MkdirAll(skill, 0o755))
+	assert.NoErr(t, os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("x"), 0o644))
+	p := ExecPolicy{Root: realpath(t, t.TempDir()), ReadRoots: []string{skill}}
+	got, err := p.ResolveRead(`~\AppData\Local\jas\manual\jas\SKILL.md`)
+	assert.NoErr(t, err)
+	assert.Eq(t, got, filepath.Join(skill, "SKILL.md"))
 }
