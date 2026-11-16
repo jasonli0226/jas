@@ -23,6 +23,7 @@ manual:
 test:
 	go vet ./...
 	go test ./...
+	bash scripts/check-pr-reviewed_test.sh
 
 perf:
 	JAS_PERF_TESTS=1 go test -run Version ./cmd/jas/
