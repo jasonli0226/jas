@@ -25,7 +25,7 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
 
 1. Push the branch and open the PR. Docs only: go to step 5.
 2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
-   command timeout of at least 25 minutes (a review takes 5–15). It posts
+   command timeout of at least 35 minutes (a review takes 5–30). It posts
    the review as a PR comment.
    - Exit 0, `VERDICT: PASS`: go to step 5. Its findings are all low; the
      script logs them in the "Low findings from jas reviews" issue.
