@@ -274,6 +274,16 @@ deliveries add `board_seqs`.
 **`budget_stop`** — `reason` (`tokens` or `timeout`). For `tokens`, also
 `pool`, `limit`, `used`, `want`.
 
+**`wrap_up`** — `reason` (`turn_cap` or `tokens`), `max_tokens`. Only with
+`jas run --wrap-up`: the request that would have stopped the run at that cap
+was sent instead as a last one with `tool_choice: none` and a note asking for
+the final answer; `max_tokens` is its output cap (for `tokens`, the room left
+under the cap). The note is in that request only, not in the history, so
+replay ignores this event. An answer ends the turn `ok` with reason
+`wrapped up at the turn cap` or `wrapped up at the token cap`; tool calls in
+the reply are not run (`tool_result` status `not_run`) and the turn ends at
+the cap as it would have.
+
 **`check_ran`** — `cmd`, `dir`, `exit_code`, `duration_ms`, `timed_out`,
 `output` (redacted tail).
 

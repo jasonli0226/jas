@@ -242,6 +242,7 @@ type oaiRequest struct {
 	Messages      []oaiMessage `json:"messages"`
 	Tools         []oaiTool    `json:"tools,omitempty"`
 	MaxTokens     int          `json:"max_tokens,omitempty"`
+	ToolChoice    string       `json:"tool_choice,omitempty"`
 	Stream        bool         `json:"stream"`
 	StreamOptions struct {
 		IncludeUsage bool `json:"include_usage"`
@@ -252,6 +253,9 @@ func strPtr(s string) *string { return &s }
 
 func encodeRequest(req Request) oaiRequest {
 	r := oaiRequest{Model: req.Model, MaxTokens: req.MaxTokens, Stream: true}
+	if len(req.Tools) > 0 {
+		r.ToolChoice = req.ToolChoice
+	}
 	r.StreamOptions.IncludeUsage = true
 	if req.System != "" {
 		r.Messages = append(r.Messages, oaiMessage{Role: "system", Content: strPtr(req.System)})

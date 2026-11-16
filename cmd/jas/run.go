@@ -36,6 +36,7 @@ type runArgs struct {
 	maxTokens int           // --max-tokens: total token cap; 0 = none
 	timeout   time.Duration // --timeout: wall-clock cap; 0 = none
 	compact   bool          // --compact: auto-compaction as in the chat
+	wrapUp    bool          // --wrap-up: ask for a final answer at the turn or token cap
 }
 
 // reportRedactor masks the resolved API key in top-level error messages.
@@ -109,7 +110,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
 		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(),
-		Compact: ra.compactConfig(e.cfg),
+		Compact: ra.compactConfig(e.cfg), WrapUp: ra.wrapUp,
 	})
 	if err == nil && !ra.json {
 		fmt.Println()
@@ -118,7 +119,7 @@ func runCmd(ctx context.Context, args []string) error {
 }
 
 // runOnlyFlags are jas run flags that are not stored settings.
-var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true, "compact": true}
+var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true, "compact": true, "wrap-up": true}
 
 // tokenPool is the --max-tokens cap, or nil when none was given.
 func (ra runArgs) tokenPool() *core.TokenPool {
@@ -170,6 +171,7 @@ func parseRun(args []string) (runArgs, error) {
 	maxTokens := fs.String("max-tokens", "", "stop with exit 7 before a request that would cross this many total tokens")
 	timeout := fs.String("timeout", "", "stop with exit 7 after this wall-clock duration (e.g. 30m)")
 	fs.BoolVar(&ra.compact, "compact", false, "summarize older history when the context fills up, as the chat does")
+	fs.BoolVar(&ra.wrapUp, "wrap-up", false, "at the turn or token cap, ask for a final answer instead of stopping without one")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name+" (overrides "+k.EnvName()+" and stored config)")

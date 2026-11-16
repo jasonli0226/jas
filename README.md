@@ -89,6 +89,7 @@ jas run --json "..."                                # event stream on stdout as 
 jas run --trust-project "..."                       # load AGENTS.md without asking
 jas run --max-tokens 200000 --timeout 30m "..."     # hard caps for CI (exit 7)
 jas run --compact "..."                             # compact long runs like the chat
+jas run --wrap-up --max-turns 40 "..."              # answer at the cap instead of stopping
 jas sessions                                        # other jas sessions in this repo
 ```
 
