@@ -524,3 +524,14 @@ func TestSession_FinishReasonLoggedOnAnswer(t *testing.T) {
 		}
 	}
 }
+
+// TestSession_OutputCapReasonWithoutMaxOutput: with no max_output_tokens the
+// provider's own limit cut the reply; the reason does not claim a cap of 0.
+func TestSession_OutputCapReasonWithoutMaxOutput(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "half", Finish: "length"}})
+	s := newSession(t, r)
+	res := send(t, s, context.Background(), "go")
+	assert.Eq(t, res.Status, "output_cap")
+	assert.Eq(t, res.Reason, "reply cut off at the provider's output limit")
+	assert.NoErr(t, s.Close(res.Status, res.Code))
+}

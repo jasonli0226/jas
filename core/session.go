@@ -464,7 +464,7 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	s.push(msg, s.logAssistant(msg, len(uses) == 0 && !cut, m.finish))
 	if cut {
 		m.final = textOf(msg)
-		return true, endOutputCap, ExitOutputCap, fmt.Sprintf("reply cut off at max_output_tokens (%d)", s.outputCap())
+		return true, endOutputCap, ExitOutputCap, s.outputCapReason()
 	}
 	if len(uses) == 0 {
 		m.final = textOf(msg)
@@ -492,6 +492,15 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	}
 	s.elide()
 	return false, "", 0, ""
+}
+
+// outputCapReason says which limit cut the reply off: max_output_tokens, or
+// the provider's own when none is sent.
+func (s *Session) outputCapReason() string {
+	if n := s.outputCap(); n > 0 {
+		return fmt.Sprintf("reply cut off at max_output_tokens (%d)", n)
+	}
+	return "reply cut off at the provider's output limit"
 }
 
 // inject appends the Inject hook's text to the tool-results message just
