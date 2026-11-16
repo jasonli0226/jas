@@ -41,6 +41,7 @@ const (
 	EvDreamApplied     = "dream_applied"   // jas dream apply changed memory
 	EvDreamDiscarded   = "dream_discarded" // jas dream discard dropped a proposal
 	EvDreamUndone      = "dream_undone"    // jas dream undo restored memory
+	EvWrapUp           = "wrap_up"         // a capped run's last request asks for the final answer
 )
 
 const (

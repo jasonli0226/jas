@@ -230,3 +230,22 @@ func TestRunCmd_CompactFlagCompacts(t *testing.T) {
 	assert.Eq(t, len(bodies()), 3)
 	_ = errOut
 }
+
+// TestRun_WrapUpAnswersAtTurnCap: with --wrap-up and --max-turns 2, the
+// second request asks for the answer with tool_choice none, and the run
+// exits 0 with that answer (#195).
+func TestRun_WrapUpAnswersAtTurnCap(t *testing.T) {
+	userHome := t.TempDir()
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "ls", Args: `{"path":"."}`}}},
+		{Text: "WRAPPED-ANSWER"},
+	})
+	out, _, code := runJas(t, jasEnv(userHome, url), "run", "--wrap-up", "--max-turns", "2", "q")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "WRAPPED-ANSWER")
+	got := bodies()
+	assert.Eq(t, len(got), 2)
+	assert.NotContains(t, string(got[0]), `"tool_choice"`)
+	assert.Contains(t, string(got[1]), `"tool_choice":"none"`)
+	assert.Contains(t, string(got[1]), "turn limit")
+}

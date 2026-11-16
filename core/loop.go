@@ -48,6 +48,7 @@ type RunConfig struct {
 	MaxOutput   int            // max_tokens per model request; 0 omits it
 	Tokens      *TokenPool     // nil = no token cap
 	Compact     *CompactConfig // nil = compaction off (the jas run default)
+	WrapUp      bool           // ask for a final answer at the turn or token cap
 }
 
 // Summary describes a finished run.
@@ -64,7 +65,7 @@ type Summary struct {
 func Run(ctx context.Context, c RunConfig) (Summary, error) {
 	sess, err := NewSession(SessionConfig{
 		Provider: c.Provider, Model: c.Model, System: c.System, Exec: c.Exec,
-		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta, MaxOutput: c.MaxOutput, Tokens: c.Tokens, Compact: c.Compact,
+		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta, MaxOutput: c.MaxOutput, Tokens: c.Tokens, Compact: c.Compact, WrapUp: c.WrapUp,
 	})
 	if err != nil {
 		return Summary{}, err

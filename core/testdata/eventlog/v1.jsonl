@@ -28,3 +28,4 @@
 {"counts":{"added":1,"changed":2,"lint_fixed":1,"lint_open":0,"promote":1,"removed":0},"dream_id":"20261112T090000Z-a1b2","id":"e000028","parent_id":"e000027","seq":28,"ts":"2026-11-13T08:11:00Z","type":"dream_applied","v":1}
 {"dream_id":"20261112T090000Z-c3d4","id":"e000029","parent_id":"e000028","seq":29,"ts":"2026-11-13T08:12:00Z","type":"dream_discarded","v":1}
 {"dream_id":"20261112T090000Z-a1b2","id":"e000030","parent_id":"e000029","seq":30,"ts":"2026-11-13T08:13:00Z","type":"dream_undone","v":1}
+{"v":1,"id":"e000031","parent_id":"e000030","seq":31,"ts":"2026-11-13T08:14:00Z","type":"wrap_up","max_tokens":4000,"reason":"tokens"}

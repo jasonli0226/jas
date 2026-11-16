@@ -38,6 +38,9 @@ type SessionConfig struct {
 	// text block and logged as an injected event with meta merged in. Never
 	// called after a final answer; independent of the steering queue.
 	Inject func() (text string, meta map[string]any)
+	// WrapUp turns the request that would hit MaxTurns or Tokens into a last
+	// one that asks for the final answer with tools off (see wrapup.go).
+	WrapUp bool
 }
 
 // TurnResult describes how one user message (one Send, or the last steering
@@ -426,7 +429,12 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	if c.Budget != nil && c.Budget.WouldExceed(s.messages) {
 		return true, endContextFull, ExitContextFull, "context window full"
 	}
-	msg, uses, err := s.request(ctx, m)
+	w := s.turnWrapUp(m)
+	msg, uses, err := s.request(ctx, m, w)
+	if tw := s.tokenWrapUp(err); w == nil && tw != nil {
+		w = tw
+		msg, uses, err = s.request(ctx, m, w)
+	}
 	if done, st, code, reason := s.budgetStopped(err); done {
 		return true, st, code, reason
 	}
@@ -435,7 +443,7 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		if done, st, code, reason := s.compactFailed(ctx, cerr); done {
 			return true, st, code, reason
 		}
-		msg, uses, err = s.request(ctx, m)
+		msg, uses, err = s.request(ctx, m, w)
 		if done, st, code, reason := s.budgetStopped(err); done {
 			return true, st, code, reason
 		}
@@ -450,6 +458,9 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	// A reply cut off at the output cap is not an answer, though it has no
 	// tool calls (#194).
 	cut := len(uses) == 0 && m.finish == finishLength
+	if w != nil && !cut {
+		return s.wrapEnd(m, w, msg, uses)
+	}
 	s.push(msg, s.logAssistant(msg, len(uses) == 0 && !cut, m.finish))
 	if cut {
 		m.final = textOf(msg)
@@ -504,17 +515,23 @@ func (s *Session) inject() {
 }
 
 // request streams one model request over the current history, showing its
-// output and recording its usage.
-func (s *Session) request(ctx context.Context, m *msgState) (providers.Message, []providers.ContentBlock, error) {
+// output and recording its usage. A non-nil w makes it the wrap-up request.
+func (s *Session) request(ctx context.Context, m *msgState, w *wrapUp) (providers.Message, []providers.ContentBlock, error) {
 	c := s.c
 	req := providers.Request{
 		Model: s.model, System: c.System, Tools: c.Exec.Reg.Specs(),
 		Messages: slices.Clone(s.messages), MaxTokens: s.outputCap(),
 	}
+	if w != nil {
+		req = wrapRequest(req, w)
+	}
 	est := s.estimate(req)
 	res, err := s.reserve(est)
 	if err != nil {
 		return providers.Message{}, nil, err
+	}
+	if w != nil {
+		s.note(c.Log.Append(EvWrapUp, map[string]any{"reason": w.reason, "max_tokens": req.MaxTokens}))
 	}
 	stream, errc := c.Provider.Stream(ctx, req)
 	var (

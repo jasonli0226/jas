@@ -571,3 +571,15 @@ func TestOpenAI_RequestOmitsZeroMaxTokens(t *testing.T) {
 		t.Fatalf("max_tokens sent: %v", body["max_tokens"])
 	}
 }
+
+func TestOpenAI_RequestSendsToolChoiceWithTools(t *testing.T) {
+	hi := []Message{{Role: RoleUser, Content: []ContentBlock{{Type: BlockText, Text: "hi"}}}}
+	tools := []ToolSpec{{Name: "ls", Description: "list", Schema: json.RawMessage(`{"type":"object"}`)}}
+	body := captureBody(t, Request{Model: "m", Messages: hi, Tools: tools, ToolChoice: "none"})
+	assert.Eq(t, body["tool_choice"], any("none"))
+	// Without tools there is nothing to choose; some providers reject it.
+	body = captureBody(t, Request{Model: "m", Messages: hi, ToolChoice: "none"})
+	if _, ok := body["tool_choice"]; ok {
+		t.Fatalf("tool_choice sent without tools: %v", body["tool_choice"])
+	}
+}
