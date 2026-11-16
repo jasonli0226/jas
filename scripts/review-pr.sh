@@ -58,7 +58,7 @@ base=$(git merge-base "origin/$base_ref" "$head")
 # Issues the PR body links with a closing keyword or "Refs".
 issue_context() {
 	local body n
-	body=$(jq -r .body <<<"$pr_json")
+	body=$(jq -r '.body // ""' <<<"$pr_json")
 	for n in $(grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?) #[0-9]+' <<<"$body" | grep -oE '[0-9]+' | sort -u); do
 		gh issue view "$n" --json number,title,body \
 			-q '"### Issue #\(.number): \(.title)\n\n\(.body)\n"' || true
@@ -78,18 +78,41 @@ prompt=$(cat <<PROMPT
 Review pull request #$pr before it merges. The checkout is the PR head
 ($head); the base is $base (diff with: git diff $base...HEAD).
 
-### PR: $(jq -r .title <<<"$pr_json")
+### PR: $(jq -r '.title // ""' <<<"$pr_json")
 
-$(jq -r .body <<<"$pr_json")
+$(jq -r '.body // ""' <<<"$pr_json")
 
 $(issue_context)
 PROMPT
 )
 
-# The reviewer runs in the throwaway worktree with gh logged out, so it can
-# run tests but cannot comment, push or merge.
+# The reviewer runs in the throwaway worktree logged out of GitHub, so it
+# can run tests but cannot comment, push or merge:
+# - gh reads an empty config with no token in the environment;
+# - the D-Bus session bus is unreachable, so neither gh nor its git
+#   credential helper can read the token from the keyring;
+# - git has no SSH agent, no credential helpers and a dead push URL.
+# This guards against a reviewer that misuses its tools, not hostile code:
+# the shell can still read files the user can read.
+sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
+	-u SSH_AUTH_SOCK DBUS_SESSION_BUS_ADDRESS=disabled: GH_CONFIG_DIR="$gh_empty"
+	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=3
+	GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=/push-disabled-in-review
+	GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1=
+	GIT_CONFIG_KEY_2=credential.https://github.com.helper GIT_CONFIG_VALUE_2=)
+
+# sandbox_logged_out fails when gh or git can still find a GitHub token.
+sandbox_logged_out() {
+	! "${sandbox[@]}" gh auth status >/dev/null 2>&1 &&
+		! printf 'protocol=https\nhost=github.com\n\n' |
+		"${sandbox[@]}" git credential fill 2>/dev/null | grep -q '^password='
+}
+if ! sandbox_logged_out; then
+	echo "review-pr: a GitHub token is still reachable inside the review sandbox; not running the reviewer" >&2
+	exit 3
+fi
 set +e
-(cd "$work/tree" && env -u GH_TOKEN -u GITHUB_TOKEN GH_CONFIG_DIR="$gh_empty" \
+(cd "$work/tree" && "${sandbox[@]}" \
 	jas run --profile "$PROFILE" --trust-project \
 	--max-tokens "$MAX_TOKENS" --max-turns "$MAX_TURNS" --timeout "$TIMEOUT" --name "review PR #$pr" \
 	"$prompt") >"$work/out" 2>"$work/err"

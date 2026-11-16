@@ -3,16 +3,58 @@
 # `gh pr merge` unless scripts/review-pr.sh posted a PASS review for the
 # PR's current head commit. It reads the hook payload on stdin; exit 2
 # blocks the call and shows stderr to the agent.
+#
+# --match-only prints the PR target ("" for the current branch's PR) and
+# exits 0 when the command merges, or exits 1 when it does not; it makes no
+# GitHub calls (scripts/check-pr-reviewed_test.sh uses it).
 set -euo pipefail
 
 readonly MARKER=jas-review
-# Only gh in command position counts (line start, or after ; & | or (), so
-# text that merely mentions the command, like a heredoc, passes.
-readonly MERGE_RE='(^|[;&|(])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+# gh counts only in command position: at line start or after ; & | or (,
+# behind any of these prefixes (command, exec, sudo, nohup, time, env, VAR=x)
+# and with an optional directory. Text that merely mentions the command,
+# like a heredoc or an echo, passes.
+readonly PREFIX_RE='((command|exec|sudo|nohup|time|env|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+)*'
+readonly MERGE_RE="(^|[;&|(])[[:space:]]*${PREFIX_RE}([^[:space:];&|()]*/)?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|\$)"
+# gh pr merge flags that take a separate value.
+readonly VALUE_FLAGS=' -b --body -F --body-file -t --subject -A --author-email --match-head-commit -R --repo '
+
+match_only=false
+[[ ${1:-} == --match-only ]] && match_only=true
 
 cmd=$(jq -r '.tool_input.command // ""')
 merge_line=$(grep -m1 -E "$MERGE_RE" <<<"$cmd" || true)
-[[ -n $merge_line ]] || exit 0
+if [[ -z $merge_line ]]; then
+	$match_only && exit 1
+	exit 0
+fi
+
+# merge_target prints the first argument after "merge" that is not a flag or
+# a flag's value: a PR number, URL or branch. Empty means the current branch.
+merge_target() {
+	local args skip=false tok toks
+	args=$(sed -E 's/.*gh[[:space:]]+pr[[:space:]]+merge//; s/[;&|)].*//' <<<"$merge_line")
+	# xargs splits like the shell does, so a quoted flag value stays one
+	# word; on unbalanced quotes fall back to splitting on blanks.
+	mapfile -t toks < <(xargs -n1 printf '%s\n' <<<"$args" 2>/dev/null || tr -s '[:space:]' '\n' <<<"$args")
+	for tok in "${toks[@]}"; do
+		if $skip; then
+			skip=false
+		elif [[ $tok == -* ]]; then
+			[[ $tok != *=* && $VALUE_FLAGS == *" $tok "* ]] && skip=true
+		else
+			tr -d "'\"#" <<<"$tok"
+			return 0
+		fi
+	done
+	return 0
+}
+target=$(merge_target)
+
+if $match_only; then
+	printf '%s\n' "$target"
+	exit 0
+fi
 
 block() {
 	echo "merge blocked: $1" >&2
@@ -20,13 +62,8 @@ block() {
 	exit 2
 }
 
-# The PR is the first bare number after "merge"; with none, gh merges the
-# current branch's PR.
-pr=$(grep -oE 'gh[[:space:]]+pr[[:space:]]+merge([[:space:]]+[^[:space:]]+)*' <<<"$merge_line" |
-	tr -s '[:space:]' '\n' | grep -m1 -xE '#?[0-9]+' | tr -d '#' || true)
 view=(gh pr view)
-[[ -n $pr ]] && view+=("$pr")
-
+[[ -n $target ]] && view+=("$target")
 pr_json=$("${view[@]}" --json number,headRefOid,comments 2>/dev/null) || block "could not look up the PR"
 me=$(gh api user -q .login 2>/dev/null) || block "could not look up the GitHub user"
 head=$(jq -r .headRefOid <<<"$pr_json")
