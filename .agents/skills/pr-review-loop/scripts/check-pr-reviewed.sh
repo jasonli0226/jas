@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # check-pr-reviewed.sh is a Claude Code PreToolUse hook for Bash. It blocks
 # `gh pr merge` unless review-pr.sh posted a PASS review for the
-# PR's current head commit. It reads the hook payload on stdin; exit 2
-# blocks the call and shows stderr to the agent.
+# PR's current head commit, or the PR changes docs only (see docs_only). It
+# reads the hook payload on stdin; exit 2 blocks the call and shows stderr to
+# the agent.
 #
 # --match-only prints the PR target ("" for the current branch's PR) and
 # exits 0 when the command merges, or exits 1 when it does not; it makes no
-# GitHub calls (check-pr-reviewed_test.sh uses it).
+# GitHub calls (check-pr-reviewed_test.sh uses it). --docs-only reads paths,
+# one per line, and exits 0 when they are docs only, else 1.
 set -euo pipefail
 
 readonly MARKER=jas-review
@@ -21,6 +23,29 @@ readonly PREFIX_RE='((command|exec|sudo|nohup|time|env|[A-Za-z_][A-Za-z0-9_]*=[^
 readonly MERGE_RE="(^|[;&|(])[[:space:]]*${PREFIX_RE}([^[:space:];&|()]*/)?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|\$)"
 # gh pr merge flags that take a separate value.
 readonly VALUE_FLAGS=' -b --body -F --body-file -t --subject -A --author-email --match-head-commit -R --repo '
+
+# docs_only reads changed paths, one per line, and succeeds when there is at
+# least one and every one is a doc: a .md file that is not agent
+# instructions (SKILL.md, AGENTS.md, CLAUDE.md, anything under .agents/),
+# which change how agents behave and so get reviewed.
+docs_only() {
+	local p n=0
+	while IFS= read -r p; do
+		[[ -n $p ]] || continue
+		n=$((n + 1))
+		case $p in
+		.agents/* | SKILL.md | */SKILL.md | AGENTS.md | */AGENTS.md | CLAUDE.md | */CLAUDE.md) return 1 ;;
+		*.md) ;;
+		*) return 1 ;;
+		esac
+	done
+	((n > 0))
+}
+
+if [[ ${1:-} == --docs-only ]]; then
+	docs_only
+	exit
+fi
 
 match_only=false
 [[ ${1:-} == --match-only ]] && match_only=true
@@ -67,7 +92,9 @@ block() {
 
 view=(gh pr view)
 [[ -n $target ]] && view+=("$target")
-pr_json=$("${view[@]}" --json number,headRefOid,comments 2>/dev/null) || block "could not look up the PR"
+pr_json=$("${view[@]}" --json number,headRefOid,comments,files 2>/dev/null) || block "could not look up the PR"
+# A docs-only PR needs no review.
+jq -r '.files[].path' <<<"$pr_json" | docs_only && exit 0
 me=$(gh api user -q .login 2>/dev/null) || block "could not look up the GitHub user"
 head=$(jq -r .headRefOid <<<"$pr_json")
 number=$(jq -r .number <<<"$pr_json")
