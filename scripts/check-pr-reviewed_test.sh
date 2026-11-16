@@ -45,6 +45,10 @@ expect 7 'gh pr merge -t title 7'
 expect 7 'gh pr merge --subject=title 7'
 expect https://github.com/o/r/pull/7 'gh pr merge https://github.com/o/r/pull/7'
 expect 7 'gh pr merge 7; echo done'
+expect 7 'echo$(gh pr merge 7)'
+# Known blind spots: the hook is a reminder, not a sandbox.
+expect no 'bash -c "gh pr merge 7"'
+expect no '`gh pr merge 7`'
 
 if ((fails > 0)); then
 	echo "$fails failed"

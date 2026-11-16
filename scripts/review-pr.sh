@@ -53,7 +53,8 @@ done
 ((i < HEAD_SYNC_TRIES)) || { echo "review-pr: GitHub does not show $head as PR #$pr's head yet" >&2; exit 3; }
 
 git fetch -q origin "$base_ref" "$head"
-base=$(git merge-base "origin/$base_ref" "$head")
+base=$(git merge-base "origin/$base_ref" "$head") ||
+	{ echo "review-pr: no merge base of origin/$base_ref and $head" >&2; exit 3; }
 
 # Issues the PR body links with a closing keyword or "Refs".
 issue_context() {

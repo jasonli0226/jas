@@ -72,7 +72,7 @@ and `ps`. Use `jas auth add` or `JAS_API_KEY`.
 | `--max-tokens N` | stop with exit 7 before a request that would cross N total tokens |
 | `--timeout D` | stop with exit 7 after wall-clock duration D (e.g. `30m`) |
 | `--compact` | summarize older history when the context fills, as the chat does |
-| `--wrap-up` | at the turn cap (`max_turns`) or `--max-tokens`, send one last request with tools off asking for the final answer, instead of stopping without one; an answer exits 0. The token-cap wrap-up needs room for 1000 output tokens, else exit 7 as usual |
+| `--wrap-up` | at the turn cap (`max_turns`) or `--max-tokens`, send one last request with tools off asking for the final answer, instead of stopping without one; an answer exits 0. Tool calls in that reply are not run, and the run exits 4 or 7 at the cap as it would have. The token-cap wrap-up needs room for 1000 output tokens, else exit 7 as usual |
 
 `jas run` prints diffs only on a terminal.
 

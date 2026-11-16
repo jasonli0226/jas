@@ -13,7 +13,9 @@ readonly MARKER=jas-review
 # gh counts only in command position: at line start or after ; & | or (,
 # behind any of these prefixes (command, exec, sudo, nohup, time, env, VAR=x)
 # and with an optional directory. Text that merely mentions the command,
-# like a heredoc or an echo, passes.
+# like a heredoc or an echo, passes. It is a net for an agent forgetting the
+# review, not a sandbox: a merge hidden in bash -c "..." or backticks is not
+# seen (check-pr-reviewed_test.sh pins this).
 readonly PREFIX_RE='((command|exec|sudo|nohup|time|env|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+)*'
 readonly MERGE_RE="(^|[;&|(])[[:space:]]*${PREFIX_RE}([^[:space:];&|()]*/)?gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|\$)"
 # gh pr merge flags that take a separate value.
