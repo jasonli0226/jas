@@ -9,8 +9,10 @@ This skill is for the agent that opens and merges PRs. If you are the
 reviewer (jas's `reviewer` profile, asked to review a PR), ignore it and
 use `pr-review`.
 
-Every jas PR gets a jas review of its head commit before it merges. Paths
-below are relative to the repo root.
+Every jas PR gets a jas review of its head commit before it merges, unless
+it changes docs only: every changed file is a `.md` that is not agent
+instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
+`.agents/`). Paths below are relative to the repo root.
 
 - Any agent can follow this skill; nothing needs installing.
 - In Claude Code, a hook
@@ -21,27 +23,30 @@ below are relative to the repo root.
 
 ## Loop
 
-1. Push the branch and open the PR.
+1. Push the branch and open the PR. Docs only: go to step 5.
 2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
-   command timeout of at least 25 minutes (a review takes 5–15). It posts
+   command timeout of at least 35 minutes (a review takes 5–30). It posts
    the review as a PR comment.
-   - Exit 0, `VERDICT: PASS`: go to step 5.
+   - Exit 0, `VERDICT: PASS`: go to step 5. Its findings are all low; the
+     script logs them in the "Low findings from jas reviews" issue.
    - Exit 1, `VERDICT: CHANGES`: go to step 3.
    - Exit 3, the review did not finish: rerun once; if it fails again, tell
      the user and stop.
-3. Check each finding against the code it cites before acting on it (in
-   Claude Code, with superpowers:receiving-code-review). Then fix it, or
-   reply on the PR with why it is wrong. High and medium findings must be
-   fixed or rebutted; fix low ones when cheap.
+3. Check each high and medium finding against the code it cites before
+   acting on it (in Claude Code, with superpowers:receiving-code-review).
+   Then fix it, or reply on the PR with why it is wrong. Fix a low finding
+   only while you are pushing a high or medium fix anyway.
 4. Run the tests, push, and go back to step 2. After the second CHANGES
    verdict, stop and ask the user instead of reviewing a third time.
-5. Squash-merge only after a PASS for the current head:
+5. Squash-merge only after a PASS for the current head (or for a docs-only
+   PR):
    `gh pr merge <pr> --squash --delete-branch`.
 
 ## Rules
 
 - A push after the review changes the head commit; the old PASS no longer
-  counts, so review again.
+  counts, so review again. Never push a low fix onto a passed PR, and never
+  open a PR only to fix low findings: they wait in the issue.
 - Never post a review comment by hand or edit the marker
   `<!-- jas-review sha=… verdict=… -->`.
 - Report the verdict and what you changed or rebutted to the user.

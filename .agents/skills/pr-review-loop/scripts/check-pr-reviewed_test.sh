@@ -50,6 +50,29 @@ expect 7 'echo$(gh pr merge 7)'
 expect no 'bash -c "gh pr merge 7"'
 expect no '`gh pr merge 7`'
 
+# docs <want> <paths...>: want is yes when the hook treats the paths as a
+# docs-only change.
+docs() {
+	local want=$1 got
+	shift
+	if printf '%s\n' "$@" | bash "$hook" --docs-only; then got=yes; else got=no; fi
+	if [[ $got != "$want" ]]; then
+		echo "FAIL: docs-only $*"$'\n'"  want $want, got $got"
+		fails=$((fails + 1))
+	fi
+}
+
+docs yes README.md
+docs yes docs/manual.md cmd/jas/manual/jas/references/manual.md
+docs no docs/manual.md core/session.go
+docs no Makefile
+docs no AGENTS.md
+docs no CLAUDE.md
+docs no cmd/jas/manual/jas/SKILL.md
+docs no .agents/skills/pr-review-loop/SKILL.md
+docs no .agents/skills/x/notes.md
+docs no ''
+
 if ((fails > 0)); then
 	echo "$fails failed"
 	exit 1

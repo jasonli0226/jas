@@ -7,14 +7,19 @@
 # Usage: bash .agents/skills/pr-review-loop/scripts/review-pr.sh [--dry-run] <pr-number>
 #   --dry-run  print the review instead of posting it
 #
+# A PASS review's findings are all low; they are also appended to the open
+# issue titled $LOW_ISSUE (created when missing), to fix in batches rather
+# than in follow-up PRs.
+#
 # Exit codes: 0 PASS, 1 CHANGES, 2 usage error, 3 the review did not finish.
 set -euo pipefail
 
 readonly MAX_TOKENS=800000
 readonly MAX_TURNS=40 # the pr-review skill budgets against this
-readonly TIMEOUT=15m
+readonly TIMEOUT=30m # GLM reviews of script-heavy PRs can take over 15 minutes
 readonly PROFILE=reviewer
 readonly MARKER=jas-review
+readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 
 usage() {
@@ -135,10 +140,40 @@ Reviewed \`${head:0:7}\` with \`jas run --profile $PROFILE\`.
 $review
 <!-- $MARKER sha=$head verdict=$verdict -->"
 
+# findings is the review's Findings section without its heading, or "" when
+# it lists none.
+findings() {
+	local f
+	f=$(awk '/^## Findings/{keep=1; next} /^## /{keep=0} keep' <<<"$review" | sed '/^[[:space:]]*$/d')
+	[[ $f == None. ]] || printf '%s\n' "$f"
+}
+
+# log_low appends a PASS review's findings to the low-findings issue.
+log_low() {
+	local low n
+	low=$(findings)
+	[[ -n $low ]] || return 0
+	n=$(gh issue list --state open --search "in:title \"$LOW_ISSUE\"" --json number,title \
+		-q "[.[] | select(.title == \"$LOW_ISSUE\")][0].number // empty") || return 1
+	if [[ -z $n ]]; then
+		n=$(gh issue create --title "$LOW_ISSUE" \
+			--body "Low findings from jas PR reviews, appended by review-pr.sh; fix them in batches." | grep -oE '[0-9]+$') || return 1
+	fi
+	gh issue comment "$n" --body "From the jas review of #$pr (\`${head:0:7}\`):
+
+$low" >/dev/null || return 1
+	echo "review-pr: low findings logged in #$n" >&2
+}
+
 if $dry_run; then
 	printf '%s\n' "$comment"
 else
 	gh pr comment "$pr" --body "$comment" >/dev/null
 	printf '%s\n' "$comment"
+	# The PASS is posted; a failure to log its findings must not turn the
+	# exit code into CHANGES.
+	if [[ $verdict == PASS ]]; then
+		log_low || echo "review-pr: could not log the low findings; add them to the \"$LOW_ISSUE\" issue by hand" >&2
+	fi
 fi
 [[ $verdict == PASS ]]
