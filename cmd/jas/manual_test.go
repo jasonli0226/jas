@@ -136,3 +136,41 @@ func TestRun_ReadsManualSkillAtCatalogPath(t *testing.T) {
 	assert.Contains(t, string(got[2]), "Approval")
 	assert.NotContains(t, errOut, "denied")
 }
+
+// TestRun_ReadsManualSkillAtTildeCatalogPath: with the cache under home, as
+// LocalAppData is on Windows, the catalog writes the manual as ~/...; reads
+// at that path and at a reference beside it go through (#175).
+func TestRun_ReadsManualSkillAtTildeCatalogPath(t *testing.T) {
+	userHome := t.TempDir()
+	if r, err := filepath.EvalSymlinks(userHome); err == nil {
+		userHome = r
+	}
+	cache := filepath.Join(userHome, "AppData", "Local")
+	if runtime.GOOS == "darwin" {
+		cache = filepath.Join(userHome, "Library", "Caches")
+	}
+	rel := filepath.ToSlash(filepath.Join(strings.TrimPrefix(cache, userHome+string(filepath.Separator)), "jas", "manual", "jas"))
+	shown := "~/" + rel + "/SKILL.md"
+	paths := []string{shown, "~/" + rel + "/references/manual.md"}
+	if runtime.GOOS == "windows" {
+		paths = append(paths, `~\`+filepath.FromSlash(rel)+`\references\manual.md`)
+	}
+	var turns []fake.Turn
+	for _, p := range paths {
+		args, err := json.Marshal(map[string]string{"path": p})
+		assert.NoErr(t, err)
+		turns = append(turns, fake.Turn{Calls: []fake.Call{{Name: "read", Args: string(args)}}})
+	}
+	url, bodies := testutil.FakeOpenAI(t, append(turns, fake.Turn{Text: "done"}))
+	env := append(jasEnv(userHome, url), "XDG_CACHE_HOME="+cache, "LocalAppData="+cache)
+	_, errOut, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	got := bodies()
+	assert.Contains(t, systemPrompt(t, got[0]), "<location>"+shown+"</location>")
+	for i := 1; i < len(got); i++ {
+		assert.NotContains(t, string(got[i]), "path outside project root")
+		assert.NotContains(t, string(got[i]), "denied by policy")
+	}
+	assert.Contains(t, string(got[2]), "Approval")
+	assert.NotContains(t, errOut, "denied")
+}

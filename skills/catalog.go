@@ -8,7 +8,8 @@ import (
 
 const catalogIntro = `The following skills provide specialized instructions for specific tasks.
 Use the read tool to load a skill's file when the task matches its description.
-When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md) and use that full path in tool calls (~/ is your home directory).`
+When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md) and use that full path in tool calls.
+Pass a path that starts with ~/ to tools exactly as written: the tools expand ~/ to your home directory, so never replace ~ with a guessed home path.`
 
 // Catalog renders the system-prompt section listing the skills the model may
 // load, in pi's <available_skills> format. Skills with
@@ -16,7 +17,9 @@ When a skill file references a relative path, resolve it against the skill direc
 // output depends only on its input, so the prompt prefix stays cacheable.
 //
 // Locations under home are written as ~/..., so the prompt does not carry
-// the user's home path; the read tools expand ~/ back.
+// the user's home path; the read tools expand ~/ back. The intro tells the
+// model to pass ~/ through: a model that expands it itself guesses the home
+// (on Windows, C:\Users\Public), and the read is refused (#175).
 func Catalog(skills []Skill, home string) string {
 	var b strings.Builder
 	for _, s := range skills {
