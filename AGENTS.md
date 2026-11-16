@@ -43,7 +43,8 @@ blast-radius merge policy, `--spec` planning, `farm init`.
   `tui/commands.go` `setModel`).
 - Commits: `type: description`. Keep `go test -race ./...` green; `CGO_ENABLED=0`.
 - PRs: follow the `pr-review-loop` skill (`.agents/skills/`): a jas review
-  must PASS on the head commit before merge. Claude Code: run
+  must PASS on the head commit before merge, unless the PR changes docs
+  only (see the skill). Claude Code: run
   `make claude-setup` once per clone (links the skill, adds the merge hook).
 - Docs follow features: every user-visible change (CLI subcommand/flag, chat
   command/key, config key, auth, approval level, deny floor, exit code, farm

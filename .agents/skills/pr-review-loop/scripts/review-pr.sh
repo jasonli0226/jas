@@ -154,14 +154,14 @@ log_low() {
 	low=$(findings)
 	[[ -n $low ]] || return 0
 	n=$(gh issue list --state open --search "in:title \"$LOW_ISSUE\"" --json number,title \
-		-q "[.[] | select(.title == \"$LOW_ISSUE\")][0].number // empty")
+		-q "[.[] | select(.title == \"$LOW_ISSUE\")][0].number // empty") || return 1
 	if [[ -z $n ]]; then
 		n=$(gh issue create --title "$LOW_ISSUE" \
-			--body "Low findings from jas PR reviews, appended by review-pr.sh; fix them in batches." | grep -oE '[0-9]+$')
+			--body "Low findings from jas PR reviews, appended by review-pr.sh; fix them in batches." | grep -oE '[0-9]+$') || return 1
 	fi
 	gh issue comment "$n" --body "From the jas review of #$pr (\`${head:0:7}\`):
 
-$low" >/dev/null
+$low" >/dev/null || return 1
 	echo "review-pr: low findings logged in #$n" >&2
 }
 
@@ -170,6 +170,10 @@ if $dry_run; then
 else
 	gh pr comment "$pr" --body "$comment" >/dev/null
 	printf '%s\n' "$comment"
-	[[ $verdict == PASS ]] && log_low
+	# The PASS is posted; a failure to log its findings must not turn the
+	# exit code into CHANGES.
+	if [[ $verdict == PASS ]]; then
+		log_low || echo "review-pr: could not log the low findings; add them to the \"$LOW_ISSUE\" issue by hand" >&2
+	fi
 fi
 [[ $verdict == PASS ]]
