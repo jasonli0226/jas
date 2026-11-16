@@ -824,6 +824,7 @@ Full design:
 | 6 | a check run by jas failed, or required work is unmet (farm) |
 | 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`); `jas dream` still writes its partial proposal |
 | 8 | the farm planner refused to split the task |
+| 9 | the final reply was cut off at `max_output_tokens` (finish reason `length`); the cut-off text is still printed. Raise `max_output_tokens` (`jas dream` still writes its partial proposal) |
 | 130 | interrupted (Ctrl+C / SIGTERM) |
 
 Tool errors are results the model sees; they never set the exit code.
@@ -842,7 +843,7 @@ one bumps `v`.
 | `session_resumed` | as `session_started`, on each reopen |
 | `user_message` | content; `steer: true` for steering text |
 | `turn_started` | — |
-| `assistant_message` | text, content, final |
+| `assistant_message` | text, content, final, finish_reason |
 | `usage` | prompt_tokens, completion_tokens, cached_tokens |
 | `tool_started` | tool, call_id, args, mutating |
 | `approval` | call_id, tool, decision (`granted` \| `denied` \| `unavailable`); only when someone was asked, not for calls the approve level or a standing grant lets through |

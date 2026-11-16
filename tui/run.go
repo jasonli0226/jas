@@ -306,6 +306,8 @@ func runNotice(res core.TurnResult) string {
 		return "interrupted"
 	case "turn_cap":
 		return "turn cap reached: " + reason
+	case "output_cap":
+		return reason + "; raise it with /settings max_output_tokens"
 	case "context_full":
 		return "context window full: start a /new chat"
 	case "failed":

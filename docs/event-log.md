@@ -223,7 +223,10 @@ delivered after the final answer.
 `steer: true` for steering text.
 
 **`assistant_message`** — `text`, `content` (list of content block), `final`
-(bool; true on the answer).
+(bool; true on the answer); optional `finish_reason`, the provider's reason
+the reply ended (`stop`, `tool_calls`, `length`, …), when it sent one. A
+reply with no tool calls that ends on `length` was cut off at
+`max_output_tokens`: it has `final: false`, and the turn ends `output_cap`.
 
 **`usage`** — `prompt_tokens`, `completion_tokens`, `cached_tokens`. After
 each provider response.
@@ -233,7 +236,7 @@ in this user message), `prompt_tokens`, `completion_tokens`.
 
 `status` values (both `turn_ended` and `session_ended`): `ok`,
 `context_full`, `turn_cap`, `approval_needed`, `interrupted`, `failed`,
-`budget_exceeded`. `exit_code` follows the
+`budget_exceeded`, `output_cap`. `exit_code` follows the
 [manual's exit codes](manual.md#exit-codes).
 
 ### Tools

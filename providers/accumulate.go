@@ -15,13 +15,17 @@ type pendingCall struct {
 
 // Accumulator folds StreamEvents into a complete assistant Message.
 type Accumulator struct {
-	text  strings.Builder
-	calls map[int]*pendingCall
+	text   strings.Builder
+	calls  map[int]*pendingCall
+	finish string
 }
 
 // Add folds one event into the accumulator.
 func (a *Accumulator) Add(ev StreamEvent) {
 	a.text.WriteString(ev.Text)
+	if ev.FinishReason != "" {
+		a.finish = ev.FinishReason
+	}
 	d := ev.ToolCallDelta
 	if d == nil {
 		return
@@ -42,6 +46,9 @@ func (a *Accumulator) Add(ev StreamEvent) {
 	}
 	c.args.WriteString(d.ArgsFragment)
 }
+
+// FinishReason is the stream's finish_reason ("" if none arrived yet).
+func (a *Accumulator) FinishReason() string { return a.finish }
 
 // Done returns the assistant message and its tool_use blocks (in index order).
 // It errors if a tool call never received a name or an id.

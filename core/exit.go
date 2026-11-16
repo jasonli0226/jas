@@ -13,6 +13,7 @@ const (
 	ExitUnmet          = 6 // a check run by jas failed, or required work is unmet
 	ExitBudget         = 7 // a token or wall-clock cap was reached
 	ExitRefused        = 8 // farm planner refused to split
+	ExitOutputCap      = 9 // the final reply was cut off at max_output_tokens
 	ExitInterrupted    = 130
 )
 
