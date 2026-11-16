@@ -9,25 +9,33 @@ This skill is for the agent that opens and merges PRs. If you are the
 reviewer (jas's `reviewer` profile, asked to review a PR), ignore it and
 use `pr-review`.
 
-Every jas PR gets a jas review of its head commit before it merges. A
-PreToolUse hook (`scripts/check-pr-reviewed.sh`) blocks `gh pr merge` until
-a PASS review for the current head is posted.
+Every jas PR gets a jas review of its head commit before it merges. Paths
+below are relative to the repo root.
+
+- Any agent can follow this skill; nothing needs installing.
+- In Claude Code, a hook (`scripts/check-pr-reviewed.sh`, added by
+  `make claude-setup`) also blocks `gh pr merge` until a PASS review for the
+  current head is posted. Other agents have no such hook: the rule below is
+  the only gate, so follow it exactly.
 
 ## Loop
 
 1. Push the branch and open the PR.
-2. Run `bash scripts/review-pr.sh <pr>` (Bash timeout 960000; a review takes
-   2–10 minutes). It posts the review as a PR comment.
+2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
+   command timeout of at least 25 minutes (a review takes 5–15). It posts
+   the review as a PR comment.
    - Exit 0, `VERDICT: PASS`: go to step 5.
    - Exit 1, `VERDICT: CHANGES`: go to step 3.
    - Exit 3, the review did not finish: rerun once; if it fails again, tell
      the user and stop.
-3. Triage each finding with superpowers:receiving-code-review: read the
-   cited code, then either fix it (high and medium must be fixed or rebutted;
-   fix low ones when cheap) or reply on the PR with the reason it is wrong.
+3. Check each finding against the code it cites before acting on it (in
+   Claude Code, with superpowers:receiving-code-review). Then fix it, or
+   reply on the PR with why it is wrong. High and medium findings must be
+   fixed or rebutted; fix low ones when cheap.
 4. Run the tests, push, and go back to step 2. After the second CHANGES
    verdict, stop and ask the user instead of reviewing a third time.
-5. Squash-merge: `gh pr merge <pr> --squash --delete-branch`.
+5. Squash-merge only after a PASS for the current head:
+   `gh pr merge <pr> --squash --delete-branch`.
 
 ## Rules
 

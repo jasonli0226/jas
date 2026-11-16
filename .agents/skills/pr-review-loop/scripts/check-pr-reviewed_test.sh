@@ -2,7 +2,7 @@
 # check-pr-reviewed_test.sh checks which commands the merge hook treats as
 # a merge, and which PR it reads from each. It makes no GitHub calls.
 #
-# Usage: bash scripts/check-pr-reviewed_test.sh
+# Usage: bash .agents/skills/pr-review-loop/scripts/check-pr-reviewed_test.sh
 set -uo pipefail
 
 hook="$(dirname "$0")/check-pr-reviewed.sh"

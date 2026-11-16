@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # review-pr.sh runs jas's reviewer profile on a pull request and posts the
 # review as a PR comment. The comment carries a marker with the reviewed
-# head SHA and verdict, which scripts/check-pr-reviewed.sh reads before a
+# head SHA and verdict, which check-pr-reviewed.sh reads before a
 # merge.
 #
-# Usage: scripts/review-pr.sh [--dry-run] <pr-number>
+# Usage: bash .agents/skills/pr-review-loop/scripts/review-pr.sh [--dry-run] <pr-number>
 #   --dry-run  print the review instead of posting it
 #
 # Exit codes: 0 PASS, 1 CHANGES, 2 usage error, 3 the review did not finish.
@@ -18,7 +18,7 @@ readonly MARKER=jas-review
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 
 usage() {
-	echo "usage: scripts/review-pr.sh [--dry-run] <pr-number>" >&2
+	echo "usage: review-pr.sh [--dry-run] <pr-number>" >&2
 	exit 2
 }
 
