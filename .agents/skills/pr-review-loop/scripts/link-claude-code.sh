@@ -18,8 +18,23 @@ readonly HOOK_TIMEOUT=30
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+dest=.claude/skills/$SKILL
+target=../../.agents/skills/$SKILL
+# Anything but our own link (an old checkout's copy, say) is left alone:
+# ln would link inside a directory, and that may hold the owner's work.
+if [[ -e $dest || -L $dest ]] && ! [[ -L $dest && $(readlink "$dest") == "$target" ]]; then
+	echo "link-claude-code: $dest exists and is not a link to $target; move it away and rerun" >&2
+	exit 1
+fi
 mkdir -p .claude/skills
-ln -sfn "../../.agents/skills/$SKILL" ".claude/skills/$SKILL"
+ln -sfn "$target" "$dest"
+# Git Bash copies instead of linking unless symlinks are enabled; a copy
+# would go stale on the next pull.
+if ! [[ -L $dest ]]; then
+	rm -rf "$dest"
+	echo "link-claude-code: ln made a copy, not a link; on Windows enable symlinks (Developer Mode, and MSYS=winsymlinks:nativestrict) and rerun" >&2
+	exit 1
+fi
 
 settings=.claude/settings.local.json
 [[ -f $settings ]] || echo '{}' >"$settings"

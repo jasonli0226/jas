@@ -13,7 +13,8 @@ Every jas PR gets a jas review of its head commit before it merges. Paths
 below are relative to the repo root.
 
 - Any agent can follow this skill; nothing needs installing.
-- In Claude Code, a hook (`scripts/check-pr-reviewed.sh`, added by
+- In Claude Code, a hook
+  (`.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh`, added by
   `make claude-setup`) also blocks `gh pr merge` until a PASS review for the
   current head is posted. Other agents have no such hook: the rule below is
   the only gate, so follow it exactly.
