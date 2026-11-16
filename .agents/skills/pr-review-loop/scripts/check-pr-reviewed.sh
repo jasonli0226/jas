@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # check-pr-reviewed.sh is a Claude Code PreToolUse hook for Bash. It blocks
-# `gh pr merge` unless scripts/review-pr.sh posted a PASS review for the
+# `gh pr merge` unless review-pr.sh posted a PASS review for the
 # PR's current head commit. It reads the hook payload on stdin; exit 2
 # blocks the call and shows stderr to the agent.
 #
 # --match-only prints the PR target ("" for the current branch's PR) and
 # exits 0 when the command merges, or exits 1 when it does not; it makes no
-# GitHub calls (scripts/check-pr-reviewed_test.sh uses it).
+# GitHub calls (check-pr-reviewed_test.sh uses it).
 set -euo pipefail
 
 readonly MARKER=jas-review
+readonly REVIEW_SCRIPT=.agents/skills/pr-review-loop/scripts/review-pr.sh
 # gh counts only in command position: at line start or after ; & | or (,
 # behind any of these prefixes (command, exec, sudo, nohup, time, env, VAR=x)
 # and with an optional directory. Text that merely mentions the command,
@@ -60,7 +61,7 @@ fi
 
 block() {
 	echo "merge blocked: $1" >&2
-	echo "Run scripts/review-pr.sh <pr> and address its findings first." >&2
+	echo "Run bash $REVIEW_SCRIPT <pr> and address its findings first." >&2
 	exit 2
 }
 

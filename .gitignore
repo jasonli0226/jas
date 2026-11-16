@@ -34,8 +34,8 @@ go.work.sum
 # Local reference checkouts
 _pi-mono/
 
-# Claude Code worktrees
-.claude/worktrees/
+# Claude Code: local only (make claude-setup links the skill and adds the hook)
+.claude/
 .superpowers/
 
 # Personal jas project overrides (shared .jas/config.json may be committed)
