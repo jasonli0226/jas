@@ -230,8 +230,9 @@ func errInterrupted() error {
 }
 
 // dreamStops are the exits that end the model pass early but keep its
-// work: a token or time cap, the turn cap, a full context.
-var dreamStops = []int{core.ExitBudget, core.ExitTurnCap, core.ExitContextFull}
+// work: a token or time cap, the turn cap, a full context, a final reply cut
+// off at the output cap.
+var dreamStops = []int{core.ExitBudget, core.ExitTurnCap, core.ExitContextFull, core.ExitOutputCap}
 
 // dreamPrepare fills the workspace: proposed/ (a copy of the live store),
 // logs/ (the window's event logs) and evidence.md.

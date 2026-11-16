@@ -21,7 +21,8 @@ type Turn struct {
 	Text      string
 	Calls     []Call
 	Usage     providers.Usage
-	Err       error // returned instead of finishing the stream
+	Err       error  // returned instead of finishing the stream
+	Finish    string // finish_reason to send; "" means stop, or tool_calls with Calls
 	// OnEmit, if set, runs after Text/Calls were delivered and before Block waits.
 	OnEmit func()
 	Block  bool // after emitting Text/Calls, wait for ctx cancel and fail with ctx.Err()
@@ -102,6 +103,9 @@ func (p *Provider) play(ctx context.Context, i int, t Turn, out chan<- providers
 	reason := "stop"
 	if len(t.Calls) > 0 {
 		reason = "tool_calls"
+	}
+	if t.Finish != "" {
+		reason = t.Finish
 	}
 	if err := send(providers.StreamEvent{Usage: &u}); err != nil {
 		return err

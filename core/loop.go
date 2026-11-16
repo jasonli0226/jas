@@ -20,7 +20,11 @@ const (
 	endInterrupted    = "interrupted"
 	endFailed         = "failed"
 	endBudget         = "budget_exceeded"
+	endOutputCap      = "output_cap"
 )
+
+// finishLength is the finish_reason of a reply cut off at max_tokens.
+const finishLength = "length"
 
 // Budget-stop reasons (session_ended / turn_ended reason for exit 7).
 const (

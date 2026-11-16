@@ -127,3 +127,8 @@ func TestHints_LongToolOutput(t *testing.T) {
 	c.pump()
 	assert.Contains(t, c.statusHint(), "Ctrl+O")
 }
+
+func TestRunNotice_OutputCapSaysHowToRaiseIt(t *testing.T) {
+	got := runNotice(core.TurnResult{Status: "output_cap", Code: core.ExitOutputCap, Reason: "reply cut off at max_output_tokens (16000)"})
+	assert.Eq(t, got, "reply cut off at max_output_tokens (16000); raise it with /settings max_output_tokens")
+}

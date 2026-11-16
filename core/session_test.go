@@ -484,3 +484,43 @@ func TestSession_SetModelLogsProviderAndBaseURL(t *testing.T) {
 	assert.Eq(t, got["provider"], "vllm")
 	assert.Eq(t, got["base_url"], "http://x")
 }
+
+// TestSession_ReplyCutOffAtOutputCap: a reply with no tool calls that ends on
+// finish_reason "length" is not an answer; the turn ends output_cap, exit 9,
+// and the log records the finish reason (#194).
+func TestSession_ReplyCutOffAtOutputCap(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "half an ans", Finish: "length"}})
+	s := newSession(t, r)
+	res := send(t, s, context.Background(), "go")
+	assert.Eq(t, res.Status, "output_cap")
+	assert.Eq(t, res.Code, core.ExitOutputCap)
+	assert.Eq(t, res.Final, "half an ans")
+	assert.NoErr(t, s.Close(res.Status, res.Code))
+
+	evs := r.events(t)
+	for _, e := range evs {
+		if e["type"] == "assistant_message" {
+			assert.Eq(t, e["final"], false)
+			assert.Eq(t, e["finish_reason"], "length")
+		}
+	}
+	end := lastEnded(t, evs)
+	assert.Eq(t, end["status"], "output_cap")
+	assert.Eq(t, end["exit_code"].(float64), 9.0)
+}
+
+// TestSession_FinishReasonLoggedOnAnswer: a normal answer logs its finish
+// reason too.
+func TestSession_FinishReasonLoggedOnAnswer(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "done"}})
+	s := newSession(t, r)
+	res := send(t, s, context.Background(), "go")
+	assert.Eq(t, res.Status, "ok")
+	assert.NoErr(t, s.Close(res.Status, res.Code))
+	for _, e := range r.events(t) {
+		if e["type"] == "assistant_message" {
+			assert.Eq(t, e["final"], true)
+			assert.Eq(t, e["finish_reason"], "stop")
+		}
+	}
+}

@@ -43,7 +43,7 @@ type SessionConfig struct {
 // TurnResult describes how one user message (one Send, or the last steering
 // message it picked up) ended.
 type TurnResult struct {
-	Status string // "ok" | "context_full" | "turn_cap" | "approval_needed" | "interrupted" | "failed" | "budget_exceeded"
+	Status string // "ok" | "context_full" | "turn_cap" | "approval_needed" | "interrupted" | "failed" | "budget_exceeded" | "output_cap"
 	Code   int    // the Exit* code jas run would exit with
 	Reason string
 	// Pool names the token pool that refused a request when Reason is
@@ -80,9 +80,10 @@ type Session struct {
 
 // msgState is the per-user-message part of a Send.
 type msgState struct {
-	turns int
-	usage providers.Usage
-	final string
+	turns  int
+	usage  providers.Usage
+	final  string
+	finish string // finish_reason of the latest reply
 }
 
 // NewSession starts a session and writes session_started.
@@ -446,7 +447,14 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		return s.streamFailed(ctx, err, msg, uses)
 	}
 
-	s.push(msg, s.logAssistant(msg, len(uses) == 0))
+	// A reply cut off at the output cap is not an answer, though it has no
+	// tool calls (#194).
+	cut := len(uses) == 0 && m.finish == finishLength
+	s.push(msg, s.logAssistant(msg, len(uses) == 0 && !cut, m.finish))
+	if cut {
+		m.final = textOf(msg)
+		return true, endOutputCap, ExitOutputCap, fmt.Sprintf("reply cut off at max_output_tokens (%d)", s.outputCap())
+	}
 	if len(uses) == 0 {
 		m.final = textOf(msg)
 		return true, endOK, ExitOK, ""
@@ -537,6 +545,7 @@ func (s *Session) request(ctx context.Context, m *msgState) (providers.Message, 
 			c.Budget.Observe(usage.PromptTokens, len(req.Messages))
 		}
 	}
+	m.finish = acc.FinishReason()
 	msg, uses, doneErr := acc.Done()
 	if streamErr == nil && doneErr != nil {
 		streamErr = doneErr
@@ -565,7 +574,7 @@ func (s *Session) streamFailed(ctx context.Context, err error, msg providers.Mes
 	switch {
 	case ctx.Err() != nil || errors.Is(err, context.Canceled):
 		if len(uses) > 0 {
-			s.push(msg, s.logAssistant(msg, false))
+			s.push(msg, s.logAssistant(msg, false, ""))
 			s.push(providers.Message{Role: providers.RoleUser, Content: s.cancelUses(uses)}, "")
 		}
 		st, code, reason := s.ctxEnd(ctx)
@@ -605,10 +614,13 @@ func addUsage(a, b providers.Usage) providers.Usage {
 }
 
 // logAssistant logs msg and returns its event id ("" if the append failed).
-func (s *Session) logAssistant(msg providers.Message, final bool) string {
-	id, err := s.c.Log.AppendID(EvAssistantMessage, map[string]any{
-		"text": textOf(msg), "final": final, "content": toWire(msg.Content),
-	})
+// finish is the reply's finish_reason, logged when known.
+func (s *Session) logAssistant(msg providers.Message, final bool, finish string) string {
+	data := map[string]any{"text": textOf(msg), "final": final, "content": toWire(msg.Content)}
+	if finish != "" {
+		data["finish_reason"] = finish
+	}
+	id, err := s.c.Log.AppendID(EvAssistantMessage, data)
 	s.note(err)
 	return id
 }
