@@ -310,8 +310,8 @@ type Tool interface {
   spec, discovered in the project's `.agents/skills` and `.claude/skills`, then
   the active profile's `~/.jas/profiles/<name>/skills` and the built-in manual
   (§10 config layers), listed in the system prompt (pi's `<available_skills>` block) and
-  loaded on demand with the `read` tool, which may open listed skill
-  directories (`ExecPolicy.ReadRoots`). Project skills share the context
+  loaded on demand with the `read` tool, which may open every skill's
+  directory (`ExecPolicy.ReadRoots`). Project skills share the context
   file's trust prompt. Optional tool manifests stay v3. Research:
   `docs/research/agent-skills.md`.
 
