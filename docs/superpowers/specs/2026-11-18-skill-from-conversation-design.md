@@ -97,7 +97,8 @@ conversation (or "what we just did") into a skill, the model:
 
 1. **Recovers the steps.** It uses the conversation in context. When the
    context was compacted, or the steps are unclear, it reads the current
-   session's log (section 2). It greps the log for `tool_use` /
+   session's log (section 2), at the path jas gives it (how it learns the
+   path is open question 2). It greps the log for `tool_use` /
    `tool_result` events instead of reading it whole, since the log can be
    large.
 2. **Sorts what happened** into three groups:
@@ -114,13 +115,15 @@ conversation (or "what we just did") into a skill, the model:
 4. **Defaults:** the active profile's `skills/` (the SOP is meant for any
    project) and `disable-model-invocation: true`. The user can ask for a
    project skill or a visible one instead.
-5. **Shows the draft** with two short lists next to it: what it
-   generalized (fact → discovery step) and what it dropped, with why.
-   Writing then goes through the existing approval for profile skills.
-6. **Tests it** as today (`references/testing.md`), plus one more check:
-   the body names no path, command or identifier that exists only in the
-   source project. The model checks this by reading its draft against the
-   facts list from step 2.
+5. **Checks for leftovers before showing anything:** the draft names no
+   path, command or identifier that exists only in the source project. The
+   model checks the draft against the facts list from step 2 and fixes what
+   it finds, so a leak never reaches the owner's approval.
+6. **Shows the draft** with three short lists next to it: what it
+   generalized (fact → discovery step), what it dropped, with why, and
+   anything from the step 5 check it was unsure about. Writing then goes
+   through the existing approval for profile skills.
+7. **Tests it** as today (`references/testing.md`).
 
 The rest of `skill-creator`'s workflow (one round of questions only when the
 conversation lacks examples, check for an existing skill, name rules) stays
@@ -172,8 +175,11 @@ floor exceptions. The built-in `jas` manual skill in the same commit
   listing beyond that file; `Resolve` (write/edit) refuses the log.
 - Lift moves with `/new`, `/resume` and a profile switch (old log refused,
   new one allowed).
-- End to end with the fake provider: a scripted read of the session's own
-  log succeeds and returns redacted content.
+- End to end with the fake provider: the scripted user message carries a
+  fake secret, a later scripted `read` of the session's own log goes
+  through the lift, and the tool result the provider receives holds the
+  redaction marker, not the secret. Temp `HOME`/`JAS_HOME`, as the other
+  `runJas` tests use, so no real data is read.
 - Built-in skills still validate (`TestBuiltinSkills_Valid`); manual tests
   pass.
 
