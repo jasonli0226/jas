@@ -222,6 +222,7 @@ func TestBuildSystem(t *testing.T) {
 	assert.Eq(t, core.BuildSystem("base", ""), "base")
 	assert.Contains(t, core.BuildSystem("base", "ctx"), "ctx")
 	assert.Contains(t, core.BasePrompt, "interrupted")
+	assert.Contains(t, core.BasePrompt, "read the jas skill")
 }
 
 // assertWellFormed checks every tool_use has a tool_result with the same ID.

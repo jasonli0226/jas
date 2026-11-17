@@ -1,6 +1,6 @@
 ---
 name: jas
-description: Manual for jas, the coding-agent harness this session runs in. Use when the user asks about jas itself — CLI subcommands and flags, chat commands and keys, config keys, auth, approval levels, the deny floor, exit codes, skills, or the farm workflow — or when a task needs jas configured (jas config set, jas auth add, jas farm plan/run).
+description: Manual for jas, the coding-agent harness this session runs in. Use when the user asks about jas itself — CLI subcommands and flags, chat commands and keys, config keys, auth, approval levels, the deny floor, exit codes, skills, memory and dreams, or the farm workflow — or when a task needs jas configured (jas config set, jas auth add, jas farm plan/run).
 ---
 
 # jas manual
@@ -23,6 +23,7 @@ flags, keys, defaults, exit codes and event fields, read
 | `jas config get/set/unset/list`, `jas config init` | settings in `~/.jas/config.json` (`--in-profile`: the active profile's `config.json`) |
 | `jas profile list/use/new/show` | profiles: skills, `AGENTS.md`, settings under `~/.jas/profiles/<name>/` |
 | `jas auth add <provider>` | store a key in `~/.jas/auth.json` (0600) |
+| `jas memory [--path]` | memory report: mode, profile and project memory dirs, index size, note counts |
 | `jas dream [list\|diff\|apply\|discard\|undo]` | propose a cleanup of the profile's memory from recent sessions; the live store changes only on `apply` (`undo` reverts) |
 | `jas farm …` | experimental parallel worktree runner (below) |
 
@@ -56,12 +57,15 @@ when the chat opens fresh and again on `/new`; resuming (`--continue`,
 
 | command | what it does |
 |---|---|
+| `/help` | list commands and keys |
 | `/model [name]` | switch model (bare form: picker; Ctrl+S also sets the default) |
 | `/profile [name]` | switch profile (bare form: picker; Ctrl+S also sets the default profile) |
 | `/new` | fresh conversation and clear the screen (model, thinking, approval level and grants kept; reprints the start banner) |
 | `/name [title]` | name this session, for `/resume` |
 | `/resume` | continue a session here (grants and level reset) |
 | `/compact [focus]` | summarize older messages to free context |
+| `/reload` | reload `AGENTS.md` / `CLAUDE.md`, skills and project context into this session |
+| `/memory` | memory mode, memory dirs, index size and note counts (same as `jas memory`) |
 | `/session` | session file, tokens used, context use |
 | `/thinking` | show or hide thinking |
 | `/approve [level]` | `never` / `shell` / `mutating` |
@@ -136,6 +140,17 @@ Only name and description reach the system prompt; the model reads the full
 `disable-model-invocation: true` hides a skill from the model (it stays
 runnable as `/skill:<name>`). To write or fix a skill, use the built-in
 `skill-creator` skill.
+
+## Memory and dreams
+
+Memory is a per-profile store of notes kept between sessions, under
+`~/.jas/profiles/<name>/memory/`: `MEMORY.md` indexes the profile's notes,
+and `projects/<key>/` holds notes for one project (`jas memory --path`
+prints that dir). `jas memory` and `/memory` report the mode, dirs, index
+size and note counts. `jas dream` proposes a cleaned-up store from recent
+sessions; review with `jas dream diff`, then `apply` or `discard`. See the
+Memory and Dreams sections of `references/manual.md` for note format,
+settings and flags.
 
 ## Farm (experimental)
 

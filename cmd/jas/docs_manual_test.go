@@ -102,6 +102,35 @@ func TestManual_SkillCopyMatches(t *testing.T) {
 	}
 }
 
+// The model often answers from the skill's SKILL.md summary without opening
+// the full manual, so the summary must name every chat command and
+// subcommand too, or the model may say one does not exist.
+func TestManualSkill_SummaryListsCommands(t *testing.T) {
+	summary := readFile(t, filepath.Join("manual", "jas", "SKILL.md"))
+	cmdRE := regexp.MustCompile(`(?m)^\t"(\w+)":\s+(?:func|\(\*Model\))`)
+	cmds := cmdRE.FindAllStringSubmatch(readFile(t, filepath.Join("..", "..", "tui", "commands.go")), -1)
+	if len(cmds) < 10 {
+		t.Fatalf("found only %d chat commands; update the pattern in this test", len(cmds))
+	}
+	for _, m := range cmds {
+		if !strings.Contains(summary, "`/"+m[1]) {
+			t.Errorf("manual/jas/SKILL.md is missing chat command /%s", m[1])
+		}
+	}
+
+	src := readFile(t, "main.go")
+	body := src[strings.Index(src, "func dispatch("):]
+	body = body[:strings.Index(body, "\n}\n")]
+	for _, m := range regexp.MustCompile(`case "(\w+)":`).FindAllStringSubmatch(body, -1) {
+		if m[1] == "version" {
+			continue
+		}
+		if !strings.Contains(summary, "`jas "+m[1]) {
+			t.Errorf("manual/jas/SKILL.md is missing subcommand `jas %s`", m[1])
+		}
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

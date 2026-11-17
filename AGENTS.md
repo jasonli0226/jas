@@ -52,6 +52,7 @@ blast-radius merge policy, `--spec` planning, `farm init`.
   copies it into the skill, and `TestManual_*` fails on a missing flag,
   setting, chat command, exit code or event, or a stale copy), `README.md`
   when the overview changes, and the built-in manual skill
-  `cmd/jas/manual/jas/SKILL.md` in the same commit — the manual is embedded
+  `cmd/jas/manual/jas/SKILL.md` in the same commit (`TestManualSkill_*`
+  fails when its summary misses a chat command or subcommand) — the manual is embedded
   (`//go:embed`) and re-installed under `<UserCacheDir>/jas/manual/` at every
   start, so stale text ships until the next binary.
