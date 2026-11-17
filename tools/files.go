@@ -44,7 +44,7 @@ func (Read) Description() string {
 func (Read) Kind() core.Kind { return core.ReadOnly }
 func (Read) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` +
-		`"path":{"type":"string","description":"File path, relative to the project root, or an absolute path inside a listed skill's directory."},` +
+		`"path":{"type":"string","description":"File path, relative to the project root, or an absolute path inside a skill's directory."},` +
 		`"offset":{"type":"integer","description":"1-based line to start at."},` +
 		`"limit":{"type":"integer","description":"Maximum number of lines to return."}},` +
 		`"required":["path"]}`)
@@ -111,7 +111,7 @@ func (Ls) Description() string {
 func (Ls) Kind() core.Kind { return core.ReadOnly }
 func (Ls) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` +
-		`"path":{"type":"string","description":"Directory path, relative to the project root (or absolute inside a listed skill's directory); defaults to the root."}},` +
+		`"path":{"type":"string","description":"Directory path, relative to the project root (or absolute inside a skill's directory); defaults to the root."}},` +
 		`"required":[]}`)
 }
 

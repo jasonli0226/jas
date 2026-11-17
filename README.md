@@ -208,11 +208,11 @@ folders and `node_modules` are skipped, and the search stops 5 levels down.
 
 Only each skill's name, description and path go in the system prompt; the
 model reads the full `SKILL.md` (and any `references/` or `scripts/`) with
-the `read` tool when a task matches. `read`, `ls` and `grep` may open listed
-skill directories (the deny floor still applies there); `write`, `edit` and
-`shell` stay confined to the project, except that `write` and `edit` may add
-or change skills in the active profile's `skills/` folder, always after a
-prompt. In chat, a read of a
+the `read` tool when a task matches. `read`, `ls` and `grep` may open skill
+directories, hidden skills included (the deny floor still applies there);
+`write`, `edit` and `shell` stay confined to the project, except that
+`write` and `edit` may add or change skills in the active profile's
+`skills/` folder, always after a prompt. In chat, a read of a
 `SKILL.md` shows as a `◆ skill <name>` row, and `/skill:<name>` prints the
 same marker above your message.
 

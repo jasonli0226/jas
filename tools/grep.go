@@ -33,7 +33,7 @@ func (Grep) Kind() core.Kind { return core.ReadOnly }
 func (Grep) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` +
 		`"pattern":{"type":"string","description":"Regular expression (Go RE2 syntax)."},` +
-		`"path":{"type":"string","description":"File or directory to search, relative to the project root (or absolute inside a listed skill's directory); defaults to the root."},` +
+		`"path":{"type":"string","description":"File or directory to search, relative to the project root (or absolute inside a skill's directory); defaults to the root."},` +
 		`"glob":{"type":"string","description":"Only search files whose name matches this glob, e.g. *.go."}},` +
 		`"required":["pattern"]}`)
 }
