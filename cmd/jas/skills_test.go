@@ -60,6 +60,38 @@ func TestRun_ProfileSkillListedAndReadable(t *testing.T) {
 	assert.Contains(t, string(bodies()[1]), "SKILL-BODY-4410")
 }
 
+// TestRun_HiddenSkillReadable: a disable-model-invocation skill stays out of
+// the catalog, but its directory is still a read root, so its references
+// load once the user runs it with /skill:<name>.
+func TestRun_HiddenSkillReadable(t *testing.T) {
+	userHome, jasHome, elsewhere := t.TempDir(), t.TempDir(), t.TempDir()
+	loc := writeSkill(t, elsewhere, "deploy",
+		"Use when deploying\ndisable-model-invocation: true", "Read references/steps.md.\n")
+	skillsDir := filepath.Join(jasHome, "profiles", "default", "skills")
+	assert.NoErr(t, os.MkdirAll(skillsDir, 0o755))
+	// Linked out of the jas home, the profile skills exception does not cover
+	// it; only its read root does.
+	if err := os.Symlink(filepath.Dir(loc), filepath.Join(skillsDir, "deploy")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	ref := filepath.Join(filepath.Dir(loc), "references", "steps.md")
+	assert.NoErr(t, os.MkdirAll(filepath.Dir(ref), 0o755))
+	assert.NoErr(t, os.WriteFile(ref, []byte("STEPS-BODY-7731\n"), 0o644))
+	args, err := json.Marshal(map[string]string{"path": ref})
+	assert.NoErr(t, err)
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{
+		{Calls: []fake.Call{{Name: "read", Args: string(args)}}},
+		{Text: "done"},
+	})
+	env := append(jasEnv(userHome, url), "JAS_HOME="+jasHome)
+	_, errOut, code := runJas(t, env, "run", "q")
+	assert.Eq(t, code, 0)
+	assert.NotContains(t, systemPrompt(t, bodies()[0]), "<name>deploy</name>")
+	assert.NotContains(t, string(bodies()[1]), "path outside project root")
+	assert.Contains(t, string(bodies()[1]), "STEPS-BODY-7731")
+	assert.NotContains(t, errOut, "denied")
+}
+
 func TestRun_HomeAgentsSkillsIgnored(t *testing.T) {
 	userHome := t.TempDir()
 	writeSkill(t, filepath.Join(userHome, ".agents", "skills"), "legacy", "LEGACY-SKILL-5521", "body")

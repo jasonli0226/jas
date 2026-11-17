@@ -351,16 +351,18 @@ func readFarmConfig(root string) []byte {
 	return b
 }
 
-// listedSkills returns the session_started.skills entries and the skill
-// directories read-only tools may open: only skills shown to the model.
+// listedSkills returns the session_started.skills entries (only skills
+// shown to the model) and the skill directories read-only tools may open:
+// every skill, so a hidden one run with /skill:<name> can load its
+// references too.
 func listedSkills(ss []skills.Skill) ([]skillMeta, []string) {
 	meta, dirs := []skillMeta{}, []string{}
 	for _, s := range ss {
+		dirs = append(dirs, s.Dir)
 		if s.DisableModelInvocation {
 			continue
 		}
 		meta = append(meta, skillMeta{Name: s.Name, Scope: s.Scope.String(), Location: s.Location})
-		dirs = append(dirs, s.Dir)
 	}
 	return meta, dirs
 }

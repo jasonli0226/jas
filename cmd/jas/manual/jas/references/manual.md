@@ -430,7 +430,7 @@ Docker recipes.
 
 | tool | does | gated at |
 |---|---|---|
-| `read` | read a file (also listed skill directories) | — |
+| `read` | read a file (also skill directories, hidden skills included) | — |
 | `ls` | list a directory | — |
 | `grep` | search file contents | — |
 | `write` | create or overwrite a file (atomic) | `mutating` |
