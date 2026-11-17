@@ -208,11 +208,11 @@ func (s *Supervisor) blamedViolations(ctx context.Context, w *worker) ([]string,
 
 // partCheck runs part_check in the worker's worktree before the part may be
 // done, and logs part_check. Paths outside the write limit that the check
-// itself changed (new since, or modified during, the run) are noted in
+// itself changed (new since, or rewritten during, the run) are noted in
 // w.made and undone.
 func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.CheckResult {
 	before, beforeErr := DiffViolations(ctx, s.Git.Run, w.path, w.start, w.pol.Writes)
-	started := time.Now()
+	stats := statPaths(w.path, before)
 	res := core.RunCheck(ctx, s.checkSpec(s.Cfg.PartCheck, w.path), tools.RunShell)
 	s.event(EvPartCheck, map[string]any{"part": w.part.ID, "round": round, "exit_code": res.ExitCode,
 		"duration_ms": res.Duration.Milliseconds(), "timed_out": res.TimedOut})
@@ -222,7 +222,7 @@ func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.C
 	}
 	var made []string
 	for _, p := range after {
-		if !slices.Contains(before, p) || modifiedSince(filepath.Join(w.path, filepath.FromSlash(p)), started) {
+		if !slices.Contains(before, p) || rewritten(filepath.Join(w.path, filepath.FromSlash(p)), stats[p]) {
 			made = append(made, p)
 		}
 	}
@@ -238,9 +238,28 @@ func (s *Supervisor) partCheck(ctx context.Context, w *worker, round int) core.C
 	return res
 }
 
-func modifiedSince(path string, t time.Time) bool {
+// statPaths stats each repo-relative path under dir; a path that cannot be
+// stat'ed is left out.
+func statPaths(dir string, paths []string) map[string]os.FileInfo {
+	out := make(map[string]os.FileInfo, len(paths))
+	for _, p := range paths {
+		if fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p))); err == nil {
+			out[p] = fi
+		}
+	}
+	return out
+}
+
+// rewritten reports whether path changed since prev was taken: its mtime
+// or size differs, or it was not there then. Comparing with the earlier
+// stat, not with the clock, holds when the kernel stamps a write from a
+// coarse clock that reads behind time.Now (#206).
+func rewritten(path string, prev os.FileInfo) bool {
 	fi, err := os.Stat(path)
-	return err == nil && !fi.ModTime().Before(t)
+	if err != nil {
+		return false
+	}
+	return prev == nil || !fi.ModTime().Equal(prev.ModTime()) || fi.Size() != prev.Size()
 }
 
 // restorePaths puts repo-relative paths back as they were at the worker's

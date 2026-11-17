@@ -697,6 +697,26 @@ func TestRunFarm_WorkerRanCheckFirstArtifactNotBlamed(t *testing.T) {
 	}
 }
 
+// The supervisor's check rewrites the worker's artifact but the file's mtime
+// still reads earlier than the check's start, as when the kernel's coarse
+// clock stamps a write in the same tick (#206): the rewrite is still the
+// check's, so the artifact is still not blamed.
+func TestRunFarm_CheckRewriteWithStaleMtimeNotBlamed(t *testing.T) {
+	const check = "mkdir -p b && echo lock > b/lock.json && touch -t 200001020000 b/lock.json && exit 1"
+	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
+		if ws.Part.ID != "a" {
+			return append(twoWriters(ws), final("BLOCKED: needs a"))
+		}
+		run, _ := json.Marshal(map[string]string{"command": "mkdir -p b && echo lock > b/lock.json && touch -t 200001010000 b/lock.json"})
+		return []fake.Turn{writeCall("a/x.txt", "a\n"), call("shell", string(run)), final("a done"),
+			final("BLOCKED: b/ is another part's")}
+	})
+	r.opts.Cfg.PartCheck = check
+	if code, reason := r.run(context.Background()); code != 0 || reason != "ok" {
+		t.Fatalf("exit %d %s; events %v", code, reason, r.events(EvPartEnded))
+	}
+}
+
 // A write outside owns and a failing cross-part check in the same answer go
 // back in one message, so the worker can undo the write and answer BLOCKED:
 // in its one fix round.
