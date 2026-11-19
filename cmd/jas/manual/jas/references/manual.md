@@ -475,9 +475,11 @@ Scanned in this order; on a name clash the first wins:
 | user | `~/.jas/profiles/<name>/skills/` (the active profile), then the built-in manual under `<UserCacheDir>/jas/manual/` (`~/.cache/jas/manual/` on Linux) |
 
 Only names and descriptions go in the prompt (capped at 64 KB, project
-skills kept before user skills; home paths written `~/…`, which the file
-tools expand, as they do `~\…` on Windows; the prompt tells the model to
-pass `~/` paths through as written); the model reads a full `SKILL.md` when a task matches. Project
+skills kept before user skills); the model reads a full `SKILL.md` when a
+task matches. Home paths in the prompt, here and in the memory index
+headings, are written `~/…`: the file tools expand them, as they do `~\…` on
+Windows, and the prompt tells the model to pass `~/` paths through as
+written. Project
 skills are looked for at the project root (the git top level) only. `/skill:<name>` runs one directly.
 `disable-model-invocation: true` hides a skill from the model. jas
 reinstalls its built-in skills under `<UserCacheDir>/jas/manual/` at every start: `jas` (this manual) and `skill-creator` (how to write, improve and test a skill: where it goes, the frontmatter rules above, and a `jas run --json` trigger check). A same-named profile or project skill overrides either. `~/.agents/skills/`, `~/.claude/skills/` and `~/.config/jas/skills/` are no longer read.

@@ -119,8 +119,16 @@ func TestManualSkill_SummaryListsCommands(t *testing.T) {
 	}
 
 	src := readFile(t, "main.go")
-	body := src[strings.Index(src, "func dispatch("):]
-	body = body[:strings.Index(body, "\n}\n")]
+	start := strings.Index(src, "func dispatch(")
+	if start < 0 {
+		t.Fatal("func dispatch not found in main.go")
+	}
+	body := src[start:]
+	end := strings.Index(body, "\n}\n")
+	if end < 0 {
+		t.Fatal("end of dispatch not found in main.go")
+	}
+	body = body[:end]
 	for _, m := range regexp.MustCompile(`case "(\w+)":`).FindAllStringSubmatch(body, -1) {
 		if m[1] == "version" {
 			continue

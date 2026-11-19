@@ -28,11 +28,12 @@ if [[ -e $dest || -L $dest ]] && ! [[ -L $dest && $(readlink "$dest") == "$targe
 fi
 mkdir -p .claude/skills
 ln -sfn "$target" "$dest"
-# Git Bash copies instead of linking unless symlinks are enabled; a copy
-# would go stale on the next pull.
+# Git Bash copies instead of linking unless symlinks are enabled, and so do
+# filesystems without symlinks (some docker mounts); a copy would go stale on
+# the next pull.
 if ! [[ -L $dest ]]; then
 	rm -rf "$dest"
-	echo "link-claude-code: ln made a copy, not a link; on Windows enable symlinks (Developer Mode, and MSYS=winsymlinks:nativestrict) and rerun" >&2
+	echo "link-claude-code: your ln made a copy, not a link; on Windows enable symlinks (Developer Mode, and MSYS=winsymlinks:nativestrict), elsewhere run from a filesystem that supports symlinks, and rerun" >&2
 	exit 1
 fi
 
