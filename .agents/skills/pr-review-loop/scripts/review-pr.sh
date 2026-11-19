@@ -7,6 +7,12 @@
 # Usage: bash .agents/skills/pr-review-loop/scripts/review-pr.sh [--dry-run] <pr-number>
 #   --dry-run  print the review instead of posting it
 #
+# Before each review the reviewer profile (this skill's reviewer/ folder) is
+# installed from the base branch by the base branch's install-reviewer.sh, so
+# the PR under review cannot change its own reviewer's instructions. This
+# script and the merge hook are the copies in the checkout that runs them:
+# run the loop from a checkout you trust, not from a PR you have not read.
+#
 # A PASS review's findings are all low; they are also appended to the open
 # issue titled $LOW_ISSUE (created when missing), to fix in batches rather
 # than in follow-up PRs.
@@ -21,11 +27,16 @@ readonly PROFILE=reviewer
 readonly MARKER=jas-review
 readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
+readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
 
 usage() {
 	echo "usage: review-pr.sh [--dry-run] <pr-number>" >&2
 	exit 2
 }
+
+for cmd in jas gh jq git tar; do
+	command -v "$cmd" >/dev/null || { echo "review-pr: $cmd is not installed; see the pr-review-loop skill's Setup" >&2; exit 2; }
+done
 
 dry_run=false
 if [[ ${1:-} == --dry-run ]]; then
@@ -34,11 +45,6 @@ if [[ ${1:-} == --dry-run ]]; then
 fi
 [[ $# -eq 1 && $1 =~ ^[0-9]+$ ]] || usage
 pr=$1
-
-jas profile show "$PROFILE" >/dev/null 2>&1 || {
-	echo "review-pr: no jas profile '$PROFILE' (~/.jas/profiles/$PROFILE with the pr-review skill)" >&2
-	exit 2
-}
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
@@ -60,6 +66,21 @@ done
 git fetch -q origin "$base_ref" "$head"
 base=$(git merge-base "origin/$base_ref" "$head") ||
 	{ echo "review-pr: no merge base of origin/$base_ref and $head" >&2; exit 3; }
+
+# The installer runs as committed on the base, never the PR's copy. A base
+# from before the reviewer was kept in the repo has none; the profile
+# already in the jas home is used then, as it is when the install fails
+# (which leaves that profile whole).
+if installer=$(git show "origin/$base_ref:$INSTALLER" 2>/dev/null); then
+	bash -c "$installer" install-reviewer "origin/$base_ref" ||
+		echo "review-pr: could not install the reviewer from origin/$base_ref; using the profile already in the jas home" >&2
+else
+	echo "review-pr: origin/$base_ref has no reviewer installer; using the profile already in the jas home" >&2
+fi
+jas profile show "$PROFILE" >/dev/null 2>&1 || {
+	echo "review-pr: no jas profile '$PROFILE' (~/.jas/profiles/$PROFILE with the pr-review skill)" >&2
+	exit 2
+}
 
 # Issues the PR body links with a closing keyword or "Refs".
 issue_context() {
@@ -100,6 +121,10 @@ PROMPT
 # - git has no SSH agent, no credential helpers and a dead push URL.
 # This guards against a reviewer that misuses its tools, not hostile code:
 # the shell can still read files the user can read.
+#
+# The project is not trusted: a trusted project skill named pr-review would
+# replace the profile's, letting the PR under review rewrite its own
+# checklist. The reviewer reads the repo's AGENTS.md with its tools instead.
 sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
 	-u SSH_AUTH_SOCK DBUS_SESSION_BUS_ADDRESS=disabled: GH_CONFIG_DIR="$gh_empty"
 	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=3
@@ -119,7 +144,7 @@ if ! sandbox_logged_out; then
 fi
 set +e
 (cd "$work/tree" && "${sandbox[@]}" \
-	jas run --profile "$PROFILE" --trust-project \
+	jas run --profile "$PROFILE" \
 	--max-tokens "$MAX_TOKENS" --max-turns "$MAX_TURNS" --wrap-up --timeout "$TIMEOUT" --name "review PR #$pr" \
 	"$prompt") >"$work/out" 2>"$work/err"
 code=$?

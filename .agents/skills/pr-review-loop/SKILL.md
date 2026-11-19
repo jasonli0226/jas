@@ -14,12 +14,32 @@ it changes docs only: every changed file is a `.md` that is not agent
 instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
 `.agents/`). Paths below are relative to the repo root.
 
-- Any agent can follow this skill; nothing needs installing.
+- Any agent can follow this skill once Setup below is done.
+- The reviewer profile (its `AGENTS.md`, `config.json` and the `pr-review`
+  skill) lives in `.agents/skills/pr-review-loop/reviewer/`. `review-pr.sh`
+  installs it into `~/.jas/profiles/reviewer/` from the base branch, with
+  the base branch's installer, before every review, so a change to it
+  applies once it merges. Edit it there, not
+  in the jas home: `AGENTS.md` and `skills/` are replaced each time, and only
+  `config.json` (the model) is kept once written.
 - In Claude Code, a hook
   (`.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh`, added by
   `make claude-setup`) also blocks `gh pr merge` until a PASS review for the
   current head is posted. Other agents have no such hook: the rule below is
   the only gate, so follow it exactly.
+
+## Setup, once per machine
+
+1. Install `jas` (`make install`, or a release), `gh`, `jq`, `git` and `tar`, and
+   log in with `gh auth login`.
+2. Give jas a key for the reviewer's model, `openrouter/z-ai/glm-5.3`
+   (`reviewer/config.json`): `jas auth add openrouter`. To review with
+   another model, run one review, which writes
+   `~/.jas/profiles/reviewer/config.json`, then change `model` there; later
+   reviews keep it.
+3. Claude Code only: `make claude-setup` once per clone.
+
+No profile needs creating: the first review installs it.
 
 ## Loop
 
