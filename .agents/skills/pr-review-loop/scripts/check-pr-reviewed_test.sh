@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # check-pr-reviewed_test.sh checks which commands the merge hook treats as
-# a merge, and which PR it reads from each. It makes no GitHub calls.
+# a merge, which PR it reads from each, and when a PR counts as docs-only.
+# It makes no GitHub calls: a fake gh answers them.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/check-pr-reviewed_test.sh
 set -uo pipefail
@@ -72,6 +73,34 @@ docs no cmd/jas/manual/jas/SKILL.md
 docs no .agents/skills/pr-review-loop/SKILL.md
 docs no .agents/skills/x/notes.md
 docs no ''
+# gate <want-exit> <pr-json>: runs the hook on a merge with a fake gh that
+# answers `gh pr view` with pr-json and `gh api user` with a login.
+gate() {
+	local want=$1 bin got
+	bin=$(mktemp -d)
+	printf '%s\n' "$2" >"$bin/pr.json"
+	cat >"$bin/gh" <<'GH'
+#!/usr/bin/env bash
+case "$1 $2" in
+"pr view") cat "$(dirname "$0")/pr.json" ;;
+"api user") echo me ;;
+*) exit 1 ;;
+esac
+GH
+	chmod +x "$bin/gh"
+	jq -n '{tool_input:{command:"gh pr merge 7 --squash"}}' | PATH="$bin:$PATH" bash "$hook" >/dev/null 2>&1
+	got=$?
+	rm -rf "$bin"
+	if [[ $got != "$want" ]]; then
+		echo "FAIL: gate $2"$'\n'"  want exit $want, got $got"
+		fails=$((fails + 1))
+	fi
+}
+
+gate 0 '{"number":7,"headRefOid":"abc","comments":[],"files":[{"path":"README.md"}],"changedFiles":1}'
+gate 2 '{"number":7,"headRefOid":"abc","comments":[],"files":[{"path":"core/x.go"}],"changedFiles":1}'
+# gh lists at most 100 files; a PR with more is never docs-only.
+gate 2 '{"number":7,"headRefOid":"abc","comments":[],"files":[{"path":"README.md"}],"changedFiles":150}'
 
 if ((fails > 0)); then
 	echo "$fails failed"

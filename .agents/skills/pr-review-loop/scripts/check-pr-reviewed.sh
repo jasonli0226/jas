@@ -92,9 +92,12 @@ block() {
 
 view=(gh pr view)
 [[ -n $target ]] && view+=("$target")
-pr_json=$("${view[@]}" --json number,headRefOid,comments,files 2>/dev/null) || block "could not look up the PR"
-# A docs-only PR needs no review.
-jq -r '.files[].path' <<<"$pr_json" | docs_only && exit 0
+pr_json=$("${view[@]}" --json number,headRefOid,comments,files,changedFiles 2>/dev/null) || block "could not look up the PR"
+# A docs-only PR needs no review. gh lists at most 100 files, so a longer
+# list than it returned is never taken as docs-only.
+if jq -e '(.files | length) == .changedFiles' <<<"$pr_json" >/dev/null; then
+	jq -r '.files[].path' <<<"$pr_json" | docs_only && exit 0
+fi
 me=$(gh api user -q .login 2>/dev/null) || block "could not look up the GitHub user"
 head=$(jq -r .headRefOid <<<"$pr_json")
 number=$(jq -r .number <<<"$pr_json")
