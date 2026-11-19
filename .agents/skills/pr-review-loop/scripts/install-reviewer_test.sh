@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # install-reviewer_test.sh runs install-reviewer.sh in a throwaway repo: it
 # installs the committed profile, not the working tree's, replaces skills,
-# keeps an existing config.json, and refuses a ref without a profile.
+# keeps an existing config.json, writes owner-only files, refuses a ref
+# without a profile, and leaves the installed profile whole when it fails.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/install-reviewer_test.sh
 set -uo pipefail
@@ -43,6 +44,18 @@ mkdir -p "$dest/skills/stale"
 install HEAD || fail "second install exited non-zero"
 [[ $(jq -r .model "$dest/config.json") == mine ]] || fail "existing config.json was overwritten"
 [[ ! -e $dest/skills/stale ]] || fail "a skill not in the repo was left behind"
+
+[[ $(stat -c %a "$dest/config.json" 2>/dev/null || stat -f %Lp "$dest/config.json") == 600 ]] ||
+	fail "config.json is not owner-only"
+[[ -z $(find "$dest" -maxdepth 1 -name '.install.*') ]] || fail "the staging directory was left behind"
+
+# A ref whose skills cannot be read leaves the installed profile whole.
+git -C "$repo" rm -rq --cached .agents/skills/pr-review-loop/reviewer/skills
+git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m "drop skills"
+if install HEAD; then
+	fail "a ref without reviewer skills was accepted"
+fi
+[[ $(cat "$dest/skills/pr-review/SKILL.md" 2>/dev/null) == SKILL-1 ]] || fail "a failed install removed the installed skills"
 
 if install "$empty"; then
 	fail "a ref without a reviewer profile was accepted"

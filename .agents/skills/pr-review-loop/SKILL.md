@@ -17,8 +17,9 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
 - Any agent can follow this skill once Setup below is done.
 - The reviewer profile (its `AGENTS.md`, `config.json` and the `pr-review`
   skill) lives in `.agents/skills/pr-review-loop/reviewer/`. `review-pr.sh`
-  installs it into `~/.jas/profiles/reviewer/` from the base branch before
-  every review, so a change to it applies once it merges. Edit it there, not
+  installs it into `~/.jas/profiles/reviewer/` from the base branch, with
+  the base branch's installer, before every review, so a change to it
+  applies once it merges. Edit it there, not
   in the jas home: `AGENTS.md` and `skills/` are replaced each time, and only
   `config.json` (the model) is kept once written.
 - In Claude Code, a hook
@@ -29,7 +30,7 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
 
 ## Setup, once per machine
 
-1. Install `jas` (`make install`, or a release), `gh`, `jq` and `git`, and
+1. Install `jas` (`make install`, or a release), `gh`, `jq`, `git` and `tar`, and
    log in with `gh auth login`.
 2. Give jas a key for the reviewer's model, `openrouter/z-ai/glm-5.3`
    (`reviewer/config.json`): `jas auth add openrouter`. To review with

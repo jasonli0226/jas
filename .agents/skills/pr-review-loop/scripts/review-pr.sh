@@ -8,8 +8,10 @@
 #   --dry-run  print the review instead of posting it
 #
 # Before each review the reviewer profile (this skill's reviewer/ folder) is
-# installed from the base branch by install-reviewer.sh, so the PR under
-# review cannot change its own reviewer.
+# installed from the base branch by the base branch's install-reviewer.sh, so
+# the PR under review cannot change its own reviewer's instructions. This
+# script and the merge hook are the copies in the checkout that runs them:
+# run the loop from a checkout you trust, not from a PR you have not read.
 #
 # A PASS review's findings are all low; they are also appended to the open
 # issue titled $LOW_ISSUE (created when missing), to fix in batches rather
@@ -25,14 +27,14 @@ readonly PROFILE=reviewer
 readonly MARKER=jas-review
 readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
-script_dir=$(cd "$(dirname "$0")" && pwd)
+readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
 
 usage() {
 	echo "usage: review-pr.sh [--dry-run] <pr-number>" >&2
 	exit 2
 }
 
-for cmd in jas gh jq git; do
+for cmd in jas gh jq git tar; do
 	command -v "$cmd" >/dev/null || { echo "review-pr: $cmd is not installed; see the pr-review-loop skill's Setup" >&2; exit 2; }
 done
 
@@ -65,10 +67,16 @@ git fetch -q origin "$base_ref" "$head"
 base=$(git merge-base "origin/$base_ref" "$head") ||
 	{ echo "review-pr: no merge base of origin/$base_ref and $head" >&2; exit 3; }
 
-# A base branch from before the reviewer was kept in the repo has none to
-# install; the profile already in the jas home is used then.
-bash "$script_dir/install-reviewer.sh" "origin/$base_ref" ||
-	echo "review-pr: using the reviewer profile already in the jas home" >&2
+# The installer runs as committed on the base, never the PR's copy. A base
+# from before the reviewer was kept in the repo has none; the profile
+# already in the jas home is used then, as it is when the install fails
+# (which leaves that profile whole).
+if installer=$(git show "origin/$base_ref:$INSTALLER" 2>/dev/null); then
+	bash -c "$installer" install-reviewer "origin/$base_ref" ||
+		echo "review-pr: could not install the reviewer from origin/$base_ref; using the profile already in the jas home" >&2
+else
+	echo "review-pr: origin/$base_ref has no reviewer installer; using the profile already in the jas home" >&2
+fi
 jas profile show "$PROFILE" >/dev/null 2>&1 || {
 	echo "review-pr: no jas profile '$PROFILE' (~/.jas/profiles/$PROFILE with the pr-review skill)" >&2
 	exit 2

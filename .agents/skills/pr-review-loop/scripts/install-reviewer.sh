@@ -24,10 +24,19 @@ git cat-file -e "$ref:$SRC/AGENTS.md" 2>/dev/null || {
 	exit 1
 }
 
+# Like jas's own profiles: owner-only.
+umask 077
 dest=${JAS_HOME:-$HOME/.jas}/profiles/$PROFILE
 mkdir -p "$dest"
+# Stage everything first, so a failed install leaves the old profile whole.
+stage=$(mktemp -d "$dest/.install.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+mkdir "$stage/skills"
+git archive "$ref:$SRC/skills" | tar -x -C "$stage/skills"
+git show "$ref:$SRC/AGENTS.md" >"$stage/AGENTS.md"
+git show "$ref:$SRC/config.json" >"$stage/config.json"
+
 rm -rf "$dest/skills"
-mkdir "$dest/skills"
-git archive "$ref:$SRC/skills" | tar -x -C "$dest/skills"
-git show "$ref:$SRC/AGENTS.md" >"$dest/AGENTS.md"
-[[ -f $dest/config.json ]] || git show "$ref:$SRC/config.json" >"$dest/config.json"
+mv "$stage/skills" "$dest/skills"
+mv "$stage/AGENTS.md" "$dest/AGENTS.md"
+[[ -f $dest/config.json ]] || mv "$stage/config.json" "$dest/config.json"

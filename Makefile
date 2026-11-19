@@ -25,6 +25,8 @@ test:
 	go test ./...
 	bash .agents/skills/pr-review-loop/scripts/check-pr-reviewed_test.sh
 	bash .agents/skills/pr-review-loop/scripts/link-claude-code_test.sh
+	bash .agents/skills/pr-review-loop/scripts/install-reviewer_test.sh
+	bash .agents/skills/pr-review-loop/scripts/review-pr_test.sh
 
 # Links the pr-review-loop skill into .claude/skills and adds its merge hook
 # to .claude/settings.local.json (.claude/ is gitignored; once per clone).
