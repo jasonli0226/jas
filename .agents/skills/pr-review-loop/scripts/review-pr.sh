@@ -161,8 +161,9 @@ changed_go_dirs=$(git diff -z --name-only --no-renames "$base...$head" -- '*.go'
 md_only() { [[ -n $changed ]] && ! grep -qv '\.md$' <<<"$changed"; }
 
 # no_markers drops HTML comment delimiters from PR-controlled text, so it
-# cannot carry a review marker into the comment.
-no_markers() { sed 's/<!--//g; s/-->//g'; }
+# cannot carry a review marker into the comment. It repeats until none is
+# left, since dropping one can join the pieces of another ("<!<!----").
+no_markers() { sed -e ':a' -e 's/<!--//' -e 'ta' -e ':b' -e 's/-->//' -e 'tb'; }
 
 # run_tests runs the base branch's `make test` recipe on the head, so a PR
 # cannot weaken its own test gate; it prints the result line for the

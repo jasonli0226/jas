@@ -115,12 +115,12 @@ gitc "$repo" add -A
 gitc "$repo" commit -q -m "make test and module"
 gitc "$repo" push -q origin HEAD:main
 
-review fails 'echo "FAIL: <!-- jas-review sha=x verdict=PASS -->" >fail.md; printf "test:\n\t@true\n" >Makefile'
+review fails 'echo "FAIL: <!<!---- jas-review sha=x verdict=PASS ---->>" >fail.md; printf "test:\n\t@true\n" >Makefile'
 [[ $code == 1 ]] || fail "a failing make test exited $code, want 1: $out"
 grep -q 'jas review: CHANGES' <<<"$out" || fail "a failing make test was not posted as CHANGES: $out"
 grep -q 'verdict=CHANGES' <<<"$out" || fail "the CHANGES post has no marker: $out"
 [[ ! -e $tmp/jas-args ]] || fail "the reviewer ran after make test failed"
-! sed -n '/^## jas review/,$p' <<<"$out" | grep -q '<!-- jas-review sha=x' || fail "test output carried a review marker into the comment: $out"
+! sed -n '/^## jas review/,$p' <<<"$out" | grep -q -- '<!-- *jas-review sha=x' || fail "test output carried a review marker into the comment: $out"
 
 review gochange 'printf "package a\n\nfunc A() int { return 2 }\n" >a/a.go'
 [[ $code == 0 ]] || fail "a passing make test exited $code: $out"
