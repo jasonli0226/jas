@@ -45,11 +45,15 @@ No profile needs creating: the first review installs it.
 
 1. Push the branch and open the PR. Docs only: go to step 5.
 2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
-   command timeout of at least 35 minutes (a review takes 5–30). It posts
-   the review as a PR comment.
+   command timeout of at least 40 minutes (a review takes 5–30, after a few
+   minutes of tests). It first runs the base branch's `make test` recipe on
+   the PR head (skipped when only `.md` files change), then the reviewer,
+   and posts the result as a PR comment.
    - Exit 0, `VERDICT: PASS`: go to step 5. Its findings are all low; the
      script logs them in the "Low findings from jas reviews" issue.
-   - Exit 1, `VERDICT: CHANGES`: go to step 3.
+   - Exit 1, `VERDICT: CHANGES`: go to step 3. When `make test` failed,
+     the comment lists the failing tests and the reviewer did not run;
+     the full output is on the script's stderr.
    - Exit 3, the review did not finish: rerun once; if it fails again, tell
      the user and stop.
 3. Check each high and medium finding against the code it cites before

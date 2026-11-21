@@ -2,8 +2,11 @@
 # review-pr_test.sh runs review-pr.sh --dry-run against a throwaway origin,
 # with fake gh and jas on PATH. A PR that edits both the reviewer profile and
 # its installer is still reviewed by the base branch's profile, and the
-# reviewer runs without trusting the project. A base whose installer fails
-# stops the review instead of running a stale profile.
+# reviewer runs without trusting the project. The base branch's make test
+# runs on the head before the reviewer: a failure is posted as CHANGES even
+# when the PR edits the Makefile, a diff of only .md files skips it, and the
+# prompt lists the packages importing a changed Go package. A base whose
+# installer fails stops the review instead of running a stale profile.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/review-pr_test.sh
 set -uo pipefail
@@ -45,13 +48,14 @@ head=$(git -C "$repo" rev-parse HEAD)
 bin=$tmp/bin
 mkdir "$bin"
 echo "$head" >"$tmp/head"
+echo pr >"$tmp/branch"
 cat >"$bin/gh" <<EOF
 #!/usr/bin/env bash
 case "\$1 \$2" in
 "auth status") exit 1 ;;
 "pr view")
 	if [[ "\$*" == *headRefOid* ]]; then cat "$tmp/head"; else
-		echo '{"title":"t","body":"","headRefName":"pr","baseRefName":"main","state":"OPEN"}'
+		printf '{"title":"t","body":"","headRefName":"%s","baseRefName":"main","state":"OPEN"}\n' "\$(cat "$tmp/branch")"
 	fi ;;
 *) exit 1 ;;
 esac
@@ -75,8 +79,56 @@ code=$?
 grep -qx -- '--profile' "$tmp/jas-args" 2>/dev/null || fail "jas did not run the reviewer profile"
 ! grep -qx -- '--trust-project' "$tmp/jas-args" 2>/dev/null || fail "the reviewer trusted the project"
 
+# review runs review-pr.sh --dry-run on a new branch $1 off main, made by
+# the commands in $2, and sets out and code.
+review() {
+	gitc "$repo" checkout -q -b "$1" main
+	(cd "$repo" && eval "$2")
+	gitc "$repo" add -A
+	gitc "$repo" commit -q -m "$1"
+	gitc "$repo" push -q origin "$1"
+	git -C "$repo" rev-parse HEAD >"$tmp/head"
+	echo "$1" >"$tmp/branch"
+	rm -f "$tmp/jas-args"
+	out=$(cd "$repo" && PATH="$bin:$PATH" JAS_HOME="$tmp/jas-home" \
+		bash "$loop/scripts/review-pr.sh" --dry-run 7 2>&1)
+	code=$?
+}
+
+# main gains a make test that fails when the file fail.md exists, and a Go
+# module where package b imports package a.
+gitc "$repo" checkout -q main
+printf 'test:\n\t@test ! -e fail.md\n' >"$repo/Makefile"
+printf 'module example.com/m\n\ngo 1.21\n' >"$repo/go.mod"
+mkdir -p "$repo/a" "$repo/b"
+printf 'package a\n\nfunc A() int { return 1 }\n' >"$repo/a/a.go"
+printf 'package b\n\nimport "example.com/m/a"\n\nfunc B() int { return a.A() }\n' >"$repo/b/b.go"
+gitc "$repo" add -A
+gitc "$repo" commit -q -m "make test and module"
+gitc "$repo" push -q origin HEAD:main
+
+review fails 'touch fail.md; printf "test:\n\t@true\n" >Makefile'
+[[ $code == 1 ]] || fail "a failing make test exited $code, want 1: $out"
+grep -q 'jas review: CHANGES' <<<"$out" || fail "a failing make test was not posted as CHANGES: $out"
+grep -q 'verdict=CHANGES' <<<"$out" || fail "the CHANGES post has no marker: $out"
+[[ ! -e $tmp/jas-args ]] || fail "the reviewer ran after make test failed"
+
+review gochange 'printf "package a\n\nfunc A() int { return 2 }\n" >a/a.go'
+[[ $code == 0 ]] || fail "a passing make test exited $code: $out"
+grep -q 'passed on the head' "$tmp/jas-args" 2>/dev/null || fail "the prompt does not say make test passed"
+grep -q 'example.com/m/a: imported by example.com/m/b' "$tmp/jas-args" 2>/dev/null ||
+	fail "the prompt does not list b as importing a: $(grep -A2 importers "$tmp/jas-args" 2>/dev/null)"
+grep -q 'return 2' "$tmp/jas-args" 2>/dev/null || fail "the prompt does not carry the diff"
+
+review mdonly 'touch fail.md; echo doc >README.md'
+[[ $code == 0 ]] || fail "an .md-only PR exited $code: $out"
+grep -q 'skipped; the diff changes only .md files' "$tmp/jas-args" 2>/dev/null ||
+	fail "an .md-only PR did not skip make test"
+
 # main now ships an installer that fails; the installer is read from main's
 # tip, so the PR branch can stay as it is.
+git -C "$repo" rev-parse pr >"$tmp/head"
+echo pr >"$tmp/branch"
 gitc "$repo" checkout -q main
 printf '#!/usr/bin/env bash\nexit 1\n' >"$loop/scripts/install-reviewer.sh"
 gitc "$repo" commit -qam "broken installer"

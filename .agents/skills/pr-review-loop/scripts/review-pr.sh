@@ -13,6 +13,13 @@
 # script and the merge hook are the copies in the checkout that runs them:
 # run the loop from a checkout you trust, not from a PR you have not read.
 #
+# Before the reviewer starts, the script runs the base branch's `make test`
+# recipe on the PR head, outside the model, and puts its result in the
+# prompt with the diff stat, the log, the diff (when it fits) and the
+# packages that import the changed Go packages, so the reviewer does not
+# rerun them. A failing `make test` is posted as CHANGES without a review.
+# A diff of only .md files skips the tests.
+#
 # A PASS review's findings are all low; they are also appended to the open
 # issue titled $LOW_ISSUE (created when missing), to fix in batches rather
 # than in follow-up PRs.
@@ -28,13 +35,16 @@ readonly MARKER=jas-review
 readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
+# Linux caps one argument at 128 KiB and jas takes the prompt as one, so a
+# bigger diff is left for the reviewer to read with git diff.
+readonly DIFF_INLINE_BYTES=60000
 
 usage() {
 	echo "usage: review-pr.sh [--dry-run] <pr-number>" >&2
 	exit 2
 }
 
-for cmd in jas gh jq git tar; do
+for cmd in jas gh jq git tar make; do
 	command -v "$cmd" >/dev/null || { echo "review-pr: $cmd is not installed; see the pr-review-loop skill's Setup" >&2; exit 2; }
 done
 
@@ -101,20 +111,8 @@ cleanup() {
 trap cleanup EXIT
 git worktree add -q --detach "$work/tree" "$head"
 
-prompt=$(cat <<PROMPT
-Review pull request #$pr before it merges. The checkout is the PR head
-($head); the base is $base (diff with: git diff $base...HEAD).
-
-### PR: $(jq -r '.title // ""' <<<"$pr_json")
-
-$(jq -r '.body // ""' <<<"$pr_json")
-
-$(issue_context)
-PROMPT
-)
-
-# The reviewer runs in the throwaway worktree logged out of GitHub, so it
-# can run tests but cannot comment, push or merge:
+# The tests and the reviewer run in the throwaway worktree logged out of
+# GitHub, so they can run code but cannot comment, push or merge:
 # - gh reads an empty config with no token in the environment;
 # - the D-Bus session bus is unreachable, so neither gh nor its git
 #   credential helper can read the token from the keyring;
@@ -139,9 +137,103 @@ sandbox_logged_out() {
 		"${sandbox[@]}" git credential fill 2>/dev/null | grep -q '^password='
 }
 if ! sandbox_logged_out; then
-	echo "review-pr: a GitHub token is still reachable inside the review sandbox; not running the reviewer" >&2
+	echo "review-pr: a GitHub token is still reachable inside the review sandbox; not running the tests or the reviewer" >&2
 	exit 3
 fi
+
+# The changed paths decide what runs: only .md files skip the tests.
+changed=$(git diff --name-only "$base...$head")
+md_only() { [[ -n $changed ]] && ! grep -qv '\.md$' <<<"$changed"; }
+
+# run_tests runs the base branch's `make test` recipe on the head, so a PR
+# cannot weaken its own test gate; it prints the result line for the
+# prompt, and on failure the failing tests, and returns 1.
+run_tests() {
+	if md_only; then
+		echo "Tests: skipped; the diff changes only .md files."
+		return 0
+	fi
+	if ! git show "$base:Makefile" >"$work/Makefile.base" 2>/dev/null ||
+		! grep -q '^test:' "$work/Makefile.base"; then
+		echo "Tests: not run; the base has no make test. Run the repo's checks yourself."
+		return 0
+	fi
+	if (cd "$work/tree" && "${sandbox[@]}" make -s -f "$work/Makefile.base" test) >"$work/test.log" 2>&1; then
+		echo "Tests: \`make test\` (the base branch's recipe) passed on the head."
+		return 0
+	fi
+	grep -E '^(FAIL|--- FAIL|FAIL:)' "$work/test.log" | head -40
+	return 1
+}
+
+# importers lists, for each changed Go package, the packages in the module
+# that import it, so the reviewer can check callers of changed behavior.
+importers() {
+	local dirs root
+	dirs=$(grep '\.go$' <<<"$changed" | xargs -r -n1 dirname | sort -u)
+	[[ -n $dirs ]] && command -v go >/dev/null || return 0
+	root=$(cd "$work/tree" && pwd -P) # go list prints resolved directories
+	(cd "$root" && "${sandbox[@]}" go list -f '{{.Dir}} {{.ImportPath}} {{join .Imports " "}}' ./... 2>/dev/null) |
+		awk -v root="$root" -v dirs="$dirs" '
+			BEGIN { n = split(dirs, d, "\n"); for (i = 1; i <= n; i++) want[d[i] == "." ? root : root "/" d[i]] = 1 }
+			{ dir[$2] = $1; for (i = 3; i <= NF; i++) imp[$i] = imp[$i] " " $2 }
+			END { for (p in dir) if (want[dir[p]]) printf "- %s: imported by%s\n", p, (p in imp ? imp[p] : " nothing in the module") }' |
+		sort
+}
+
+if ! tests=$(run_tests); then
+	comment="## jas review: CHANGES
+
+\`make test\` failed on \`${head:0:7}\`, so the reviewer did not run. Run \`make test\` and fix the failures:
+
+\`\`\`text
+${tests:-(no FAIL lines; see the make test output)}
+\`\`\`
+<!-- $MARKER sha=$head verdict=CHANGES -->"
+	echo "review-pr: make test failed on the head; output in the lines below" >&2
+	tail -40 "$work/test.log" >&2
+	if $dry_run; then printf '%s\n' "$comment"; else gh pr comment "$pr" --body "$comment" >/dev/null; printf '%s\n' "$comment"; fi
+	exit 1
+fi
+
+diff_text=$(git diff "$base...$head")
+diff_bytes=$(printf '%s' "$diff_text" | wc -c)
+if ((diff_bytes > DIFF_INLINE_BYTES)); then
+	diff_text="($((diff_bytes)) bytes, too big to include; read it with git diff $base...HEAD, a file at a time)"
+fi
+
+prompt=$(cat <<PROMPT
+Review pull request #$pr before it merges. The checkout is the PR head
+($head); the base is $base (diff with: git diff $base...HEAD).
+
+### PR: $(jq -r '.title // ""' <<<"$pr_json")
+
+$(jq -r '.body // ""' <<<"$pr_json")
+
+$(issue_context)
+
+### Already run for you; do not rerun
+
+$tests
+
+Commits (git log $base..HEAD):
+
+$(git log --oneline "$base..$head")
+
+Diff stat:
+
+$(git diff --stat "$base...$head")
+
+Changed Go packages and their importers:
+
+$(importers | grep . || echo "None: no Go package changed.")
+
+Diff (git diff $base...HEAD):
+
+$diff_text
+PROMPT
+)
+
 set +e
 (cd "$work/tree" && "${sandbox[@]}" \
 	jas run --profile "$PROFILE" \
