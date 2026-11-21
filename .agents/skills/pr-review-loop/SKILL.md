@@ -20,8 +20,8 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
   installs it into `~/.jas/profiles/reviewer/` from the base branch, with
   the base branch's installer, before every review, so a change to it
   applies once it merges. Edit it there, not
-  in the jas home: `AGENTS.md` and `skills/` are replaced each time, and only
-  `config.json` (the model) is kept once written.
+  in the jas home: `AGENTS.md`, `skills/` and `config.json` are replaced
+  each time, except the `model` in an existing `config.json`.
 - In Claude Code, a hook
   (`.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh`, added by
   `make claude-setup`) also blocks `gh pr merge` until a PASS review for the
@@ -66,12 +66,13 @@ No profile needs creating: the first review installs it.
 
 - A push after the review changes the head commit; the old PASS no longer
   counts, so review again. Never push a low fix onto a passed PR, and never
-  open a PR only to fix low findings: they wait in the issue.
-- A PR that fixes the issue's low findings in a batch says
-  `Closes #<issue>` in its body and names each finding it leaves unfixed,
-  with the reason. After it merges, copy any finding it did not cover (one
-  posted while it was open) to a new issue with the same title. With the
-  old issue closed, `review-pr.sh` logs to that one, or creates it.
+  open a PR for one review's low findings: they wait in the issue.
+- The one PR that may fix only low findings is a batch fix of the open
+  issue. Its body says `Closes #<issue>` and names each finding it leaves
+  unfixed, with the reason; those are dropped, not carried over. After it
+  merges, copy any finding posted while it was open to the open issue with
+  the same title, creating it if none is open: `review-pr.sh` logs to the
+  open one, or creates it.
 - Never post a review comment by hand or edit the marker
   `<!-- jas-review sha=… verdict=… -->`.
 - Report the verdict and what you changed or rebutted to the user.

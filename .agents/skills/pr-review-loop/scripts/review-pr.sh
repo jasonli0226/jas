@@ -69,11 +69,11 @@ base=$(git merge-base "origin/$base_ref" "$head") ||
 
 # The installer runs as committed on the base, never the PR's copy. A base
 # from before the reviewer was kept in the repo has none; the profile
-# already in the jas home is used then, as it is when the install fails
-# (which leaves that profile whole).
+# already in the jas home is used then. A failed install stops the review:
+# the profile in the jas home may be from any older base.
 if installer=$(git show "origin/$base_ref:$INSTALLER" 2>/dev/null); then
 	bash -c "$installer" install-reviewer "origin/$base_ref" ||
-		echo "review-pr: could not install the reviewer from origin/$base_ref; using the profile already in the jas home" >&2
+		{ echo "review-pr: could not install the reviewer from origin/$base_ref" >&2; exit 3; }
 else
 	echo "review-pr: origin/$base_ref has no reviewer installer; using the profile already in the jas home" >&2
 fi

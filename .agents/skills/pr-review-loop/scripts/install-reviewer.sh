@@ -5,8 +5,8 @@
 # the reviewer, and a PR that changes the reviewer is still reviewed by the
 # one on its base branch.
 #
-# AGENTS.md and skills/ are replaced. config.json is written only when
-# missing, so a model chosen in the jas home is kept.
+# AGENTS.md, skills/ and config.json are replaced, except that the model in
+# an existing config.json is kept, so a model chosen in the jas home stays.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/install-reviewer.sh <ref>
 # Exit codes: 0 installed, 1 <ref> has no reviewer profile, 2 usage error.
@@ -35,8 +35,15 @@ mkdir "$stage/skills"
 git archive "$ref:$SRC/skills" | tar -x -C "$stage/skills"
 git show "$ref:$SRC/AGENTS.md" >"$stage/AGENTS.md"
 git show "$ref:$SRC/config.json" >"$stage/config.json"
+if [[ -f $dest/config.json ]]; then
+	model=$(jq -r '.model // empty' "$dest/config.json")
+	if [[ -n $model ]]; then
+		jq --arg model "$model" '.model = $model' "$stage/config.json" >"$stage/config.merged"
+		mv "$stage/config.merged" "$stage/config.json"
+	fi
+fi
 
 rm -rf "$dest/skills"
 mv "$stage/skills" "$dest/skills"
 mv "$stage/AGENTS.md" "$dest/AGENTS.md"
-[[ -f $dest/config.json ]] || mv "$stage/config.json" "$dest/config.json"
+mv "$stage/config.json" "$dest/config.json"

@@ -2,7 +2,8 @@
 # review-pr_test.sh runs review-pr.sh --dry-run against a throwaway origin,
 # with fake gh and jas on PATH. A PR that edits both the reviewer profile and
 # its installer is still reviewed by the base branch's profile, and the
-# reviewer runs without trusting the project.
+# reviewer runs without trusting the project. A base whose installer fails
+# stops the review instead of running a stale profile.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/review-pr_test.sh
 set -uo pipefail
@@ -73,6 +74,20 @@ code=$?
 	fail "reviewer ran with AGENTS.md '$(cat "$tmp/jas-agents" 2>/dev/null)', want the base's"
 grep -qx -- '--profile' "$tmp/jas-args" 2>/dev/null || fail "jas did not run the reviewer profile"
 ! grep -qx -- '--trust-project' "$tmp/jas-args" 2>/dev/null || fail "the reviewer trusted the project"
+
+# main now ships an installer that fails; the installer is read from main's
+# tip, so the PR branch can stay as it is.
+gitc "$repo" checkout -q main
+printf '#!/usr/bin/env bash\nexit 1\n' >"$loop/scripts/install-reviewer.sh"
+gitc "$repo" commit -qam "broken installer"
+gitc "$repo" push -q origin HEAD:main
+gitc "$repo" checkout -q pr
+rm -f "$tmp/jas-args"
+out=$(cd "$repo" && PATH="$bin:$PATH" JAS_HOME="$tmp/jas-home" \
+	bash "$loop/scripts/review-pr.sh" --dry-run 7 2>&1)
+code=$?
+[[ $code == 3 ]] || fail "a failed install exited $code, want 3: $out"
+[[ ! -e $tmp/jas-args ]] || fail "the reviewer ran after a failed install"
 
 if ((fails > 0)); then
 	echo "$fails failed"
