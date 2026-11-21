@@ -7,13 +7,18 @@ description: Use when asked to review a pull request, a branch, or a diff before
 
 ## Gather
 
-1. `git diff <base>...HEAD --stat`, then the full diff, and `git log <base>..HEAD`.
+1. The prompt's "Already run for you" section has the `make test` result,
+   `git log`, the diff stat, the importers of each changed Go package and
+   the full diff (or a note that it was too big; then read it with
+   `git diff <base>...HEAD`, a file at a time). Do not rerun any of them.
 2. Read the linked issue or spec if the task names one, plus the repo's
    `AGENTS.md`: the review does not trust the project, so neither it nor
    the project's skills are in your prompt. Read surrounding code for every
    changed function, not just the hunk.
-3. Run the repo's checks (for Go: `go vet ./...` and `go test ./...` on the
-   changed packages; also `GOOS=windows go vet` when paths or OS code change).
+3. Do not rerun the suite: `make test` already passed. Run only targeted
+   checks the change calls for: one test you want to watch (`go test -run TestX ./pkg`),
+   `GOOS=windows go vet ./...` when paths or OS code change. If the prompt
+   says `make test` did not run, run the repo's checks yourself.
 
 ## Budget
 
@@ -24,9 +29,15 @@ the review:
 
 - Batch independent reads and commands into one turn (several tool calls
   at once).
-- Docs-only or under 50 changed lines: about 10 turns. Check each changed
-  claim against the code it names; do not audit the rest of the docs.
-- Logic changes: read each changed function's callers and tests, once.
+- Short review, about 10 turns, only when the diff is docs only, or under
+  50 changed lines and touching none of the security boundaries in check 5.
+  Check each changed claim against the code it names; do not audit the rest
+  of the docs. Any other diff gets the full review.
+- Logic changes: for each changed function whose behavior changes (not a
+  pure refactor), read its callers, including those in the importing
+  packages the prompt lists, and its tests, once. A caller that relies on
+  the old behavior is a finding; one that no test covers is at least
+  medium.
 - Never re-read a file you already read; use `offset` to see another part.
 
 ## Check, in this order

@@ -30,8 +30,8 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
 
 ## Setup, once per machine
 
-1. Install `jas` (`make install`, or a release), `gh`, `jq`, `git` and `tar`, and
-   log in with `gh auth login`.
+1. Install `jas` (`make install`, or a release), `gh`, `jq`, `git`, `tar`
+   and `make`, and log in with `gh auth login`.
 2. Give jas a key for the reviewer's model, `openrouter/z-ai/glm-5.3`
    (`reviewer/config.json`): `jas auth add openrouter`. To review with
    another model, run one review, which writes
@@ -45,11 +45,14 @@ No profile needs creating: the first review installs it.
 
 1. Push the branch and open the PR. Docs only: go to step 5.
 2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
-   command timeout of at least 35 minutes (a review takes 5–30). It posts
-   the review as a PR comment.
+   command timeout of at least 55 minutes (tests take a few, capped at 20;
+   the review 5–30). It first runs the base branch's `make test` recipe on
+   the PR head, then the reviewer, and posts the result as a PR comment.
    - Exit 0, `VERDICT: PASS`: go to step 5. Its findings are all low; the
      script logs them in the "Low findings from jas reviews" issue.
-   - Exit 1, `VERDICT: CHANGES`: go to step 3.
+   - Exit 1, `VERDICT: CHANGES`: go to step 3. When `make test` failed,
+     the comment lists the failing tests and the reviewer did not run;
+     the full output is on the script's stderr.
    - Exit 3, the review did not finish: rerun once; if it fails again, tell
      the user and stop.
 3. Check each high and medium finding against the code it cites before

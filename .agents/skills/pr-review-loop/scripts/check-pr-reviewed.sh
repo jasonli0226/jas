@@ -103,9 +103,11 @@ head=$(jq -r .headRefOid <<<"$pr_json")
 number=$(jq -r .number <<<"$pr_json")
 
 # Only the reviewer's own comments count, so nobody else can post a PASS.
+# In each comment the last marker counts: review-pr.sh writes it last, and
+# text before it (test output, the review) may quote one.
 verdict=$(jq -r --arg me "$me" --arg marker "$MARKER sha=$head" '
 	[.comments[] | select(.author.login == $me) | .body
-	 | capture("<!-- " + $marker + " verdict=(?<v>PASS|CHANGES) -->")? | .v]
+	 | [scan("<!-- " + $marker + " verdict=(PASS|CHANGES) -->")] | last | .[0]? // empty]
 	| last // ""' <<<"$pr_json")
 
 case $verdict in

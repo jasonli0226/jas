@@ -13,6 +13,12 @@
 # script and the merge hook are the copies in the checkout that runs them:
 # run the loop from a checkout you trust, not from a PR you have not read.
 #
+# Before the reviewer starts, the script runs the base branch's `make test`
+# recipe on the PR head, outside the model, and puts its result in the
+# prompt with the diff stat, the log, the diff (when it fits) and the
+# packages that import the changed Go packages, so the reviewer does not
+# rerun them. A failing `make test` is posted as CHANGES without a review.
+#
 # A PASS review's findings are all low; they are also appended to the open
 # issue titled $LOW_ISSUE (created when missing), to fix in batches rather
 # than in follow-up PRs.
@@ -28,13 +34,20 @@ readonly MARKER=jas-review
 readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
+# A diff over DIFF_INLINE_BYTES is left for the reviewer to read with git
+# diff, since every turn resends the prompt. jas takes the prompt as one
+# argument, which Linux caps at 128 KiB and Windows, with the whole command
+# line, near 32 KB: a prompt over the cap drops the inline diff, and one
+# still over it stops the review.
+readonly DIFF_INLINE_BYTES=60000 PROMPT_MAX_BYTES=120000 WINDOWS_PROMPT_MAX_BYTES=30000
+readonly TEST_TIMEOUT=20m # the shell suites have no timeout of their own
 
 usage() {
 	echo "usage: review-pr.sh [--dry-run] <pr-number>" >&2
 	exit 2
 }
 
-for cmd in jas gh jq git tar; do
+for cmd in jas gh jq git tar make; do
 	command -v "$cmd" >/dev/null || { echo "review-pr: $cmd is not installed; see the pr-review-loop skill's Setup" >&2; exit 2; }
 done
 
@@ -101,20 +114,8 @@ cleanup() {
 trap cleanup EXIT
 git worktree add -q --detach "$work/tree" "$head"
 
-prompt=$(cat <<PROMPT
-Review pull request #$pr before it merges. The checkout is the PR head
-($head); the base is $base (diff with: git diff $base...HEAD).
-
-### PR: $(jq -r '.title // ""' <<<"$pr_json")
-
-$(jq -r '.body // ""' <<<"$pr_json")
-
-$(issue_context)
-PROMPT
-)
-
-# The reviewer runs in the throwaway worktree logged out of GitHub, so it
-# can run tests but cannot comment, push or merge:
+# The tests and the reviewer run in the throwaway worktree logged out of
+# GitHub, so they can run code but cannot comment, push or merge:
 # - gh reads an empty config with no token in the environment;
 # - the D-Bus session bus is unreachable, so neither gh nor its git
 #   credential helper can read the token from the keyring;
@@ -125,23 +126,171 @@ PROMPT
 # The project is not trusted: a trusted project skill named pr-review would
 # replace the profile's, letting the PR under review rewrite its own
 # checklist. The reviewer reads the repo's AGENTS.md with its tools instead.
-sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
+#
+# The tests run in test_sandbox, which keeps every token out but leaves
+# pushurl alone: the tests push to throwaway remotes named origin, and the
+# pushurl override reaches every git they run. Pushes to GitHub URLs are
+# rewritten to a dead path instead, since git's https transport also reads
+# ~/.netrc, which no environment variable turns off. A push to another host
+# that ~/.netrc has a login for still works: like the reviewer's sandbox,
+# this keeps GitHub tokens away from the tests, not hostile code contained.
+test_sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
 	-u SSH_AUTH_SOCK DBUS_SESSION_BUS_ADDRESS=disabled: GH_CONFIG_DIR="$gh_empty"
-	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=3
-	GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=/push-disabled-in-review
-	GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1=
-	GIT_CONFIG_KEY_2=credential.https://github.com.helper GIT_CONFIG_VALUE_2=)
+	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=5
+	GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=
+	GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=
+	GIT_CONFIG_KEY_2=url./push-disabled-in-review/.pushInsteadOf GIT_CONFIG_VALUE_2=https://github.com/
+	GIT_CONFIG_KEY_3=url./push-disabled-in-review/.pushInsteadOf GIT_CONFIG_VALUE_3=git@github.com:
+	GIT_CONFIG_KEY_4=url./push-disabled-in-review/.pushInsteadOf GIT_CONFIG_VALUE_4=ssh://git@github.com/)
+sandbox=("${test_sandbox[@]}" GIT_CONFIG_COUNT=6 # env keeps the last COUNT
+	GIT_CONFIG_KEY_5=remote.origin.pushurl GIT_CONFIG_VALUE_5=/push-disabled-in-review)
 
-# sandbox_logged_out fails when gh or git can still find a GitHub token.
-sandbox_logged_out() {
-	! "${sandbox[@]}" gh auth status >/dev/null 2>&1 &&
+# logged_out_in fails when gh or git, run under the env command in its
+# arguments, can still find a GitHub token.
+logged_out_in() {
+	! "$@" gh auth status >/dev/null 2>&1 &&
 		! printf 'protocol=https\nhost=github.com\n\n' |
-		"${sandbox[@]}" git credential fill 2>/dev/null | grep -q '^password='
+		"$@" git credential fill 2>/dev/null | grep -q '^password='
 }
+sandbox_logged_out() { logged_out_in "${test_sandbox[@]}" && logged_out_in "${sandbox[@]}"; }
 if ! sandbox_logged_out; then
-	echo "review-pr: a GitHub token is still reachable inside the review sandbox; not running the reviewer" >&2
+	echo "review-pr: a GitHub token is still reachable inside the review sandbox; not running the tests or the reviewer" >&2
 	exit 3
 fi
+
+# Both sides of a rename count, so a package renamed away is still listed.
+changed_go_dirs=$(git diff -z --name-only --no-renames "$base...$head" -- '*.go' |
+	xargs -0 -r -n1 dirname | sort -u)
+
+# no_markers drops HTML comment delimiters from PR-controlled text, so it
+# cannot carry a review marker into the comment. It repeats until none is
+# left, since dropping one can join the pieces of another ("<!<!----").
+no_markers() { sed -e ':a' -e 's/<!--//' -e 'ta' -e ':b' -e 's/-->//' -e 'tb'; }
+
+# run_tests runs the `make test` recipe from the base branch's tip, like the
+# installer, on the head, so a PR cannot weaken its own test gate, even by
+# branching from an old commit; it prints the result line for the
+# prompt, and on failure the failing tests, and returns 1. It runs on every
+# diff, .md-only too: some tests read the manual's markdown.
+run_tests() {
+	local limit=()
+	command -v timeout >/dev/null && limit=(timeout -k 1m "$TEST_TIMEOUT") # -k: kill what ignores TERM
+	if ! git show "origin/$base_ref:Makefile" >"$work/Makefile.base" 2>/dev/null ||
+		! grep -q '^test:' "$work/Makefile.base"; then
+		echo "Tests: not run; the base has no make test. Run the repo's checks yourself."
+		return 0
+	fi
+	if (cd "$work/tree" && "${test_sandbox[@]}" ${limit[@]+"${limit[@]}"} make -s -f "$work/Makefile.base" test) </dev/null >"$work/test.log" 2>&1; then
+		echo "Tests: \`make test\` (the base branch's recipe) passed on the head."
+		return 0
+	fi
+	grep -E '^(FAIL|--- FAIL|FAIL:)' "$work/test.log" | head -40 | no_markers
+	return 1
+}
+
+# importers lists, for each changed Go package, the packages in the module
+# that import it, from code and from tests, so the reviewer can check
+# callers of changed behavior.
+importers() {
+	local listing
+	[[ -n $changed_go_dirs ]] || return 0
+	command -v go >/dev/null || { echo "- go is not installed; find the callers yourself."; return 0; }
+	# Import paths, not directories: go list prints native paths, which do
+	# not match the shell's on Git Bash.
+	listing=$(cd "$work/tree" && "${sandbox[@]}" go list -f '{{.Module.Path}} {{.ImportPath}} {{join .Imports " "}} | {{join .TestImports " "}} {{join .XTestImports " "}}' ./... 2>/dev/null) ||
+		{ echo "- go list failed on the head; find the callers yourself."; return 0; }
+	DIRS=$changed_go_dirs awk '
+		BEGIN { n = split(ENVIRON["DIRS"], d, "\n") }
+		{
+			mod = $1; pkg[$2] = 1; t = 0
+			for (i = 3; i <= NF; i++) {
+				if ($i == "|") t = 1
+				else if (!t) imp[$i] = imp[$i] " " $2
+				else if ($i != $2 && index(timp[$i] " ", " " $2 " ") == 0) timp[$i] = timp[$i] " " $2
+			}
+		}
+		END {
+			for (i = 1; i <= n; i++) {
+				p = d[i] == "." ? mod : mod "/" d[i]
+				if (!(p in pkg)) continue
+				printf "- %s: imported by%s", p, (p in imp ? imp[p] : " nothing in the module")
+				if (p in timp) printf "; in tests by%s", timp[p]
+				printf "\n"
+			}
+		}' <<<"$listing" | sort
+}
+
+if ! tests=$(run_tests); then
+	comment="## jas review: CHANGES
+
+\`make test\` failed on \`${head:0:7}\`, so the reviewer did not run. Run \`make test\` and fix the failures:
+
+\`\`\`text
+${tests:-(no FAIL lines: a build error or the time limit; run make test locally to see it)}
+\`\`\`
+<!-- $MARKER sha=$head verdict=CHANGES -->"
+	echo "review-pr: make test failed on the head; output in the lines below" >&2
+	tail -40 "$work/test.log" >&2
+	if $dry_run; then printf '%s\n' "$comment"; else gh pr comment "$pr" --body "$comment" >/dev/null; printf '%s\n' "$comment"; fi
+	exit 1
+fi
+
+# The linked issues share the argument with the diff, so they count
+# against its cap.
+issues=$(issue_context)
+issue_bytes=$(printf '%s' "$issues" | wc -c)
+diff_text=$(git diff "$base...$head")
+diff_bytes=$(printf '%s' "$diff_text" | wc -c)
+if ((diff_bytes + issue_bytes > DIFF_INLINE_BYTES)); then
+	diff_text="($((diff_bytes)) bytes, too big to include; read it with git diff $base...HEAD, a file at a time)"
+fi
+
+callers=$(importers | grep . || echo "None: no Go package changed.")
+build_prompt() {
+	cat <<PROMPT
+Review pull request #$pr before it merges. The checkout is the PR head
+($head); the base is $base (diff with: git diff $base...HEAD).
+
+### PR: $(jq -r '.title // ""' <<<"$pr_json")
+
+$(jq -r '.body // ""' <<<"$pr_json")
+
+$issues
+
+### Already run for you; do not rerun
+
+$tests
+
+Commits (git log $base..HEAD):
+
+$(git log --oneline "$base..$head")
+
+Diff stat:
+
+$(git diff --stat "$base...$head")
+
+Changed Go packages and their importers:
+
+$callers
+
+Diff (git diff $base...HEAD):
+
+$diff_text
+PROMPT
+}
+prompt_max=$PROMPT_MAX_BYTES
+case $(uname -s) in MINGW* | MSYS* | CYGWIN*) prompt_max=$WINDOWS_PROMPT_MAX_BYTES ;; esac
+prompt=$(build_prompt)
+if (($(printf '%s' "$prompt" | wc -c) > prompt_max)); then
+	diff_text="(left out: the prompt would pass the argument limit; read it with git diff $base...HEAD, a file at a time)"
+	prompt=$(build_prompt)
+fi
+prompt_bytes=$(printf '%s' "$prompt" | wc -c)
+if ((prompt_bytes > prompt_max)); then
+	echo "review-pr: the prompt is $((prompt_bytes)) bytes without the diff, over $prompt_max; shorten the PR body or the linked issues" >&2
+	exit 3
+fi
+
 set +e
 (cd "$work/tree" && "${sandbox[@]}" \
 	jas run --profile "$PROFILE" \
@@ -150,7 +299,7 @@ set +e
 code=$?
 set -e
 
-review=$(awk '/^## Findings/{buf=""; keep=1} keep{buf=buf $0 "\n"} END{printf "%s", buf}' "$work/out")
+review=$(awk '/^## Findings/{buf=""; keep=1} keep{buf=buf $0 "\n"} END{printf "%s", buf}' "$work/out" | no_markers)
 verdict=$(grep -oE '^VERDICT: (PASS|CHANGES)$' <<<"$review" | tail -1 | cut -d' ' -f2 || true)
 if [[ $code -ne 0 || -z $verdict ]]; then
 	echo "review-pr: the review did not finish (jas exit $code, verdict '${verdict:-none}')" >&2
