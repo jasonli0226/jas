@@ -36,7 +36,7 @@ readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
 # Linux caps one argument at 128 KiB and jas takes the prompt as one, so a
-# bigger diff is left for the reviewer to read with git diff.
+# diff that with the linked issues passes this is left for the reviewer to read with git diff.
 readonly DIFF_INLINE_BYTES=60000
 
 usage() {
@@ -123,26 +123,34 @@ git worktree add -q --detach "$work/tree" "$head"
 # The project is not trusted: a trusted project skill named pr-review would
 # replace the profile's, letting the PR under review rewrite its own
 # checklist. The reviewer reads the repo's AGENTS.md with its tools instead.
-sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
+#
+# The tests run in test_sandbox, which keeps every token out but leaves
+# pushurl alone: the tests push to throwaway remotes named origin, and the
+# pushurl override reaches every git they run.
+test_sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
 	-u SSH_AUTH_SOCK DBUS_SESSION_BUS_ADDRESS=disabled: GH_CONFIG_DIR="$gh_empty"
-	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=3
-	GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=/push-disabled-in-review
-	GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1=
-	GIT_CONFIG_KEY_2=credential.https://github.com.helper GIT_CONFIG_VALUE_2=)
+	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=2
+	GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=
+	GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=)
+sandbox=("${test_sandbox[@]}" GIT_CONFIG_COUNT=3 # env keeps the last COUNT
+	GIT_CONFIG_KEY_2=remote.origin.pushurl GIT_CONFIG_VALUE_2=/push-disabled-in-review)
 
-# sandbox_logged_out fails when gh or git can still find a GitHub token.
-sandbox_logged_out() {
-	! "${sandbox[@]}" gh auth status >/dev/null 2>&1 &&
+# logged_out_in fails when gh or git, run under the env command in its
+# arguments, can still find a GitHub token.
+logged_out_in() {
+	! "$@" gh auth status >/dev/null 2>&1 &&
 		! printf 'protocol=https\nhost=github.com\n\n' |
-		"${sandbox[@]}" git credential fill 2>/dev/null | grep -q '^password='
+		"$@" git credential fill 2>/dev/null | grep -q '^password='
 }
+sandbox_logged_out() { logged_out_in "${test_sandbox[@]}" && logged_out_in "${sandbox[@]}"; }
 if ! sandbox_logged_out; then
 	echo "review-pr: a GitHub token is still reachable inside the review sandbox; not running the tests or the reviewer" >&2
 	exit 3
 fi
 
-# The changed paths decide what runs: only .md files skip the tests.
-changed=$(git diff --name-only "$base...$head")
+# The changed paths decide what runs: only .md files skip the tests. Both
+# sides of a rename count, so a .go file renamed to .md still runs them.
+changed=$(git diff --name-only --no-renames "$base...$head")
 md_only() { [[ -n $changed ]] && ! grep -qv '\.md$' <<<"$changed"; }
 
 # run_tests runs the base branch's `make test` recipe on the head, so a PR
@@ -158,7 +166,7 @@ run_tests() {
 		echo "Tests: not run; the base has no make test. Run the repo's checks yourself."
 		return 0
 	fi
-	if (cd "$work/tree" && "${sandbox[@]}" make -s -f "$work/Makefile.base" test) >"$work/test.log" 2>&1; then
+	if (cd "$work/tree" && "${test_sandbox[@]}" make -s -f "$work/Makefile.base" test) >"$work/test.log" 2>&1; then
 		echo "Tests: \`make test\` (the base branch's recipe) passed on the head."
 		return 0
 	fi
@@ -169,15 +177,21 @@ run_tests() {
 # importers lists, for each changed Go package, the packages in the module
 # that import it, so the reviewer can check callers of changed behavior.
 importers() {
-	local dirs root
+	local dirs
 	dirs=$(grep '\.go$' <<<"$changed" | xargs -r -n1 dirname | sort -u)
 	[[ -n $dirs ]] && command -v go >/dev/null || return 0
-	root=$(cd "$work/tree" && pwd -P) # go list prints resolved directories
-	(cd "$root" && "${sandbox[@]}" go list -f '{{.Dir}} {{.ImportPath}} {{join .Imports " "}}' ./... 2>/dev/null) |
-		awk -v root="$root" -v dirs="$dirs" '
-			BEGIN { n = split(dirs, d, "\n"); for (i = 1; i <= n; i++) want[d[i] == "." ? root : root "/" d[i]] = 1 }
-			{ dir[$2] = $1; for (i = 3; i <= NF; i++) imp[$i] = imp[$i] " " $2 }
-			END { for (p in dir) if (want[dir[p]]) printf "- %s: imported by%s\n", p, (p in imp ? imp[p] : " nothing in the module") }' |
+	# Import paths, not directories: go list prints native paths, which do
+	# not match the shell's on Git Bash.
+	(cd "$work/tree" && "${sandbox[@]}" go list -f '{{.Module.Path}} {{.ImportPath}} {{join .Imports " "}}' ./... 2>/dev/null) |
+		DIRS=$dirs awk '
+			BEGIN { n = split(ENVIRON["DIRS"], d, "\n") }
+			{ mod = $1; pkg[$2] = 1; for (i = 3; i <= NF; i++) imp[$i] = imp[$i] " " $2 }
+			END {
+				for (i = 1; i <= n; i++) {
+					p = d[i] == "." ? mod : mod "/" d[i]
+					if (p in pkg) printf "- %s: imported by%s\n", p, (p in imp ? imp[p] : " nothing in the module")
+				}
+			}' |
 		sort
 }
 
@@ -196,9 +210,13 @@ ${tests:-(no FAIL lines; see the make test output)}
 	exit 1
 fi
 
+# The linked issues share the argument with the diff, so they count
+# against its cap.
+issues=$(issue_context)
+issue_bytes=$(printf '%s' "$issues" | wc -c)
 diff_text=$(git diff "$base...$head")
 diff_bytes=$(printf '%s' "$diff_text" | wc -c)
-if ((diff_bytes > DIFF_INLINE_BYTES)); then
+if ((diff_bytes + issue_bytes > DIFF_INLINE_BYTES)); then
 	diff_text="($((diff_bytes)) bytes, too big to include; read it with git diff $base...HEAD, a file at a time)"
 fi
 
@@ -210,7 +228,7 @@ Review pull request #$pr before it merges. The checkout is the PR head
 
 $(jq -r '.body // ""' <<<"$pr_json")
 
-$(issue_context)
+$issues
 
 ### Already run for you; do not rerun
 

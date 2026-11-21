@@ -30,8 +30,8 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
 
 ## Setup, once per machine
 
-1. Install `jas` (`make install`, or a release), `gh`, `jq`, `git` and `tar`, and
-   log in with `gh auth login`.
+1. Install `jas` (`make install`, or a release), `gh`, `jq`, `git`, `tar`
+   and `make`, and log in with `gh auth login`.
 2. Give jas a key for the reviewer's model, `openrouter/z-ai/glm-5.3`
    (`reviewer/config.json`): `jas auth add openrouter`. To review with
    another model, run one review, which writes

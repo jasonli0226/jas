@@ -3,8 +3,9 @@
 # with fake gh and jas on PATH. A PR that edits both the reviewer profile and
 # its installer is still reviewed by the base branch's profile, and the
 # reviewer runs without trusting the project. The base branch's make test
-# runs on the head before the reviewer: a failure is posted as CHANGES even
-# when the PR edits the Makefile, a diff of only .md files skips it, and the
+# runs on the head before the reviewer, able to push to its own remotes: a
+# failure is posted as CHANGES even when the PR edits the Makefile, a diff of
+# only .md files skips it (a .go file renamed to .md does not), and the
 # prompt lists the packages importing a changed Go package. A base whose
 # installer fails stops the review instead of running a stale profile.
 #
@@ -95,10 +96,11 @@ review() {
 	code=$?
 }
 
-# main gains a make test that fails when the file fail.md exists, and a Go
-# module where package b imports package a.
+# main gains a make test that fails when the file fail.md exists and, like
+# review-pr_test.sh, pushes to a remote named origin; and a Go module where
+# package b imports package a.
 gitc "$repo" checkout -q main
-printf 'test:\n\t@test ! -e fail.md\n' >"$repo/Makefile"
+printf 'test:\n\t@test ! -e fail.md\n\t@git push -q -f origin HEAD:refs/heads/probe\n' >"$repo/Makefile"
 printf 'module example.com/m\n\ngo 1.21\n' >"$repo/go.mod"
 mkdir -p "$repo/a" "$repo/b"
 printf 'package a\n\nfunc A() int { return 1 }\n' >"$repo/a/a.go"
@@ -119,6 +121,9 @@ grep -q 'passed on the head' "$tmp/jas-args" 2>/dev/null || fail "the prompt doe
 grep -q 'example.com/m/a: imported by example.com/m/b' "$tmp/jas-args" 2>/dev/null ||
 	fail "the prompt does not list b as importing a: $(grep -A2 importers "$tmp/jas-args" 2>/dev/null)"
 grep -q 'return 2' "$tmp/jas-args" 2>/dev/null || fail "the prompt does not carry the diff"
+
+review rename 'git mv a/a.go fail.md'
+[[ $code == 1 ]] || fail "a .go file renamed to .md skipped make test (exit $code): $out"
 
 review mdonly 'touch fail.md; echo doc >README.md'
 [[ $code == 0 ]] || fail "an .md-only PR exited $code: $out"
