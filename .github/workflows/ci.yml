@@ -42,3 +42,14 @@ jobs:
           else
             go test ./... -race -count=1
           fi
+
+      # The pr-review-loop scripts guard the review gate; run their tests as
+      # make test does.
+      - name: Shell tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          for t in .agents/skills/pr-review-loop/scripts/*_test.sh; do
+            echo "== $t"
+            bash "$t"
+          done
