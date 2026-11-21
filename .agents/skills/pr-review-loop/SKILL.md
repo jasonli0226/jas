@@ -67,6 +67,11 @@ No profile needs creating: the first review installs it.
 - A push after the review changes the head commit; the old PASS no longer
   counts, so review again. Never push a low fix onto a passed PR, and never
   open a PR only to fix low findings: they wait in the issue.
+- A PR that fixes the issue's low findings in a batch says
+  `Closes #<issue>` in its body and names each finding it leaves unfixed,
+  with the reason. After it merges, copy any finding it did not cover (one
+  posted while it was open) to a new issue with the same title. With the
+  old issue closed, `review-pr.sh` logs to that one, or creates it.
 - Never post a review comment by hand or edit the marker
   `<!-- jas-review sha=… verdict=… -->`.
 - Report the verdict and what you changed or rebutted to the user.
