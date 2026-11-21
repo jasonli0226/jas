@@ -167,14 +167,15 @@ changed_go_dirs=$(git diff -z --name-only --no-renames "$base...$head" -- '*.go'
 # left, since dropping one can join the pieces of another ("<!<!----").
 no_markers() { sed -e ':a' -e 's/<!--//' -e 'ta' -e ':b' -e 's/-->//' -e 'tb'; }
 
-# run_tests runs the base branch's `make test` recipe on the head, so a PR
-# cannot weaken its own test gate; it prints the result line for the
+# run_tests runs the `make test` recipe from the base branch's tip, like the
+# installer, on the head, so a PR cannot weaken its own test gate, even by
+# branching from an old commit; it prints the result line for the
 # prompt, and on failure the failing tests, and returns 1. It runs on every
 # diff, .md-only too: some tests read the manual's markdown.
 run_tests() {
 	local limit=()
-	command -v timeout >/dev/null && limit=(timeout "$TEST_TIMEOUT")
-	if ! git show "$base:Makefile" >"$work/Makefile.base" 2>/dev/null ||
+	command -v timeout >/dev/null && limit=(timeout -k 1m "$TEST_TIMEOUT") # -k: kill what ignores TERM
+	if ! git show "origin/$base_ref:Makefile" >"$work/Makefile.base" 2>/dev/null ||
 		! grep -q '^test:' "$work/Makefile.base"; then
 		echo "Tests: not run; the base has no make test. Run the repo's checks yourself."
 		return 0
@@ -225,7 +226,7 @@ if ! tests=$(run_tests); then
 \`make test\` failed on \`${head:0:7}\`, so the reviewer did not run. Run \`make test\` and fix the failures:
 
 \`\`\`text
-${tests:-(no FAIL lines; see the make test output)}
+${tests:-(no FAIL lines: a build error or the time limit; run make test locally to see it)}
 \`\`\`
 <!-- $MARKER sha=$head verdict=CHANGES -->"
 	echo "review-pr: make test failed on the head; output in the lines below" >&2

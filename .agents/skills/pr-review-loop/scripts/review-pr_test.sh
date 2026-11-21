@@ -144,6 +144,24 @@ review badmod 'echo broken >go.mod; printf "package a\n" >a/a.go'
 grep -q 'go list failed on the head' "$tmp/jas-args" 2>/dev/null ||
 	fail "a failing go list was reported as: $(grep -A2 importers "$tmp/jas-args" 2>/dev/null)"
 
+# The recipe comes from main's tip, not the merge-base: main tightens its
+# recipe after the branch forks, and the branch's stale.txt then fails it.
+gitc "$repo" checkout -q -b stale main
+echo x >"$repo/stale.txt"
+gitc "$repo" add -A
+gitc "$repo" commit -q -m stale
+gitc "$repo" push -q origin stale
+gitc "$repo" checkout -q main
+printf '\t@test ! -e stale.txt\n' >>"$repo/Makefile"
+gitc "$repo" commit -qam "tighten make test"
+gitc "$repo" push -q origin HEAD:main
+git -C "$repo" rev-parse stale >"$tmp/head"
+echo stale >"$tmp/branch"
+rm -f "$tmp/jas-args"
+out=$(cd "$repo" && PATH="$bin:$PATH" JAS_HOME="$tmp/jas-home" PUSH_PROBE="$tmp/push-probe" \
+	bash "$loop/scripts/review-pr.sh" --dry-run 7 2>&1)
+[[ $? == 1 ]] || fail "a branch from before main tightened make test passed it: $(tail -3 <<<"$out")"
+
 review mdonly 'echo FAIL: doc >fail.md'
 [[ $code == 1 ]] || fail "an .md-only PR skipped make test (exit $code): $out"
 
