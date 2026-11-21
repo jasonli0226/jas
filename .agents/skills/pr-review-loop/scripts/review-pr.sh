@@ -18,7 +18,6 @@
 # prompt with the diff stat, the log, the diff (when it fits) and the
 # packages that import the changed Go packages, so the reviewer does not
 # rerun them. A failing `make test` is posted as CHANGES without a review.
-# A diff of only .md files skips the tests.
 #
 # A PASS review's findings are all low; they are also appended to the open
 # issue titled $LOW_ISSUE (created when missing), to fix in batches rather
@@ -35,9 +34,12 @@ readonly MARKER=jas-review
 readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
-# Linux caps one argument at 128 KiB and jas takes the prompt as one, so a
-# diff that with the linked issues passes this is left for the reviewer to read with git diff.
-readonly DIFF_INLINE_BYTES=60000
+# A diff over DIFF_INLINE_BYTES is left for the reviewer to read with git
+# diff, since every turn resends the prompt. Linux caps one argument at 128
+# KiB and jas takes the prompt as one: a prompt over PROMPT_MAX_BYTES drops
+# the inline diff, and one still over it stops the review.
+readonly DIFF_INLINE_BYTES=60000 PROMPT_MAX_BYTES=120000
+readonly TEST_TIMEOUT=20m # the shell suites have no timeout of their own
 
 usage() {
 	echo "usage: review-pr.sh [--dry-run] <pr-number>" >&2
@@ -153,12 +155,9 @@ if ! sandbox_logged_out; then
 	exit 3
 fi
 
-# The changed paths decide what runs: only .md files skip the tests. Both
-# sides of a rename count, so a .go file renamed to .md still runs them.
-changed=$(git diff --name-only --no-renames "$base...$head")
+# Both sides of a rename count, so a package renamed away is still listed.
 changed_go_dirs=$(git diff -z --name-only --no-renames "$base...$head" -- '*.go' |
 	xargs -0 -r -n1 dirname | sort -u)
-md_only() { [[ -n $changed ]] && ! grep -qv '\.md$' <<<"$changed"; }
 
 # no_markers drops HTML comment delimiters from PR-controlled text, so it
 # cannot carry a review marker into the comment. It repeats until none is
@@ -167,18 +166,17 @@ no_markers() { sed -e ':a' -e 's/<!--//' -e 'ta' -e ':b' -e 's/-->//' -e 'tb'; }
 
 # run_tests runs the base branch's `make test` recipe on the head, so a PR
 # cannot weaken its own test gate; it prints the result line for the
-# prompt, and on failure the failing tests, and returns 1.
+# prompt, and on failure the failing tests, and returns 1. It runs on every
+# diff, .md-only too: some tests read the manual's markdown.
 run_tests() {
-	if md_only; then
-		echo "Tests: skipped; the diff changes only .md files."
-		return 0
-	fi
+	local limit=()
+	command -v timeout >/dev/null && limit=(timeout "$TEST_TIMEOUT")
 	if ! git show "$base:Makefile" >"$work/Makefile.base" 2>/dev/null ||
 		! grep -q '^test:' "$work/Makefile.base"; then
 		echo "Tests: not run; the base has no make test. Run the repo's checks yourself."
 		return 0
 	fi
-	if (cd "$work/tree" && "${test_sandbox[@]}" make -s -f "$work/Makefile.base" test) >"$work/test.log" 2>&1; then
+	if (cd "$work/tree" && "${test_sandbox[@]}" ${limit[@]+"${limit[@]}"} make -s -f "$work/Makefile.base" test) </dev/null >"$work/test.log" 2>&1; then
 		echo "Tests: \`make test\` (the base branch's recipe) passed on the head."
 		return 0
 	fi
@@ -187,22 +185,33 @@ run_tests() {
 }
 
 # importers lists, for each changed Go package, the packages in the module
-# that import it, so the reviewer can check callers of changed behavior.
+# that import it, from code and from tests, so the reviewer can check
+# callers of changed behavior.
 importers() {
 	local listing
 	[[ -n $changed_go_dirs ]] || return 0
 	command -v go >/dev/null || { echo "- go is not installed; find the callers yourself."; return 0; }
 	# Import paths, not directories: go list prints native paths, which do
 	# not match the shell's on Git Bash.
-	listing=$(cd "$work/tree" && "${sandbox[@]}" go list -f '{{.Module.Path}} {{.ImportPath}} {{join .Imports " "}}' ./... 2>/dev/null) ||
+	listing=$(cd "$work/tree" && "${sandbox[@]}" go list -f '{{.Module.Path}} {{.ImportPath}} {{join .Imports " "}} | {{join .TestImports " "}} {{join .XTestImports " "}}' ./... 2>/dev/null) ||
 		{ echo "- go list failed on the head; find the callers yourself."; return 0; }
 	DIRS=$changed_go_dirs awk '
 		BEGIN { n = split(ENVIRON["DIRS"], d, "\n") }
-		{ mod = $1; pkg[$2] = 1; for (i = 3; i <= NF; i++) imp[$i] = imp[$i] " " $2 }
+		{
+			mod = $1; pkg[$2] = 1; t = 0
+			for (i = 3; i <= NF; i++) {
+				if ($i == "|") t = 1
+				else if (!t) imp[$i] = imp[$i] " " $2
+				else if ($i != $2 && index(timp[$i] " ", " " $2 " ") == 0) timp[$i] = timp[$i] " " $2
+			}
+		}
 		END {
 			for (i = 1; i <= n; i++) {
 				p = d[i] == "." ? mod : mod "/" d[i]
-				if (p in pkg) printf "- %s: imported by%s\n", p, (p in imp ? imp[p] : " nothing in the module")
+				if (!(p in pkg)) continue
+				printf "- %s: imported by%s", p, (p in imp ? imp[p] : " nothing in the module")
+				if (p in timp) printf "; in tests by%s", timp[p]
+				printf "\n"
 			}
 		}' <<<"$listing" | sort
 }
@@ -232,7 +241,9 @@ if ((diff_bytes + issue_bytes > DIFF_INLINE_BYTES)); then
 	diff_text="($((diff_bytes)) bytes, too big to include; read it with git diff $base...HEAD, a file at a time)"
 fi
 
-prompt=$(cat <<PROMPT
+callers=$(importers | grep . || echo "None: no Go package changed.")
+build_prompt() {
+	cat <<PROMPT
 Review pull request #$pr before it merges. The checkout is the PR head
 ($head); the base is $base (diff with: git diff $base...HEAD).
 
@@ -256,13 +267,23 @@ $(git diff --stat "$base...$head")
 
 Changed Go packages and their importers:
 
-$(importers | grep . || echo "None: no Go package changed.")
+$callers
 
 Diff (git diff $base...HEAD):
 
 $diff_text
 PROMPT
-)
+}
+prompt=$(build_prompt)
+if (($(printf '%s' "$prompt" | wc -c) > PROMPT_MAX_BYTES)); then
+	diff_text="(left out: the prompt would pass the argument limit; read it with git diff $base...HEAD, a file at a time)"
+	prompt=$(build_prompt)
+fi
+prompt_bytes=$(printf '%s' "$prompt" | wc -c)
+if ((prompt_bytes > PROMPT_MAX_BYTES)); then
+	echo "review-pr: the prompt is $((prompt_bytes)) bytes without the diff, over $PROMPT_MAX_BYTES; shorten the PR body or the linked issues" >&2
+	exit 3
+fi
 
 set +e
 (cd "$work/tree" && "${sandbox[@]}" \

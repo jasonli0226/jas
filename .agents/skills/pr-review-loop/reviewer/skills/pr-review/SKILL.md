@@ -15,9 +15,8 @@ description: Use when asked to review a pull request, a branch, or a diff before
    `AGENTS.md`: the review does not trust the project, so neither it nor
    the project's skills are in your prompt. Read surrounding code for every
    changed function, not just the hunk.
-3. Do not rerun the suite: `make test` already passed, or was skipped
-   because only `.md` files changed. Run only targeted checks the change
-   calls for: one test you want to watch (`go test -run TestX ./pkg`),
+3. Do not rerun the suite: `make test` already passed. Run only targeted
+   checks the change calls for: one test you want to watch (`go test -run TestX ./pkg`),
    `GOOS=windows go vet ./...` when paths or OS code change. If the prompt
    says `make test` did not run, run the repo's checks yourself.
 
