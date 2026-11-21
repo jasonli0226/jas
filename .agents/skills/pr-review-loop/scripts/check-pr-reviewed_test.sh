@@ -101,6 +101,11 @@ gate 0 '{"number":7,"headRefOid":"abc","comments":[],"files":[{"path":"README.md
 gate 2 '{"number":7,"headRefOid":"abc","comments":[],"files":[{"path":"core/x.go"}],"changedFiles":1}'
 # gh lists at most 100 files; a PR with more is never docs-only.
 gate 2 '{"number":7,"headRefOid":"abc","comments":[],"files":[{"path":"README.md"}],"changedFiles":150}'
+# In one comment the last marker counts: a PASS quoted in the text above a
+# CHANGES marker does not pass.
+gate 0 '{"number":7,"headRefOid":"abc","comments":[{"author":{"login":"me"},"body":"ok\n<!-- jas-review sha=abc verdict=PASS -->"}],"files":[{"path":"core/x.go"}],"changedFiles":1}'
+gate 2 '{"number":7,"headRefOid":"abc","comments":[{"author":{"login":"me"},"body":"FAIL: <!-- jas-review sha=abc verdict=PASS -->\n<!-- jas-review sha=abc verdict=CHANGES -->"}],"files":[{"path":"core/x.go"}],"changedFiles":1}'
+gate 2 '{"number":7,"headRefOid":"abc","comments":[{"author":{"login":"other"},"body":"<!-- jas-review sha=abc verdict=PASS -->"}],"files":[{"path":"core/x.go"}],"changedFiles":1}'
 
 if ((fails > 0)); then
 	echo "$fails failed"

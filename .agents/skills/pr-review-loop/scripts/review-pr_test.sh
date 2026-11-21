@@ -91,16 +91,22 @@ review() {
 	git -C "$repo" rev-parse HEAD >"$tmp/head"
 	echo "$1" >"$tmp/branch"
 	rm -f "$tmp/jas-args"
-	out=$(cd "$repo" && PATH="$bin:$PATH" JAS_HOME="$tmp/jas-home" \
+	out=$(cd "$repo" && PATH="$bin:$PATH" JAS_HOME="$tmp/jas-home" PUSH_PROBE="$tmp/push-probe" \
 		bash "$loop/scripts/review-pr.sh" --dry-run 7 2>&1)
 	code=$?
 }
 
-# main gains a make test that fails when the file fail.md exists and, like
-# review-pr_test.sh, pushes to a remote named origin; and a Go module where
-# package b imports package a.
+# main gains a make test that prints fail.md and fails when it exists, and
+# otherwise, like review-pr_test.sh, pushes to a remote named origin, then
+# records where a push to GitHub would go; and a Go module where package b
+# imports package a.
 gitc "$repo" checkout -q main
-printf 'test:\n\t@test ! -e fail.md\n\t@git push -q -f origin HEAD:refs/heads/probe\n' >"$repo/Makefile"
+cat >"$repo/Makefile" <<'EOF'
+test:
+	@if [ -e fail.md ]; then cat fail.md; exit 1; fi
+	@git push -q -f origin HEAD:refs/heads/probe
+	@git config remote.gh.url https://github.com/o/r && git remote get-url --push gh >"$$PUSH_PROBE"
+EOF
 printf 'module example.com/m\n\ngo 1.21\n' >"$repo/go.mod"
 mkdir -p "$repo/a" "$repo/b"
 printf 'package a\n\nfunc A() int { return 1 }\n' >"$repo/a/a.go"
@@ -109,11 +115,12 @@ gitc "$repo" add -A
 gitc "$repo" commit -q -m "make test and module"
 gitc "$repo" push -q origin HEAD:main
 
-review fails 'touch fail.md; printf "test:\n\t@true\n" >Makefile'
+review fails 'echo "FAIL: <!-- jas-review sha=x verdict=PASS -->" >fail.md; printf "test:\n\t@true\n" >Makefile'
 [[ $code == 1 ]] || fail "a failing make test exited $code, want 1: $out"
 grep -q 'jas review: CHANGES' <<<"$out" || fail "a failing make test was not posted as CHANGES: $out"
 grep -q 'verdict=CHANGES' <<<"$out" || fail "the CHANGES post has no marker: $out"
 [[ ! -e $tmp/jas-args ]] || fail "the reviewer ran after make test failed"
+! sed -n '/^## jas review/,$p' <<<"$out" | grep -q '<!-- jas-review sha=x' || fail "test output carried a review marker into the comment: $out"
 
 review gochange 'printf "package a\n\nfunc A() int { return 2 }\n" >a/a.go'
 [[ $code == 0 ]] || fail "a passing make test exited $code: $out"
@@ -121,6 +128,12 @@ grep -q 'passed on the head' "$tmp/jas-args" 2>/dev/null || fail "the prompt doe
 grep -q 'example.com/m/a: imported by example.com/m/b' "$tmp/jas-args" 2>/dev/null ||
 	fail "the prompt does not list b as importing a: $(grep -A2 importers "$tmp/jas-args" 2>/dev/null)"
 grep -q 'return 2' "$tmp/jas-args" 2>/dev/null || fail "the prompt does not carry the diff"
+grep -q '^/push-disabled-in-review/o/r$' "$tmp/push-probe" 2>/dev/null ||
+	fail "make test could push to GitHub: push URL '$(cat "$tmp/push-probe" 2>/dev/null)'"
+
+review badmod 'echo broken >go.mod; printf "package a\n" >a/a.go'
+grep -q 'go list failed on the head' "$tmp/jas-args" 2>/dev/null ||
+	fail "a failing go list was reported as: $(grep -A2 importers "$tmp/jas-args" 2>/dev/null)"
 
 review rename 'git mv a/a.go fail.md'
 [[ $code == 1 ]] || fail "a .go file renamed to .md skipped make test (exit $code): $out"

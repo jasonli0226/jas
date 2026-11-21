@@ -126,14 +126,19 @@ git worktree add -q --detach "$work/tree" "$head"
 #
 # The tests run in test_sandbox, which keeps every token out but leaves
 # pushurl alone: the tests push to throwaway remotes named origin, and the
-# pushurl override reaches every git they run.
+# pushurl override reaches every git they run. Pushes to GitHub URLs are
+# rewritten to a dead path instead, since git's https transport also reads
+# ~/.netrc, which no environment variable turns off.
 test_sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
 	-u SSH_AUTH_SOCK DBUS_SESSION_BUS_ADDRESS=disabled: GH_CONFIG_DIR="$gh_empty"
-	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=2
+	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=5
 	GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=
-	GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=)
-sandbox=("${test_sandbox[@]}" GIT_CONFIG_COUNT=3 # env keeps the last COUNT
-	GIT_CONFIG_KEY_2=remote.origin.pushurl GIT_CONFIG_VALUE_2=/push-disabled-in-review)
+	GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=
+	GIT_CONFIG_KEY_2=url./push-disabled-in-review/.pushInsteadOf GIT_CONFIG_VALUE_2=https://github.com/
+	GIT_CONFIG_KEY_3=url./push-disabled-in-review/.pushInsteadOf GIT_CONFIG_VALUE_3=git@github.com:
+	GIT_CONFIG_KEY_4=url./push-disabled-in-review/.pushInsteadOf GIT_CONFIG_VALUE_4=ssh://git@github.com/)
+sandbox=("${test_sandbox[@]}" GIT_CONFIG_COUNT=6 # env keeps the last COUNT
+	GIT_CONFIG_KEY_5=remote.origin.pushurl GIT_CONFIG_VALUE_5=/push-disabled-in-review)
 
 # logged_out_in fails when gh or git, run under the env command in its
 # arguments, can still find a GitHub token.
@@ -151,7 +156,13 @@ fi
 # The changed paths decide what runs: only .md files skip the tests. Both
 # sides of a rename count, so a .go file renamed to .md still runs them.
 changed=$(git diff --name-only --no-renames "$base...$head")
+changed_go_dirs=$(git diff -z --name-only --no-renames "$base...$head" -- '*.go' |
+	xargs -0 -r -n1 dirname | sort -u)
 md_only() { [[ -n $changed ]] && ! grep -qv '\.md$' <<<"$changed"; }
+
+# no_markers drops HTML comment delimiters from PR-controlled text, so it
+# cannot carry a review marker into the comment.
+no_markers() { sed 's/<!--//g; s/-->//g'; }
 
 # run_tests runs the base branch's `make test` recipe on the head, so a PR
 # cannot weaken its own test gate; it prints the result line for the
@@ -170,29 +181,29 @@ run_tests() {
 		echo "Tests: \`make test\` (the base branch's recipe) passed on the head."
 		return 0
 	fi
-	grep -E '^(FAIL|--- FAIL|FAIL:)' "$work/test.log" | head -40
+	grep -E '^(FAIL|--- FAIL|FAIL:)' "$work/test.log" | head -40 | no_markers
 	return 1
 }
 
 # importers lists, for each changed Go package, the packages in the module
 # that import it, so the reviewer can check callers of changed behavior.
 importers() {
-	local dirs
-	dirs=$(grep '\.go$' <<<"$changed" | xargs -r -n1 dirname | sort -u)
-	[[ -n $dirs ]] && command -v go >/dev/null || return 0
+	local listing
+	[[ -n $changed_go_dirs ]] || return 0
+	command -v go >/dev/null || { echo "- go is not installed; find the callers yourself."; return 0; }
 	# Import paths, not directories: go list prints native paths, which do
 	# not match the shell's on Git Bash.
-	(cd "$work/tree" && "${sandbox[@]}" go list -f '{{.Module.Path}} {{.ImportPath}} {{join .Imports " "}}' ./... 2>/dev/null) |
-		DIRS=$dirs awk '
-			BEGIN { n = split(ENVIRON["DIRS"], d, "\n") }
-			{ mod = $1; pkg[$2] = 1; for (i = 3; i <= NF; i++) imp[$i] = imp[$i] " " $2 }
-			END {
-				for (i = 1; i <= n; i++) {
-					p = d[i] == "." ? mod : mod "/" d[i]
-					if (p in pkg) printf "- %s: imported by%s\n", p, (p in imp ? imp[p] : " nothing in the module")
-				}
-			}' |
-		sort
+	listing=$(cd "$work/tree" && "${sandbox[@]}" go list -f '{{.Module.Path}} {{.ImportPath}} {{join .Imports " "}}' ./... 2>/dev/null) ||
+		{ echo "- go list failed on the head; find the callers yourself."; return 0; }
+	DIRS=$changed_go_dirs awk '
+		BEGIN { n = split(ENVIRON["DIRS"], d, "\n") }
+		{ mod = $1; pkg[$2] = 1; for (i = 3; i <= NF; i++) imp[$i] = imp[$i] " " $2 }
+		END {
+			for (i = 1; i <= n; i++) {
+				p = d[i] == "." ? mod : mod "/" d[i]
+				if (p in pkg) printf "- %s: imported by%s\n", p, (p in imp ? imp[p] : " nothing in the module")
+			}
+		}' <<<"$listing" | sort
 }
 
 if ! tests=$(run_tests); then
@@ -260,7 +271,7 @@ set +e
 code=$?
 set -e
 
-review=$(awk '/^## Findings/{buf=""; keep=1} keep{buf=buf $0 "\n"} END{printf "%s", buf}' "$work/out")
+review=$(awk '/^## Findings/{buf=""; keep=1} keep{buf=buf $0 "\n"} END{printf "%s", buf}' "$work/out" | no_markers)
 verdict=$(grep -oE '^VERDICT: (PASS|CHANGES)$' <<<"$review" | tail -1 | cut -d' ' -f2 || true)
 if [[ $code -ne 0 || -z $verdict ]]; then
 	echo "review-pr: the review did not finish (jas exit $code, verdict '${verdict:-none}')" >&2
