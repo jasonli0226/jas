@@ -35,10 +35,11 @@ readonly LOW_ISSUE="Low findings from jas reviews"
 readonly HEAD_SYNC_TRIES=12 HEAD_SYNC_DELAY=5
 readonly INSTALLER=.agents/skills/pr-review-loop/scripts/install-reviewer.sh
 # A diff over DIFF_INLINE_BYTES is left for the reviewer to read with git
-# diff, since every turn resends the prompt. Linux caps one argument at 128
-# KiB and jas takes the prompt as one: a prompt over PROMPT_MAX_BYTES drops
-# the inline diff, and one still over it stops the review.
-readonly DIFF_INLINE_BYTES=60000 PROMPT_MAX_BYTES=120000
+# diff, since every turn resends the prompt. jas takes the prompt as one
+# argument, which Linux caps at 128 KiB and Windows, with the whole command
+# line, near 32 KB: a prompt over the cap drops the inline diff, and one
+# still over it stops the review.
+readonly DIFF_INLINE_BYTES=60000 PROMPT_MAX_BYTES=120000 WINDOWS_PROMPT_MAX_BYTES=30000
 readonly TEST_TIMEOUT=20m # the shell suites have no timeout of their own
 
 usage() {
@@ -130,7 +131,9 @@ git worktree add -q --detach "$work/tree" "$head"
 # pushurl alone: the tests push to throwaway remotes named origin, and the
 # pushurl override reaches every git they run. Pushes to GitHub URLs are
 # rewritten to a dead path instead, since git's https transport also reads
-# ~/.netrc, which no environment variable turns off.
+# ~/.netrc, which no environment variable turns off. A push to another host
+# that ~/.netrc has a login for still works: like the reviewer's sandbox,
+# this keeps GitHub tokens away from the tests, not hostile code contained.
 test_sandbox=(env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN
 	-u SSH_AUTH_SOCK DBUS_SESSION_BUS_ADDRESS=disabled: GH_CONFIG_DIR="$gh_empty"
 	GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=5
@@ -274,14 +277,16 @@ Diff (git diff $base...HEAD):
 $diff_text
 PROMPT
 }
+prompt_max=$PROMPT_MAX_BYTES
+case $(uname -s) in MINGW* | MSYS* | CYGWIN*) prompt_max=$WINDOWS_PROMPT_MAX_BYTES ;; esac
 prompt=$(build_prompt)
-if (($(printf '%s' "$prompt" | wc -c) > PROMPT_MAX_BYTES)); then
+if (($(printf '%s' "$prompt" | wc -c) > prompt_max)); then
 	diff_text="(left out: the prompt would pass the argument limit; read it with git diff $base...HEAD, a file at a time)"
 	prompt=$(build_prompt)
 fi
 prompt_bytes=$(printf '%s' "$prompt" | wc -c)
-if ((prompt_bytes > PROMPT_MAX_BYTES)); then
-	echo "review-pr: the prompt is $((prompt_bytes)) bytes without the diff, over $PROMPT_MAX_BYTES; shorten the PR body or the linked issues" >&2
+if ((prompt_bytes > prompt_max)); then
+	echo "review-pr: the prompt is $((prompt_bytes)) bytes without the diff, over $prompt_max; shorten the PR body or the linked issues" >&2
 	exit 3
 fi
 

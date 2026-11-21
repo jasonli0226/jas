@@ -158,6 +158,18 @@ review hugebody 'echo x >x.txt'
 [[ $code == 3 && ! -e $tmp/jas-args ]] || fail "a body past the limit exited $code: $(tail -3 <<<"$out")"
 : >"$tmp/body"
 
+# Git Bash caps the command line near 32 KB, so a 20 KB body and a 15 KB
+# diff already leave the diff out there.
+printf '#!/usr/bin/env bash\necho MINGW64_NT-10.0\n' >"$bin/uname"
+chmod +x "$bin/uname"
+head -c 20000 /dev/zero | tr '\0' b >"$tmp/body"
+review windows 'head -c 15000 /dev/zero | tr "\0" "x" | fold -w 100 >big.txt'
+[[ $code == 0 ]] || fail "a big prompt on Git Bash exited $code: $(tail -3 <<<"$out")"
+grep -q '^(left out: the prompt would pass the argument limit' "$tmp/jas-args" 2>/dev/null ||
+	fail "a prompt past the Git Bash limit kept its diff"
+rm "$bin/uname"
+: >"$tmp/body"
+
 # main now ships an installer that fails; the installer is read from main's
 # tip, so the PR branch can stay as it is.
 git -C "$repo" rev-parse pr >"$tmp/head"
