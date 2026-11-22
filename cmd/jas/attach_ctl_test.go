@@ -227,11 +227,56 @@ func TestAttach_ControlSanitizes(t *testing.T) {
 	}
 }
 
+func TestAttach_ControlSocketClosesLockHeld(t *testing.T) {
+	home, ff := ctlHome(t, ctlFarm, nil, nil)
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	out, wait := ctlAttach(t, home, pr)
+	ff.waitClient(t)
+	_ = ff.c.Close()
+	// attach must keep running; a command now reports control unavailable.
+	// The close is noticed asynchronously, so retry the command until it is.
+	deadline := time.Now().Add(ctlWait)
+	for !strings.Contains(out.String(), attachNoControl) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no unavailable notice:\n%s", out.String())
+		}
+		_, _ = io.WriteString(pw, "steer p1 x\n")
+		time.Sleep(20 * time.Millisecond)
+	}
+	if strings.Contains(out.String(), "farm ended") {
+		t.Fatalf("attach ended early:\n%s", out.String())
+	}
+	writeAppend(t, filepath.Join(farmDir(home, ctlFarm), "farm.jsonl"), evLine(farm.EvFarmEnded, "reason", "done"))
+	_ = ff.release()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "farm ended: done") {
+		t.Fatalf("no end line:\n%s", out.String())
+	}
+}
+
 func TestAttach_WatchOnlyWithoutSocket(t *testing.T) {
 	home := t.TempDir()
 	fixtureFarm(t, home, ctlFarm, []string{"p1"})
-	lockFixture(t, home, ctlFarm)
-	out, _ := ctlAttach(t, home, strings.NewReader("y\n"))
-	waitOutput(t, out, "control unavailable (watching only)")
+	release := lockFixture(t, home, ctlFarm)
+	out, wait := ctlAttach(t, home, strings.NewReader("y\n"))
+	waitOutput(t, out, attachNoControl)
+	if _, err := os.Stat(farm.SockPath(home, ctlFarm)); err == nil {
+		t.Fatal("a socket exists; nothing could have been sent")
+	}
 	writeAppend(t, filepath.Join(farmDir(home, ctlFarm), "farm.jsonl"), evLine(farm.EvFarmEnded, "reason", "done"))
+	_ = release()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	// stdin is not read without control: "y" yields the notice once, no
+	// help or "no pending approval" line.
+	if got := strings.Count(out.String(), attachNoControl); got != 1 {
+		t.Fatalf("notice printed %d times:\n%s", got, out.String())
+	}
+	if strings.Contains(out.String(), "no pending approval") || !strings.Contains(out.String(), "farm ended: done") {
+		t.Fatalf("unexpected output:\n%s", out.String())
+	}
 }

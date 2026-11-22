@@ -219,9 +219,9 @@ nothing on success and the error text on failure. A steer that its part
 finished without reading comes back as
 `[<part>] not delivered (part finished): <text>`.
 
-Answers are full words only: `y`/`yes`, `n`/`no`, `always` (this tool for the
-rest of the farm's run, as the chat's `always`) and
-`farm` (a standing grant for the whole farm). There is no single-letter
+Answers are full words only: `y`/`yes`, `n`/`no`, `always` (that tool for that
+part only, as the chat's `always`) and
+`farm` (a standing grant for that tool for every part of the farm). There is no single-letter
 `always` or `farm`.
 
 #### Approvals
@@ -241,12 +241,15 @@ The first answer wins, whether from the farm's own terminal (chat
 fixed when the farm starts; attach does not change it.
 
 A farm with no terminal (`jas farm run` without a TTY) holds a gated call
-for an answer only while an attach client is connected, for up to 10 minutes
-(`budget.approval_wait`, or `--approval-wait <duration>`). `--approval-wait`
-holds even with nobody attached, so a client can attach later and answer; a
-negative value is a usage error. The part's own timeouts still apply while it
-is held. With nobody attached (and no `--approval-wait`) a gated call is
-refused at once, as before.
+for an answer for up to 10 minutes. With `budget.approval_wait` 0 (the
+default) it holds only while an attach client is connected: with nobody
+attached a gated call is refused at once (`approval_needed`, as before), and
+when the last attached terminal leaves, held calls are refused (`by:
+no_client`). `budget.approval_wait` or `--approval-wait <duration>` (which
+overrides it) replaces the 10 minutes with its value and holds gated calls
+even with nobody attached, so a client can attach later and answer. A negative
+`--approval-wait` is a usage error. A held call is refused when the window
+ends (`by: timeout`). The part's own timeouts still apply while it is held.
 
 #### Socket and protocol
 
@@ -897,7 +900,7 @@ verdict. Merge the branch yourself and run the check.
 | `budget.per_worker_timeout` | 30m | wall-clock cap per part |
 | `budget.farm_timeout` | 2h | wall-clock cap for the farm |
 | `budget.requests_per_minute` | — | rate limit across workers |
-| `budget.approval_wait` | 0 | without a TTY, hold gated calls this long for an attached client; 0 holds them only while one is attached |
+| `budget.approval_wait` | 0 | without a TTY, hold gated calls this long (replacing the 10 minute default) for an attach client, even with none attached; 0 holds them up to 10 minutes, only while a client is attached |
 | `board.max_rounds` | 3 | board message rounds |
 | `board.post_chars` / `board.deliver_chars` | 500 / 2000 | board message size caps |
 | `on_failure` | `drop` | `drop` a failed part or `abort` the farm |
