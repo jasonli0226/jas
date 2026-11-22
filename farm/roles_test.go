@@ -2,6 +2,7 @@ package farm
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -119,4 +120,15 @@ func TestRoles_UnknownToolMakesRoleUnavailable(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `unknown tool "find"`) {
 		t.Fatalf("ResolveRole: %v", err)
 	}
+}
+
+// The manual lists the tools a role may name; a new built-in tool must be
+// added there (docs/manual.md, roles.<name>).
+func TestRoles_BuiltinToolsMatchManual(t *testing.T) {
+	var names []string
+	for n := range builtinByName() {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	assert.Eq(t, strings.Join(names, ","), "edit,grep,ls,read,shell,write")
 }

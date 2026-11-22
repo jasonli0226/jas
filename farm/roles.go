@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
-	"github.com/jasonli0226/jas/tools"
 )
 
 const testerPrompt = "Write and fix tests only. If non-test code must change, post a blocked board entry instead of changing it."
@@ -85,12 +84,13 @@ func expandWrites(def RoleDef, vars map[string]Var) ([]string, error) {
 // Available splits roles into usable ones and unavailable name -> reason.
 func Available(cfg Config) (map[string]RoleDef, map[string]string) {
 	ok, bad := map[string]RoleDef{}, map[string]string{}
+	known := builtinByName()
 	for name, def := range merged(cfg) {
 		if _, err := expandWrites(def, cfg.Vars); err != nil {
 			bad[name] = err.Error()
 			continue
 		}
-		if t := unknownTool(def.Tools); t != "" {
+		if t := unknownTool(known, def.Tools); t != "" {
 			bad[name] = fmt.Sprintf("unknown tool %q", t)
 			continue
 		}
@@ -99,14 +99,10 @@ func Available(cfg Config) (map[string]RoleDef, map[string]string) {
 	return ok, bad
 }
 
-// unknownTool returns the first name that is not a built-in tool, or "".
-func unknownTool(names []string) string {
-	known := map[string]bool{}
-	for _, t := range append(tools.ReadOnly(), tools.Mutating()...) {
-		known[t.Name()] = true
-	}
+// unknownTool returns the first name roleTools would reject, or "".
+func unknownTool(known map[string]core.Tool, names []string) string {
 	for _, n := range names {
-		if !known[n] {
+		if _, ok := known[n]; !ok {
 			return n
 		}
 	}

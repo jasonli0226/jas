@@ -15,6 +15,7 @@ func TestPrintFarmStatus_FinalLine(t *testing.T) {
 		want string
 	}{
 		{"running", farm.Manifest{TotalTokens: 42}, "final: none yet  total tokens 42\n"},
+		{"choice before reason", farm.Manifest{FinalChoice: "keep", TotalTokens: 42}, "final: none yet  total tokens 42\n"},
 		{"ended", farm.Manifest{FinalChoice: "keep", Reason: "ok", TotalTokens: 7}, "final: keep (ok) exit 0  total tokens 7\n"},
 		{"ended without choice", farm.Manifest{Reason: "interrupted", ExitCode: 130}, "final: - (interrupted) exit 130  total tokens 0\n"},
 	} {

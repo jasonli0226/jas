@@ -12,6 +12,9 @@ import (
 // unknown, or the parts phase is over).
 var ErrPartNotRunning = errors.New("part is not running")
 
+// ErrUnknownPart is wrapped by owner commands that name no part of the plan.
+var ErrUnknownPart = errors.New("unknown part")
+
 // controls is the owner's live handle on running parts: their sessions (for
 // steering), cancel funcs (for drop), pause gates, and a command channel to
 // the scheduler. The zero value is ready to use.

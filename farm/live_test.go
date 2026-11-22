@@ -125,3 +125,29 @@ func TestStartFarm_HoldsLock(t *testing.T) {
 		t.Fatal("farm still running after Wait")
 	}
 }
+
+func TestRemoveFarmLock(t *testing.T) {
+	home := t.TempDir()
+	if err := RemoveFarmLock(home, "none"); err != nil {
+		t.Fatalf("no lock file: %v", err)
+	}
+	release, err := LockFarm(home, "f1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveFarmLock(home, "f1"); !errors.Is(err, core.ErrLocked) {
+		t.Fatalf("running farm: %v, want ErrLocked", err)
+	}
+	if !FarmRunning(home, "f1") {
+		t.Fatal("lock lost while running")
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveFarmLock(home, "f1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lockPath(home, "f1")); !os.IsNotExist(err) {
+		t.Fatalf("lock file left: %v", err)
+	}
+}

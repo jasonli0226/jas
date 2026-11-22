@@ -509,6 +509,21 @@ func TestFarmStatus_LatestFarmWhenIDOmitted(t *testing.T) {
 	}
 }
 
+func TestFarmStatus_UniquePrefix(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "")
+	writeManifest(t, home, "20260101T000000-aaa000000001", &farm.Manifest{FarmID: "20260101T000000-aaa000000001",
+		Parts: map[string]*farm.PartState{"first": {Role: "coder", Status: "done"}}})
+	writeManifest(t, home, "20260102T000000-bbb000000001", &farm.Manifest{FarmID: "20260102T000000-bbb000000001",
+		Parts: map[string]*farm.PartState{"second": {Role: "coder", Status: "done"}}})
+	url, _ := testutil.FakeOpenAI(t, nil)
+	out, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "status", "20260101")
+	assert.Eq(t, code, 0)
+	assert.Contains(t, out, "first")
+	_, errOut, code := runJasIn(t, repo, farmEnv(url, home), "farm", "status", "2026010")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "matches several farms")
+}
+
 func TestFarmStatus_UnknownFarmIDExit2(t *testing.T) {
 	repo, home := farmRepo(t), farmHome(t, "")
 	url, _ := testutil.FakeOpenAI(t, nil)
@@ -547,6 +562,25 @@ func TestFarmClean_RemovesWorktreesKeepsBranches(t *testing.T) {
 			t.Fatalf("worktree %s still exists", p)
 		}
 		assert.Contains(t, refs, "jas/farm/"+id+"/"+p)
+	}
+}
+
+func TestFarmClean_RemovesLockFileByPrefix(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	id := "20260105T000000-clean00003"
+	cleanFarm(t, repo, home, id)
+	lock := filepath.Join(home, "run", id+".lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	url, _ := testutil.FakeOpenAI(t, nil)
+	_, _, code := runJasIn(t, repo, farmEnv(url, home), "farm", "clean", "20260105")
+	assert.Eq(t, code, 0)
+	if _, err := os.Stat(lock); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lock file left: %v", err)
 	}
 }
 

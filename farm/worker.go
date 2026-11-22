@@ -154,12 +154,18 @@ func workerTools(role Role, post core.Tool) ([]core.Tool, error) {
 	return append(out, post), nil
 }
 
-// roleTools returns the built-in tools the role names.
-func roleTools(role Role) ([]core.Tool, error) {
+// builtinByName maps each tool a role may name to the tool.
+func builtinByName() map[string]core.Tool {
 	all := map[string]core.Tool{}
 	for _, t := range append(tools.ReadOnly(), tools.Mutating()...) {
 		all[t.Name()] = t
 	}
+	return all
+}
+
+// roleTools returns the built-in tools the role names.
+func roleTools(role Role) ([]core.Tool, error) {
+	all := builtinByName()
 	out := make([]core.Tool, 0, len(role.Tools)+1)
 	for _, name := range role.Tools {
 		t, ok := all[name]

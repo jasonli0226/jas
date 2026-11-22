@@ -100,7 +100,7 @@ func TestHandle_SteerReachesRunningWorker(t *testing.T) {
 	if err := h.Steer("a", "use slog"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.Steer("zz", "x"); !errors.Is(err, ErrPartNotRunning) {
+	if err := h.Steer("zz", "x"); !errors.Is(err, ErrUnknownPart) {
 		t.Fatalf("steer unknown part: %v", err)
 	}
 	close(release)

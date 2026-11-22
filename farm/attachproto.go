@@ -19,6 +19,10 @@ const (
 	AttachApprove = "approve"
 )
 
+// NoticeApprovalGranted is the notice type that says what an always or
+// farm answer granted (Text, as the farm's own terminal prints it).
+const NoticeApprovalGranted = "approval_granted"
+
 // NoticeSteerUndelivered is the notice type that hands a client back the
 // steer texts it sent to a part that finished before reading them.
 const NoticeSteerUndelivered = "steer_undelivered"
@@ -47,17 +51,19 @@ type AttachReply struct {
 	Error    string            `json:"error,omitempty"`
 	FarmID   string            `json:"farm_id,omitempty"`
 	Protocol int               `json:"protocol,omitempty"`
+	Client   string            `json:"client,omitempty"`  // hello only: this client as approvals' "by" names it
 	Pending  []ApprovalRequest `json:"pending,omitempty"` // hello only
 }
 
 // AttachNotice is pushed to clients that said hello (steer_undelivered: to
 // the steer's sender only).
 type AttachNotice struct {
-	Type    string           `json:"type"` // approval_requested|approval_closed|steer_undelivered
+	Type    string           `json:"type"` // approval_requested|approval_closed|approval_granted|steer_undelivered
 	Request *ApprovalRequest `json:"request,omitempty"`
 	Answer  string           `json:"answer,omitempty"`
 	By      string           `json:"by,omitempty"`
 	Part    string           `json:"part,omitempty"`
+	Text    string           `json:"text,omitempty"` // approval_granted
 	Texts   []string         `json:"texts,omitempty"`
 }
 

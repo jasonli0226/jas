@@ -1,6 +1,9 @@
 package farm
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Result is how a farm ended: the process exit code, the farm_ended reason,
 // the integrate branch ("" if integration never ran) and any internal error.
@@ -97,6 +100,9 @@ func (h *Handle) Snapshot() Manifest {
 // Steer queues owner text for a running part; it reaches the model at the
 // next turn boundary, or comes back through Watcher.SteerUndelivered.
 func (h *Handle) Steer(part, text string) error {
+	if err := h.known(part); err != nil {
+		return err
+	}
 	if !h.r.s.ctl.steer(part, text) {
 		return ErrPartNotRunning
 	}
@@ -111,6 +117,9 @@ func (h *Handle) Resume(part string) error { return h.pauseResume(part, false, s
 
 // pauseResume pauses or resumes part; the owner_decision names source.
 func (h *Handle) pauseResume(part string, pause bool, source string) error {
+	if err := h.known(part); err != nil {
+		return err
+	}
 	s := h.r.s
 	if s.ctl.worker(part) == nil {
 		return ErrPartNotRunning
@@ -142,11 +151,28 @@ func (h *Handle) Drop(part string) error { return h.drop(part, sourceOwner) }
 
 // drop is Drop with the owner_decision naming source.
 func (h *Handle) drop(part, source string) error {
+	if err := h.known(part); err != nil {
+		return err
+	}
 	var err error
 	if !h.r.s.ctl.do(func(st *sched) { err = h.r.s.dropOwner(st, part, source) }) {
 		return ErrPartNotRunning
 	}
 	return err
+}
+
+// known checks part names a part of the plan or the integrator: an error
+// that says so, not "not running".
+func (h *Handle) known(part string) error {
+	if part == integratePart {
+		return nil
+	}
+	for _, p := range h.r.s.Plan.Parts {
+		if p.ID == part {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w %q", ErrUnknownPart, part)
 }
 
 // Stop stops the farm: soft, as the first Ctrl-C of jas farm run (no new

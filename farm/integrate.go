@@ -235,7 +235,12 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	if err != nil {
 		return err
 	}
+	pool := s.Pools.Integrator(role.Budget)
 	log, ui := s.workerLog(integratePart, flog)
+	log = usageLog(log, func() {
+		used := pool.Used()
+		s.setIntegrator(func(ps *PartState) { ps.Tokens = used })
+	})
 	defer func() {
 		if err := log.Close(); err != nil {
 			s.noteErr(fmt.Errorf("integrator log: %w", err))
@@ -251,7 +256,6 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	}
 	pol := WorkerPolicy(s.Policy, role, path)
 	pol.Env = append(pol.Env, farmGitEnv()...)
-	pool := s.Pools.Integrator(role.Budget)
 	sid := core.NewSessionID(time.Now())
 	part := Part{ID: integratePart, Role: role.Name, Goal: "integrate the farm's part branches", Owns: owns}
 	sess, err := s.NewSession(WorkerSession{
