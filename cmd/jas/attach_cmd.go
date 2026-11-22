@@ -65,15 +65,6 @@ func runAttach(ctx context.Context, home string, args []string, out io.Writer, p
 		}
 	}
 	running := func() bool { return farm.FarmRunning(home, id) }
-	if merr != nil {
-		fmt.Fprintf(out, "farm %s is starting\n", id)
-	} else {
-		printFarmStatus(out, m)
-	}
-	if !running() {
-		printFarmEnd(out, dir)
-		return nil
-	}
 	red := newRedactor("")
 	prog := farm.NewProgress(out, red.Redact)
 	if fd := int(os.Stdout.Fd()); out == os.Stdout && term.IsTerminal(fd) {
@@ -84,9 +75,24 @@ func runAttach(ctx context.Context, home string, args []string, out io.Writer, p
 		watch = &partDetail{Watcher: prog, part: part, out: out, redact: red.Redact}
 	}
 	f := &farm.Follow{Dir: dir, Watch: watch, Backlog: attachBacklog, Poll: poll, Running: running}
+	f.Start() // before the table: what is written after it is shown as new
+	if merr != nil {
+		fmt.Fprintf(out, "farm %s is starting\n", id)
+	} else {
+		printFarmStatus(out, m)
+	}
+	if !running() {
+		printFarmEnd(out, dir)
+		return nil
+	}
 	outcome, err := f.Run(ctx)
 	if err == nil && outcome == farm.FollowDied {
-		fmt.Fprintln(out, "farm process ended")
+		// farm_ended may predate Start, written just before the lock dropped.
+		if reason, ok := farmEndReason(filepath.Join(dir, "farm.jsonl")); ok {
+			fmt.Fprintf(out, "farm ended: %s\n", reason)
+		} else {
+			fmt.Fprintln(out, "farm process ended")
+		}
 	}
 	return err
 }

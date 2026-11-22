@@ -210,7 +210,6 @@ func TestAttach_FollowsRunning(t *testing.T) {
 	lockFixture(t, home, id)
 	out, wait := attachAsync(t, home, id)
 	waitOutput(t, out, "farm "+id)
-	time.Sleep(30 * time.Millisecond)
 	writeAppend(t, filepath.Join(farmDir(home, id), "parts", "p1", "events.jsonl"),
 		evLine("tool_started", "tool", "read", "args", map[string]any{"path": "main.go"}))
 	waitOutput(t, out, "main.go")
@@ -227,7 +226,6 @@ func TestAttach_PartDetail(t *testing.T) {
 	lockFixture(t, home, id)
 	out, wait := attachAsync(t, home, id, "p1")
 	waitOutput(t, out, "farm "+id)
-	time.Sleep(30 * time.Millisecond)
 	parts := filepath.Join(farmDir(home, id), "parts")
 	writeAppend(t, filepath.Join(parts, "p2", "events.jsonl"), evLine("assistant_message", "text", "from p2"))
 	writeAppend(t, filepath.Join(parts, "p1", "events.jsonl"), evLine("assistant_message", "text", "hello from p1"))
@@ -248,5 +246,24 @@ func TestAttach_UnknownPart(t *testing.T) {
 	err := runAttach(context.Background(), home, []string{id, "nope"}, &bytes.Buffer{}, attachPoll)
 	if exitCodeOf(err) != core.ExitUsage {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// A farm whose process releases its lock right after farm_ended (already on
+// disk at attach) is reported as ended, not as died.
+func TestAttach_EndedJustBeforeAttach(t *testing.T) {
+	home := t.TempDir()
+	id := "20261122-aa1"
+	fixtureFarm(t, home, id, []string{"p1"})
+	writeAppend(t, filepath.Join(farmDir(home, id), "farm.jsonl"), evLine("farm_ended", "reason", "ok"))
+	release := lockFixture(t, home, id)
+	out, wait := attachAsync(t, home, id)
+	waitOutput(t, out, "farm "+id)
+	_ = release()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "farm ended: ok") || strings.Contains(out.String(), "farm process ended") {
+		t.Fatalf("output:\n%s", out.String())
 	}
 }

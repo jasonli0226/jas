@@ -106,13 +106,11 @@ func (r *followRig) start(t *testing.T, backlog int) {
 	r.cancel = cancel
 	t.Cleanup(cancel)
 	f := &Follow{Dir: r.dir, Watch: r.w, Backlog: backlog, Poll: 10 * time.Millisecond, Running: r.running.Load}
+	f.Start() // lines appended from here on are new
 	go func() {
 		r.out, r.err = f.Run(ctx)
 		close(r.done)
 	}()
-	// Run records where each existing file ends before its first poll;
-	// lines appended before that would count as history.
-	time.Sleep(30 * time.Millisecond)
 }
 
 func (r *followRig) wait(t *testing.T) (FollowOutcome, error) {
@@ -259,5 +257,42 @@ func TestFollow_Detach(t *testing.T) {
 	out, err := r.wait(t)
 	if err != nil || out != FollowDetached {
 		t.Fatalf("outcome %v, %v", out, err)
+	}
+}
+
+// A retried part's backlog comes from its latest attempt, not the dead one.
+func TestFollow_BacklogLatestAttempt(t *testing.T) {
+	r := newFollowRig(t)
+	for _, tool := range []string{"t1", "t2", "t3"} {
+		appendTo(t, r.partLog("p1"), line("tool_started", "tool", tool))
+	}
+	for _, tool := range []string{"u1", "u2"} {
+		appendTo(t, filepath.Join(r.dir, partsDir, "p1", "events-2.jsonl"), line("tool_started", "tool", tool))
+	}
+	r.start(t, 3)
+	evs := r.w.waitFor(t, func(evs []recEvent) bool { return len(evs) >= 2 })
+	time.Sleep(30 * time.Millisecond)
+	var tools []string
+	for _, e := range r.w.snapshot() {
+		tools = append(tools, fmt.Sprint(e.m["tool"]))
+	}
+	_ = evs
+	if fmt.Sprint(tools) != "[u1 u2]" {
+		t.Fatalf("backlog %v, want the latest attempt's [u1 u2]", tools)
+	}
+}
+
+// Attempt logs sort by attempt number: events.jsonl, events-2, …, events-10.
+func TestPartLogs_AttemptOrder(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"events.jsonl", "events-2.jsonl", "events-10.jsonl"} {
+		appendTo(t, filepath.Join(dir, partsDir, "p1", n), "")
+	}
+	var names []string
+	for _, pl := range partLogs(dir) {
+		names = append(names, filepath.Base(pl.path))
+	}
+	if fmt.Sprint(names) != "[events.jsonl events-2.jsonl events-10.jsonl]" {
+		t.Fatalf("order %v", names)
 	}
 }

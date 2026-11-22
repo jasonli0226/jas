@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jasonli0226/jas/core"
@@ -34,6 +36,14 @@ type Follow struct {
 	Backlog int           // tool_started events replayed per part at start
 	Poll    time.Duration // 0 = 250ms
 	Running func() bool   // nil = always running
+
+	tails   map[string]*tail
+	backlog []partEvent // replayed by Run before following
+}
+
+type partEvent struct {
+	part string
+	m    map[string]any
 }
 
 // tail is one log file being followed.
@@ -44,6 +54,16 @@ type tail struct {
 	rest []byte // an incomplete last line
 }
 
+// Start records where each existing log ends, so that only lines written
+// after it count as new, and picks the backlog. Run calls it when the
+// caller has not.
+func (f *Follow) Start() {
+	f.tails = map[string]*tail{}
+	farmLog := &tail{path: filepath.Join(f.Dir, farmLogName), off: fileSize(filepath.Join(f.Dir, farmLogName))}
+	f.tails[farmLog.path] = farmLog
+	f.startParts(f.tails)
+}
+
 // Run follows the logs until farm_ended is read, Running reports false (after
 // one last read), or ctx ends.
 func (f *Follow) Run(ctx context.Context) (FollowOutcome, error) {
@@ -51,10 +71,14 @@ func (f *Follow) Run(ctx context.Context) (FollowOutcome, error) {
 	if poll <= 0 {
 		poll = defaultFollowPoll
 	}
-	tails := map[string]*tail{}
-	farmLog := &tail{path: filepath.Join(f.Dir, farmLogName), off: fileSize(filepath.Join(f.Dir, farmLogName))}
-	tails[farmLog.path] = farmLog
-	f.startParts(tails)
+	if f.tails == nil {
+		f.Start()
+	}
+	for _, e := range f.backlog {
+		f.Watch.WorkerEvent(e.part, core.EvToolStarted, e.m)
+	}
+	f.backlog = nil
+	tails := f.tails
 	for {
 		if f.readAll(tails) {
 			return FollowEnded, nil
@@ -74,31 +98,32 @@ func (f *Follow) Run(ctx context.Context) (FollowOutcome, error) {
 }
 
 // startParts adds the part logs present at start, following from the end
-// of their last complete line, and replays the last Backlog tool_started
-// events of each part.
+// of their last complete line, and keeps the last Backlog tool_started
+// events of each part's latest attempt for Run to replay.
 func (f *Follow) startParts(tails map[string]*tail) {
-	backlog := map[string][]map[string]any{}
+	latest := map[string]string{} // part -> its latest attempt's log
 	var parts []string
 	for _, pf := range partLogs(f.Dir) {
 		data, _ := os.ReadFile(pf.path)
-		done := data[:bytes.LastIndexByte(data, '\n')+1]
-		tails[pf.path] = &tail{path: pf.path, part: pf.part, off: int64(len(done))}
-		if f.Backlog <= 0 {
-			continue
+		tails[pf.path] = &tail{path: pf.path, part: pf.part, off: int64(bytes.LastIndexByte(data, '\n') + 1)}
+		if _, seen := latest[pf.part]; !seen {
+			parts = append(parts, pf.part)
 		}
-		for _, ln := range bytes.Split(done, []byte{'\n'}) {
-			if typ, m, ok := decodeLine(ln); ok && typ == core.EvToolStarted {
-				if _, seen := backlog[pf.part]; !seen {
-					parts = append(parts, pf.part)
-				}
-				backlog[pf.part] = append(backlog[pf.part], m)
-			}
-		}
+		latest[pf.part] = pf.path // partLogs sorts attempts in order
+	}
+	if f.Backlog <= 0 {
+		return
 	}
 	for _, part := range parts {
-		evs := backlog[part]
+		data, _ := os.ReadFile(latest[part])
+		var evs []map[string]any
+		for _, ln := range bytes.Split(data[:tails[latest[part]].off], []byte{'\n'}) {
+			if typ, m, ok := decodeLine(ln); ok && typ == core.EvToolStarted {
+				evs = append(evs, m)
+			}
+		}
 		for _, m := range evs[max(0, len(evs)-f.Backlog):] {
-			f.Watch.WorkerEvent(part, core.EvToolStarted, m)
+			f.backlog = append(f.backlog, partEvent{part, m})
 		}
 	}
 }
@@ -192,15 +217,30 @@ func decodeLine(ln []byte) (string, map[string]any, bool) {
 
 type partLog struct{ part, path string }
 
-// partLogs lists parts/<part>/events*.jsonl, sorted by path.
+// partLogs lists parts/<part>/events*.jsonl, by part and then by attempt
+// (events.jsonl is attempt 1, events-N.jsonl attempt N).
 func partLogs(dir string) []partLog {
 	matches, _ := filepath.Glob(filepath.Join(dir, partsDir, "*", "events*.jsonl"))
-	sort.Strings(matches)
 	out := make([]partLog, 0, len(matches))
 	for _, p := range matches {
 		out = append(out, partLog{part: filepath.Base(filepath.Dir(p)), path: p})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].part != out[j].part {
+			return out[i].part < out[j].part
+		}
+		return attemptOf(out[i].path) < attemptOf(out[j].path)
+	})
 	return out
+}
+
+// attemptOf is the attempt number in an events[-N].jsonl name.
+func attemptOf(path string) int {
+	n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "events-"), ".jsonl"))
+	if err != nil {
+		return 1
+	}
+	return n
 }
 
 func fileSize(path string) int64 {

@@ -275,12 +275,15 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 	now := time.Now()
 	id := NewFarmID(now)
 	dir := filepath.Join(o.Home, farmsDirName, id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
+	// Lock before the farm dir exists, so attach never sees the dir of a
+	// starting farm without its lock and calls it dead.
 	unlock, err := LockFarm(o.Home, id)
 	if err != nil {
 		return nil, fmt.Errorf("farm lock: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		_ = unlock()
+		return nil, err
 	}
 	r, err := openFarm(git, o, pre, gen, id, dir, now)
 	if err != nil {
