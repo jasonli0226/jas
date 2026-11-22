@@ -306,3 +306,12 @@ func TestFollow_FarmLogTornAtStart(t *testing.T) {
 	appendTo(t, r.farmLog(), full[8:])
 	r.w.waitFor(t, hasEvent("", EvPartStarted))
 }
+
+// The integrator logs under integrate/, outside parts/, and is followed as
+// part "integrate".
+func TestFollow_Integrator(t *testing.T) {
+	r := newFollowRig(t)
+	r.start(t, 0)
+	appendTo(t, filepath.Join(r.dir, integratePart, eventsFile), line("tool_started", "tool", "shell"))
+	r.w.waitFor(t, hasEvent(integratePart, "tool_started"))
+}

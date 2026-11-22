@@ -270,3 +270,19 @@ func TestAttach_EndedJustBeforeAttach(t *testing.T) {
 		t.Fatalf("output:\n%s", out.String())
 	}
 }
+
+// The integrator can be followed in detail although it is not in Parts.
+func TestAttach_IntegratorDetail(t *testing.T) {
+	home := t.TempDir()
+	id := "20261122-aa1"
+	fixtureFarm(t, home, id, []string{"p1"})
+	lockFixture(t, home, id)
+	out, wait := attachAsync(t, home, id, "integrate")
+	waitOutput(t, out, "farm "+id)
+	writeAppend(t, filepath.Join(farmDir(home, id), "integrate", "events.jsonl"), evLine("assistant_message", "text", "merging"))
+	waitOutput(t, out, "[integrate] says: merging")
+	writeAppend(t, filepath.Join(farmDir(home, id), "farm.jsonl"), evLine("farm_ended", "reason", "ok"))
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+}

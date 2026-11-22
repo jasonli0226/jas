@@ -61,7 +61,7 @@ func runAttach(ctx context.Context, home string, args []string, out io.Writer, p
 	part := ""
 	if len(args) == 2 {
 		part = args[1]
-		if merr != nil || m.Parts[part] == nil {
+		if part != farm.IntegratePart && (merr != nil || m.Parts[part] == nil) {
 			return usageErr("farm %s has no part %q", id, part)
 		}
 	}

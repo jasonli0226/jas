@@ -13,9 +13,12 @@ import (
 	"github.com/jasonli0226/jas/tools"
 )
 
+// IntegratePart names the integrator in progress lines and its log dir.
+const IntegratePart = "integrate"
+
 const (
 	// integratePart names the integrator's branch, worktree and log dir.
-	integratePart = "integrate"
+	integratePart = IntegratePart
 	// integratorRole supplies the integrator's tools, prompt and model.
 	integratorRole = "coder"
 	// checkMaxBytes is the output tail kept from the verdict check.

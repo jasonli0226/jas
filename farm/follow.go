@@ -218,10 +218,13 @@ func decodeLine(ln []byte) (string, map[string]any, bool) {
 
 type partLog struct{ part, path string }
 
-// partLogs lists parts/<part>/events*.jsonl, by part and then by attempt
+// partLogs lists parts/<part>/events*.jsonl and the integrator's
+// integrate/events*.jsonl (as part "integrate"), by part and then by attempt
 // (events.jsonl is attempt 1, events-N.jsonl attempt N).
 func partLogs(dir string) []partLog {
 	matches, _ := filepath.Glob(filepath.Join(dir, partsDir, "*", "events*.jsonl"))
+	integ, _ := filepath.Glob(filepath.Join(dir, integratePart, "events*.jsonl"))
+	matches = append(matches, integ...)
 	out := make([]partLog, 0, len(matches))
 	for _, p := range matches {
 		out = append(out, partLog{part: filepath.Base(filepath.Dir(p)), path: p})
