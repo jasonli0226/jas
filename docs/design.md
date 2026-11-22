@@ -62,7 +62,8 @@ One static Go binary (`CGO_ENABLED=0`). Packages:
 | `tui/` | the inline Bubble Tea chat (no alt-screen; AGENTS.md) |
 | `cmd/jas/` | CLI entry, subcommands, onboarding, the embedded manual skill |
 
-Not built yet: `scenario/` (§8), MCP client, RPC / `jas attach` (§5).
+Not built yet: `scenario/` (§8), MCP client, general RPC mode (§5). `jas attach`
+shipped over a farm-only Unix socket (`farm/attachsrv.go`).
 
 ### The six interfaces
 
@@ -348,8 +349,8 @@ after TUI dogfood):
 4. Opt-in sandbox.
 5. Benchmarks with n>1.
 6. `jas farm plan` / `jas farm run`, then the reviewer part, then `jas attach`,
-   then interactive `/farm`. Plan/run (#95) and interactive `/farm` (#116)
-   shipped; `jas attach` is next (owner, 2026-11-07).
+   then interactive `/farm`. Plan/run (#95), interactive `/farm` (#116) and
+   `jas attach` (watch #226, control #228) shipped.
 
 **Track B — core loop, can ship before farm and overlap A:**
 
@@ -412,19 +413,20 @@ resume (`jas --continue`, `/resume`); `web_fetch` / `web_search` (§12.1;
 - [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
       optional read-only part with a clean context, possibly a different
       model, reviewing the integrated diff; after farm
-- [ ] **Next.** `jas attach <task>` (after farm) — connects to the farm's Unix socket
-      (`~/.jas/run/<farm-id>.sock`, 0600) and speaks the RPC protocol. Attach
-      waits for the task's current turn to finish (no mid-stream handoff), then
-      routes the human's messages in through the steering queue. Live
-      supervisor = no replay. If the supervisor is gone, attach falls back to
-      `jas resume` (event-log replay, §3 side-effect rules)
+- [x] **`jas attach [<farm-id> [<part>]]`** (shipped: watch #226, control #228)
+      — connects to the farm's Unix socket (`~/.jas/run/<farm-id>.sock`, 0600)
+      over a JSONL protocol: watch the dashboard and a part's output; steer,
+      pause, resume, drop, stop; answer approvals. The `jas resume` fallback
+      for a dead supervisor was dropped (crash-resume is the separate
+      `farm resume` item). Spec:
+      [superpowers/specs/2026-11-22-jas-attach-design.md](superpowers/specs/2026-11-22-jas-attach-design.md).
 - [ ] MCP client support (stdio first, then HTTP)
 - [ ] **Session tree**: `parent_id` already on events from v1 → branches, fork,
       clone (branch summaries reuse compaction)
 - [ ] **RPC mode**: the §3 event types plus a command set, as JSONL. Two
       transports: stdio (`jas serve`, for a parent process such as an IDE or
-      the Telegram bot) and a Unix socket (the farm supervisor, for `attach`
-      and the TUI from another terminal)
+      the Telegram bot) and a Unix socket (the farm supervisor's attach socket
+      exists; generalizing it is open)
 - [ ] **Scenarios** (§8), with the project trust gate (§3) extended to
       scenario files and hook scripts (§11)
 - [ ] **Blind secret access** (§9 layer 3)
@@ -634,7 +636,7 @@ fallback there. jas does the same with plain subcommands and chat `/settings`.
 ├── sessions/                  # session dirs: <session>/events.jsonl (§3) — already global
 ├── profiles/<name>/memory/    # MEMORY.md index + topic notes (§12.3)
 ├── farms/                     # farm state (farm spec)
-├── run/                       # planned: supervisor sockets for attach
+├── run/                       # farm supervisor sockets for attach
 └── AGENTS.md                  # global instructions appended to every system prompt
 
 <project>/.jas/
