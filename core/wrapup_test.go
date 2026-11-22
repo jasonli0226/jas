@@ -154,3 +154,19 @@ func TestRun_TokenWrapUpCutOff(t *testing.T) {
 	assert.Eq(t, stops[0]["reason"], "tokens")
 	assert.Eq(t, stops[0]["pool"], "run")
 }
+
+// The early wrap-up measures the tightest pool in the chain, so a farm's
+// parent pool can trigger it while the run's own pool has room.
+func TestRun_WrapUpBeforeParentTokenCap(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "the answer"}})
+	r.cfg.WrapUp, r.cfg.MaxOutput = true, 20000
+	farm := core.NewTokenPool("farm", 100000, nil)
+	spent, err := farm.Reserve(65000)
+	assert.NoErr(t, err)
+	spent.Settle(65000)
+	r.cfg.Tokens = core.NewTokenPool("agent", 0, farm)
+	_, err = core.Run(context.Background(), r.cfg)
+	assert.NoErr(t, err)
+	assert.Eq(t, r.prov.Requests[0].ToolChoice, "none")
+	assert.Eq(t, len(eventsOf(r.events(t), "wrap_up")), 1)
+}

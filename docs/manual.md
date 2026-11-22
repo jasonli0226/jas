@@ -865,7 +865,7 @@ one bumps `v`.
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |
-| `wrap_up` | reason (`turn_cap` \| `tokens`), max_tokens: `--wrap-up` asked for the final answer at that cap |
+| `wrap_up` | reason (`turn_cap` \| `tokens`), max_tokens: `--wrap-up` asked for the final answer at the turn cap, or before the token cap leaves less than one output cap; a cut-off `tokens` reply ends at the token cap (exit 7) |
 | `check_ran` | cmd, dir, exit_code, duration_ms, timed_out, output tail |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens; reason on non-zero exits |
 
