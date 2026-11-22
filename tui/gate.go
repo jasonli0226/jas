@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/farm"
 )
 
 // Messages the gate posts to the chat.
@@ -22,6 +23,9 @@ type (
 		diff   *core.Diff // nil: nothing to show
 		reply  chan<- string
 	}
+	// approvalWithdrawnMsg removes the farm prompt whose reply channel is
+	// reply, if it is still open: something else answered it.
+	approvalWithdrawnMsg struct{ reply chan<- string }
 	// noticeMsg is a dim line for scrollback.
 	noticeMsg struct{ s string }
 )
@@ -193,87 +197,83 @@ func (g *Gate) redactArgs(args json.RawMessage) json.RawMessage {
 	return json.RawMessage(g.redact(string(args)))
 }
 
-// ForPart returns the approval gate for one farm part at level. Its prompts
-// go through the chat's prompt queue (one at a time, oldest first), labelled
-// with the part; "always" grants cover that part, "farm" grants go into farm,
-// which every part of the same farm shares.
-func (g *Gate) ForPart(part string, level core.Level, farm *core.Grants) core.Gate {
-	return &partGate{g: g, part: part, level: level, grants: core.NewGrants(g.windows), farm: farm}
-}
-
-// partGate is a farm part's core.Gate.
-type partGate struct {
-	g      *Gate
-	part   string
-	level  core.Level
-	grants *core.Grants // always for this part
-	farm   *core.Grants // always for this farm
-}
-
-func (p *partGate) covered(t core.Tool, args json.RawMessage) bool {
-	if !core.Gated(p.level, t) {
-		return true
-	}
-	return !core.MustAsk(t) && (p.grants.Covers(t.Name(), args) || p.farm.Covers(t.Name(), args))
-}
-
-// Allow implements core.Gate.
-func (p *partGate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, preview func() *core.Diff) (core.Decision, error) {
-	if p.covered(t, args) {
-		return core.AutoGranted, nil
-	}
-	g := p.g
-	select {
-	case g.ask <- struct{}{}:
-	case <-ctx.Done():
-		return core.Denied, ctx.Err()
-	}
-	defer func() { <-g.ask }()
-	if p.covered(t, args) {
-		return core.AutoGranted, nil
-	}
+// AskFarm puts a farm part's gated call to the user through the chat's
+// prompt queue (one at a time, oldest first), labelled with the part, and
+// returns the reply text (farm.ParseAnswer reads it). It is the prompting
+// half of a farm gate: the broker keeps the grants. When ctx ends first it
+// returns ctx.Err(); an open prompt is then removed from the model (a key
+// press for it is ignored) and a queued one is never shown.
+func (g *Gate) AskFarm(ctx context.Context, part string, t core.Tool, args json.RawMessage, preview func() *core.Diff) (string, error) {
 	var diff *core.Diff
 	if preview != nil {
 		diff = preview()
 	}
-	header := ""
-	if diff != nil {
-		header = "[" + core.Sanitize(g.redact(p.part)) + "] " + core.Sanitize(g.redact(t.Name())) + " " + core.Sanitize(g.redact(diff.Path))
-	}
-	reply := make(chan string, 1)
-	g.send(approvalMsg{
-		part:   p.part,
-		prompt: fmt.Sprintf("[%s] approve %s: %s? [y/N/always/farm]", core.Sanitize(g.redact(p.part)), core.Sanitize(g.redact(t.Name())), core.SummarizeCall(t.Name(), g.redactArgs(args))),
-		header: header, diff: diff, reply: reply,
-	})
-	select {
-	case <-ctx.Done():
-		return core.Denied, ctx.Err()
-	case text := <-reply:
-		return p.decide(t, args, text), nil
+	return g.askFarm(ctx, farm.ApprovalRequest{Part: part, Tool: t.Name(),
+		Summary: core.SummarizeCall(t.Name(), g.redactArgs(args)), Diff: diff}, nil)
+}
+
+// FarmHost is a farm broker's host asker on this chat: AskFarm's prompt for
+// req, its reply read by farm.ParseAnswer (unknown text is no). closed is the
+// broker's record of how an approval closed (farm.Broker.Closed): when an
+// attached client's answer withdraws the open prompt, the chat says so.
+func (g *Gate) FarmHost(closed func(id string) (answer, by string, ok bool)) farm.HostAsker {
+	return func(ctx context.Context, req farm.ApprovalRequest) (farm.Answer, error) {
+		text, err := g.askFarm(ctx, req, func() {
+			if ans, by, ok := closed(req.ID); ok && strings.HasPrefix(by, attachBy) {
+				g.send(noticeMsg{g.redact(fmt.Sprintf("[%s] [%s] answered from attach: %s",
+					core.Sanitize(req.Part), core.Sanitize(req.ID), ans))})
+			}
+		})
+		if err != nil {
+			return farm.AnswerNo, err
+		}
+		a, _ := farm.ParseAnswer(text)
+		return a, nil
 	}
 }
 
-func (p *partGate) decide(t core.Tool, args json.RawMessage, text string) core.Decision {
-	var grants *core.Grants
-	switch classifyReply(text) {
-	case replyYes:
-		return core.Granted
-	case replyAlways:
-		grants = p.grants
-	case replyFarm:
-		grants = p.farm
-	default:
-		return core.Denied
+// attachBy prefixes the broker's "by" for an answer from an attached client.
+const attachBy = "attach:"
+
+// askFarm shows req's prompt once it holds the prompt slot and waits for the
+// reply. The broker passes the tool name and diff path raw; they are
+// redacted here (the summary already is). ctx done with the prompt open
+// withdraws it, then runs withdrawn (nil: nothing) before the slot frees,
+// so anything it posts lands before the next prompt.
+func (g *Gate) askFarm(ctx context.Context, req farm.ApprovalRequest, withdrawn func()) (string, error) {
+	select {
+	case g.ask <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
-	if core.MustAsk(t) {
-		p.g.send(noticeMsg{mustAskNotice})
-		return core.Granted
+	defer func() { <-g.ask }()
+	if err := ctx.Err(); err != nil { // ended while queued: never shown
+		return "", err
 	}
-	if grant, ok := grants.Add(t.Name(), args); ok {
-		p.g.send(noticeMsg{p.g.redact(fmt.Sprintf("[%s] always: %s (covers any arguments)", p.part, core.Sanitize(grant)))})
-	} else {
-		p.g.send(noticeMsg{p.g.redact(noGrantNotice)})
+	label := "[" + core.Sanitize(g.redact(req.Part)) + "]"
+	tool := core.Sanitize(g.redact(req.Tool))
+	header := ""
+	if req.Diff != nil {
+		header = label + " " + tool + " " + core.Sanitize(g.redact(req.Diff.Path))
 	}
-	return core.Granted
+	id := ""
+	if req.ID != "" {
+		id = "[" + core.Sanitize(req.ID) + "] "
+	}
+	reply := make(chan string, 1)
+	g.send(approvalMsg{
+		part:   req.Part,
+		prompt: fmt.Sprintf("%s approve %s%s: %s? [y/N/always/farm]", label, id, tool, g.redact(req.Summary)),
+		header: header, diff: req.Diff, reply: reply,
+	})
+	select {
+	case <-ctx.Done():
+		g.send(approvalWithdrawnMsg{reply: reply})
+		if withdrawn != nil {
+			withdrawn()
+		}
+		return "", ctx.Err()
+	case text := <-reply:
+		return text, nil
+	}
 }

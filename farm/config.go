@@ -66,6 +66,10 @@ type Budget struct {
 	PerWorkerTimeout  time.Duration
 	FarmTimeout       time.Duration
 	RequestsPerMinute int
+	// ApprovalWait holds an unattended farm's gated calls this long even
+	// with no attached client (--approval-wait overrides it); 0 holds them
+	// only while a client is attached.
+	ApprovalWait time.Duration
 }
 
 // BoardCfg bounds the shared board.
@@ -133,6 +137,7 @@ type fileCfg struct {
 		PerWorkerTimeout  *string  `yaml:"per_worker_timeout"`
 		FarmTimeout       *string  `yaml:"farm_timeout"`
 		RequestsPerMinute *int     `yaml:"requests_per_minute"`
+		ApprovalWait      *string  `yaml:"approval_wait"`
 	} `yaml:"budget"`
 	Board struct {
 		MaxRounds    *int `yaml:"max_rounds"`
@@ -258,6 +263,7 @@ func apply(cfg *Config, f fileCfg, vars map[string][]string) error {
 	}{
 		{"per_worker_timeout", f.Budget.PerWorkerTimeout, &cfg.Budget.PerWorkerTimeout},
 		{"farm_timeout", f.Budget.FarmTimeout, &cfg.Budget.FarmTimeout},
+		{"approval_wait", f.Budget.ApprovalWait, &cfg.Budget.ApprovalWait},
 	} {
 		if d.src == nil {
 			continue

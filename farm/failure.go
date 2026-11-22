@@ -102,14 +102,7 @@ func prepareReason(err error) string {
 func (s *Supervisor) decide(e attemptEnd) (choice, source string) {
 	if s.Ask != nil {
 		prompt := fmt.Sprintf("part %s failed (%s: %s); retry, drop or abort? ", e.id, e.reason, e.detail)
-		ask := func() (string, bool) { return s.Ask(prompt, failureChoices) }
-		var c string
-		var ok bool
-		if s.Approvals != nil {
-			c, ok = s.Approvals.Ask(s.hard(), ask)
-		} else {
-			c, ok = ask()
-		}
+		c, ok := s.Ask(prompt, failureChoices) // the host serializes it with approval prompts
 		if ok && (c == choiceRetry || c == choiceDrop || c == choiceAbort) {
 			return c, "owner"
 		}

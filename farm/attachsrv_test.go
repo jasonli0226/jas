@@ -393,7 +393,9 @@ func TestAttachServer_Approve(t *testing.T) {
 	}
 }
 
-func TestAttachServer_ApproveWithoutBroker(t *testing.T) {
+// A farm started without a Broker gets the default unattended one, so an
+// approve names an approval it does not have.
+func TestAttachServer_ApproveWithDefaultBroker(t *testing.T) {
 	r, _, started, release := heldWriters(t)
 	h := start(t, r)
 	waitStarted(t, started)
@@ -403,7 +405,7 @@ func TestAttachServer_ApproveWithoutBroker(t *testing.T) {
 	}
 	rep := c.do(AttachRequest{Cmd: "approve", ApprovalID: "a1", Answer: "yes"})
 	close(release)
-	if rep.OK || rep.Error != "approvals not available" {
+	if rep.OK || rep.Error != "unknown approval" {
 		t.Fatalf("approve %+v", rep)
 	}
 	waitDone(t, h)

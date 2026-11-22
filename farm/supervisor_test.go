@@ -468,8 +468,7 @@ func TestSupervisor_ApprovalNoTTYFailsPart(t *testing.T) {
 	r := newSup(t, plan, cfg, func(string, int) []fake.Turn {
 		return []fake.Turn{call("shell", `{"command":"echo hi"}`), final("x")}
 	})
-	r.sup.Approvals = NewApprovals(strings.NewReader(""), &strings.Builder{}, false, core.Never)
-	out := r.run(t, context.Background())
+	out := r.run(t, context.Background()) // no Broker: unattended, level never
 	sortedEq(t, out.Dropped, "a")
 	if ps := r.part("a"); ps.FailureReason != ReasonApprovalNeeded || ps.ExitCode != core.ExitApprovalNeeded {
 		t.Fatalf("a %+v", ps)
@@ -652,7 +651,7 @@ func TestSupervisor_Timeouts(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ApprovalsSerializedAndLabelled(t *testing.T) {
+func TestSupervisor_ApprovalsLabelledByPart(t *testing.T) {
 	plan := Plan{Task: "t", Parts: []Part{
 		{ID: "a", Role: "gated", Goal: "a", Owns: []string{"a/**"}},
 		{ID: "b", Role: "gated", Goal: "b", Owns: []string{"b/**"}},
@@ -662,27 +661,19 @@ func TestSupervisor_ApprovalsSerializedAndLabelled(t *testing.T) {
 	r := newSup(t, plan, cfg, func(part string, _ int) []fake.Turn {
 		return []fake.Turn{call("shell", `{"command":"echo `+part+`"}`), final(part)}
 	})
-	var out strings.Builder
-	r.sup.Approvals = NewApprovals(strings.NewReader("y\ny\n"), &syncWriter{w: &out}, true, core.Never)
+	var mu sync.Mutex
+	var asked []string
+	r.sup.Broker = NewBroker(BrokerOptions{Level: core.Never, Host: func(_ context.Context, req ApprovalRequest) (Answer, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = append(asked, req.Part+":"+req.Summary)
+		return AnswerYes, nil
+	}})
 	res := r.run(t, context.Background())
 	sortedEq(t, res.Done, "a", "b")
-	text := out.String()
-	for _, want := range []string{"[a] approve shell", "[b] approve shell"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("prompts %q lack %q", text, want)
-		}
-	}
-}
-
-type syncWriter struct {
-	mu sync.Mutex
-	w  *strings.Builder
-}
-
-func (s *syncWriter) Write(b []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.w.Write(b)
+	mu.Lock()
+	defer mu.Unlock()
+	sortedEq(t, asked, "a:echo a", "b:echo b")
 }
 
 func TestSupervisor_RetryRedeliversBoard(t *testing.T) {

@@ -55,15 +55,13 @@ type Supervisor struct {
 
 	// Hard cancels everything (second Ctrl-C); nil means never. The ctx
 	// given to RunParts is the soft stop (first Ctrl-C).
-	Hard      context.Context
-	Policy    core.ExecPolicy // base worker policy; see WorkerPolicy
-	Approvals *Approvals      // nil: no TTY, approval level never unless a role sets one
-	Broker    *Broker         // set: every gate goes through it (Approvals and Gates are then unused)
-	Redact    func(string) string
-	Watch     Watcher // nil: no progress lines (--json, tests)
-	// WorkerUI and Gates: see RunOptions.
+	Hard   context.Context
+	Policy core.ExecPolicy // base worker policy; see WorkerPolicy
+	Broker *Broker         // every part's approval gate; nil: unattended at level never
+	Redact func(string) string
+	Watch  Watcher // nil: no progress lines (--json, tests)
+	// WorkerUI: see RunOptions.
 	WorkerUI func(part string) core.UI
-	Gates    func(part, approve string) (core.Gate, error)
 
 	// mergeCheck is a passing integrate_check on a clean merge that nothing
 	// changed afterwards; Verdict reuses it instead of running check again.

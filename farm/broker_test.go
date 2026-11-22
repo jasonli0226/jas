@@ -470,3 +470,37 @@ func TestBroker_RequestJSON(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.JSONEq(t, string(out), `{"id":"a1","part":"p","call_id":"c","tool":"shell","summary":"s"}`)
 }
+
+// A host withdrawn by another answer can read who answered: the close is
+// recorded before the host's ctx is cancelled.
+func TestBroker_ClosedSeenByWithdrawnHost(t *testing.T) {
+	asked := make(chan ApprovalRequest, 1)
+	type seen struct {
+		answer, by string
+		ok         bool
+	}
+	got := make(chan seen, 1)
+	var b *Broker
+	host := func(ctx context.Context, req ApprovalRequest) (Answer, error) {
+		_, _, open := b.Closed(req.ID)
+		assert.Eq(t, open, false)
+		asked <- req
+		<-ctx.Done()
+		a, by, ok := b.Closed(req.ID)
+		got <- seen{a, by, ok}
+		return AnswerNo, ctx.Err()
+	}
+	b = NewBroker(BrokerOptions{Level: core.ShellOnly, Host: host})
+	res := allowAsync(context.Background(), mustGate(t, b, "p1", nil), shellTool, goTest)
+	req := <-asked
+	b.Answer(req.ID, AnswerYes, "attach:c1")
+	assert.Eq(t, waitResult(t, res).d, core.Granted)
+	select {
+	case s := <-got:
+		assert.Eq(t, s, seen{"yes", "attach:c1", true})
+	case <-time.After(5 * time.Second):
+		t.Fatal("host not withdrawn")
+	}
+	_, _, ok := b.Closed("a9")
+	assert.Eq(t, ok, false)
+}

@@ -4,17 +4,33 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/farm"
 	"github.com/jasonli0226/jas/internal/assert"
 )
+
+// broker is the fake farm's approval broker at level shell, hosted by the
+// chat's Host hook as a real farm's is.
+func (f *fakeFarmer) broker() *farm.Broker {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.b == nil {
+		var b *farm.Broker
+		b = farm.NewBroker(farm.BrokerOptions{Level: core.ShellOnly,
+			Host: f.hooks.Host(func(id string) (string, string, bool) { return b.Closed(id) })})
+		f.b = b
+	}
+	return f.b
+}
 
 // farmAllow asks the farm gate for part to allow a shell call; the decision
 // arrives on the returned channel.
 func farmAllow(t *testing.T, f *fakeFarmer, part string) chan core.Decision {
 	t.Helper()
-	g, err := f.hooks.Gate(part, "shell")
+	g, err := f.broker().Gate(part, "", nil)
 	assert.NoErr(t, err)
 	ch := make(chan core.Decision, 1)
 	tl := toolNamed(t, "shell")
@@ -182,4 +198,34 @@ func TestFarmBell_OncePerPromptAndOff(t *testing.T) {
 	<-got
 	assert.Eq(t, c2.m.bells, 0)
 	assert.Eq(t, strings.Contains(c2.view(), "\a"), false)
+}
+
+func TestChatFarm_AttachAnswerClosesPrompt(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	c.typeText("half")
+	got := farmAllow(t, f, "a")
+	c.pumpApproval()
+	assert.Contains(t, c.m.approval.prompt, "[a] approve [a1] shell: go test ./...?")
+	assert.Eq(t, c.m.farm.agent("a").needsApproval, true)
+	ok, _ := f.broker().Answer("a1", farm.AnswerYes, "attach:c1")
+	assert.Eq(t, ok, true)
+	select {
+	case d := <-got:
+		assert.Eq(t, d, core.Granted)
+	case <-time.After(5 * time.Second):
+		t.Fatal("gate never returned")
+	}
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(noticeMsg); return ok })
+	if c.m.approval != nil {
+		t.Fatalf("prompt still open: %+v", c.m.approval)
+	}
+	assert.Eq(t, c.m.farm.agent("a").needsApproval, false)
+	assert.Eq(t, c.m.input.Value(), "half")
+	assert.Contains(t, c.printedText(), "[a] [a1] answered from attach: yes")
+	// The next approval prompts and takes its own answer.
+	next := farmAllow(t, f, "b")
+	c.pumpApproval()
+	assert.Contains(t, c.m.approval.prompt, "[b] approve [a2]")
+	c.submit("n")
+	assert.Eq(t, <-next, core.Denied)
 }

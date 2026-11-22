@@ -230,3 +230,42 @@ func (u *eventUI) Reasoning(string) {}
 func (u *eventUI) Event(typ string, data any) {
 	u.typ, u.data = typ, data.(map[string]any)
 }
+
+// The chat's farm asks gated calls through a broker hosted by the chat's
+// Host hook, at the chat's level.
+func TestChatFarm_HostAsksThroughBroker(t *testing.T) {
+	b := farmChat(t, "true", true, fake.Turn{Text: fenceYAML(farmPlan)},
+		fake.Turn{Calls: []fake.Call{{Name: "shell", Args: `{"command":"echo hi"}`}}},
+		fake.Turn{Text: "done"}, fake.Turn{Text: "done"})
+	f := b.Farmer()
+	p, err := f.Plan(context.Background(), "split it", "m")
+	assert.NoErr(t, err)
+	path, err := f.Approve(p)
+	assert.NoErr(t, err)
+	rec := &hookRec{}
+	h := rec.hooks()
+	var mu sync.Mutex
+	var reqs []farm.ApprovalRequest
+	var lookup func(string) (string, string, bool)
+	h.Host = func(closed func(string) (string, string, bool)) farm.HostAsker {
+		lookup = closed
+		return func(_ context.Context, req farm.ApprovalRequest) (farm.Answer, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			reqs = append(reqs, req)
+			return farm.AnswerYes, nil
+		}
+	}
+	run, err := f.Start(context.Background(), path, "m", core.ShellOnly, h)
+	assert.NoErr(t, err)
+	if res := run.Wait(); res.Code != 0 {
+		t.Fatalf("result %+v", res)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reqs) != 1 || reqs[0].Tool != "shell" || reqs[0].Summary != "echo hi" {
+		t.Fatalf("host asked %+v", reqs)
+	}
+	ans, by, ok := lookup(reqs[0].ID)
+	assert.Eq(t, [3]any{ans, by, ok}, [3]any{"yes", "host", true})
+}

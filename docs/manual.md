@@ -158,7 +158,7 @@ would, counting the project as trusted only when you already trusted it.
 
 ```
 jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
-jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project]
+jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project] [--approval-wait <duration>]
 jas farm "<task>"                 # plan, approve, run in one terminal
 jas farm status [<farm-id>]       # parts, tokens, check verdict (offline)
 jas farm clean [<farm-id>] [--branches]
@@ -170,6 +170,7 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 | `-o plan.yaml` | where `plan` writes the plan |
 | `--allow-dirty` | plan or run on a dirty tree; uncommitted changes are not part of the farm |
 | `--json` | (`run`) stream `farm.jsonl` events, only, on stdout |
+| `--approval-wait <duration>` | (`run`, no TTY) hold gated calls this long for a `jas attach` client to answer, even with none attached; overrides `budget.approval_wait` |
 | `--branches` | (`clean`) also delete the `jas/farm/<id>/*` branches |
 | `--trust-project` | load the project's context and `.jas/farm.yaml` without asking |
 
@@ -833,6 +834,7 @@ verdict. Merge the branch yourself and run the check.
 | `budget.per_worker_timeout` | 30m | wall-clock cap per part |
 | `budget.farm_timeout` | 2h | wall-clock cap for the farm |
 | `budget.requests_per_minute` | — | rate limit across workers |
+| `budget.approval_wait` | 0 | without a TTY, hold gated calls this long for an attached client; 0 holds them only while one is attached |
 | `board.max_rounds` | 3 | board message rounds |
 | `board.post_chars` / `board.deliver_chars` | 500 / 2000 | board message size caps |
 | `on_failure` | `drop` | `drop` a failed part or `abort` the farm |

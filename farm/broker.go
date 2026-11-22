@@ -185,6 +185,16 @@ func (b *Broker) Answer(id string, a Answer, by string) (ok bool, msg string) {
 	return false, "unknown approval"
 }
 
+// Closed reports how approval id closed: the answer as logged and who gave
+// it. ok is false while id is open or unknown. A close is recorded before a
+// withdrawn host's ctx is cancelled, so the host can read it at once.
+func (b *Broker) Closed(id string) (answer, by string, ok bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out, ok := b.closed[id]
+	return out.text, out.by, ok
+}
+
 // Pending returns the open approvals, oldest first.
 func (b *Broker) Pending() []ApprovalRequest {
 	b.mu.Lock()

@@ -30,6 +30,7 @@ type fakeFarmer struct {
 	feedback  []string
 	early     []farmEventMsg // played through the hooks inside Start
 	tasks     []string       // tasks given to Plan
+	b         *farm.Broker   // see broker
 }
 
 func newFakeFarmer() *fakeFarmer {
@@ -56,8 +57,8 @@ func (f *fakeFarmer) Discard(FarmPlan)                        { f.discarded = tr
 func (f *fakeFarmer) Start(_ context.Context, path, _ string, _ core.Level, h FarmHooks) (FarmRun, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.started, f.hooks = path, h
-	for _, ev := range f.early { // events a real farm logs before Start returns
+	f.started, f.hooks, f.b = path, h, nil // a new farm, a new broker
+	for _, ev := range f.early {           // events a real farm logs before Start returns
 		h.Event(ev.typ, ev.m)
 	}
 	return f.run, nil

@@ -220,6 +220,19 @@ func (m *Model) closeFarmApproval(text string) tea.Cmd {
 	return m.approvalDone(part)
 }
 
+// withdrawFarmApproval removes the farm prompt msg names, if it is still
+// the open one (an answer that raced the withdrawal already closed it). The
+// input box goes back to the owner; nothing is sent to the reply.
+func (m *Model) withdrawFarmApproval(msg approvalWithdrawnMsg) tea.Cmd {
+	a := m.approval
+	if a == nil || a.part == "" || a.reply != msg.reply {
+		return nil
+	}
+	m.approval = nil
+	m.input.Reset()
+	return m.approvalDone(a.part)
+}
+
 // dropFarmPrompts closes prompts that belong to a part that ended (part !=
 // "") or to a farm that ended (part == ""): approvals, and with a farm end
 // every farm question too.

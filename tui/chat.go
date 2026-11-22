@@ -244,6 +244,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onTick()
 	case approvalMsg:
 		return m, m.onApproval(msg)
+	case approvalWithdrawnMsg:
+		return m, m.withdrawFarmApproval(msg)
 	case farmPlannedMsg:
 		return m, m.onFarmPlanned(msg)
 	case farmEditedMsg:

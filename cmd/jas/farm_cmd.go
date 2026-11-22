@@ -78,7 +78,7 @@ func farmCmd(ctx context.Context, args []string) error {
 	if err != nil || !approved {
 		return err
 	}
-	return runPlan(ctx, e, path, false, pa.allowDirty)
+	return runPlan(ctx, e, path, false, pa.allowDirty, nil)
 }
 
 // parsePlanArgs reads flags and the single task, accepting flags on either

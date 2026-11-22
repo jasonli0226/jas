@@ -311,25 +311,14 @@ func (m *Model) onFarmMsg(fm farmMsg) tea.Cmd {
 func (m *Model) farmHooks(gen int) FarmHooks {
 	raw := m.send
 	send := func(msg tea.Msg) { raw(farmMsg{gen: gen, msg: msg}) }
-	grants := core.NewGrants(m.o.Windows) // "always for this farm" ends with it
 	return FarmHooks{
 		Event:  func(typ string, data map[string]any) { send(farmEventMsg{typ: typ, m: data}) },
 		Worker: func(part string) core.UI { return farmBridge{part: part, send: send} },
 		Undelivered: func(part string, texts []string) {
 			send(farmUndeliveredMsg{part: part, texts: texts})
 		},
-		Gate: func(part, approve string) (core.Gate, error) {
-			level := m.gate.Level()
-			if approve != "" {
-				l, err := core.ParseLevel(approve)
-				if err != nil {
-					return nil, err
-				}
-				level = l
-			}
-			return m.gate.ForPart(part, level, grants), nil
-		},
-		Ask: farmAsker(raw),
+		Host: m.gate.FarmHost, // grants live in the farm's broker
+		Ask:  farmAsker(raw),
 	}
 }
 
