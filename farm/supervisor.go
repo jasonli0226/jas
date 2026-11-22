@@ -261,6 +261,9 @@ func (s *Supervisor) handle(st *sched, e attemptEnd, abort context.CancelFunc) {
 	case endFailed:
 		st.status[e.id] = StatusFailed
 		ended["reason"] = e.reason
+		if e.detail != "" {
+			ended["detail"] = e.detail
+		}
 	}
 	ended["status"] = st.status[e.id]
 	s.setPart(e.id, func(ps *PartState) {

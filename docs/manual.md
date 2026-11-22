@@ -888,6 +888,10 @@ tracked files under them still commit. Other build output (`dist/`) is
 committed unless ignored, so workers are told to add a `.gitignore` inside
 their owned paths when they create it.
 
+A failed part's line gives its reason and the first line of the error
+(`[a] failed: error (start worker session: ...)`); `part_ended` in
+`farm.jsonl` carries the full text as `detail`.
+
 When the farm ends, a terminal asks `[m]erge`, `[k]eep` (branches only) or
 `[d]iscard` (deletes the farm branches); a failed part asks retry, drop or
 abort. Answer with the word or the start of one (`d`, `disc`, `discard`), in
@@ -924,7 +928,7 @@ verdict. Merge the branch yourself and run the check.
 | `board.post_chars` / `board.deliver_chars` | 500 / 2000 | board message size caps |
 | `on_failure` | `drop` | `drop` a failed part or `abort` the farm |
 | `models.planner`, `models.integrator` | session model | models for those roles |
-| `roles.<name>` | — | custom roles: `tools`, `writes`, `prompt`, `approve`, `model`, `budget` |
+| `roles.<name>` | — | custom roles: `tools`, `writes`, `prompt`, `approve`, `model`, `budget`. `tools` names built-in tools (`read`, `grep`, `ls`, `write`, `edit`, `shell`, …); a role naming any other is unavailable (`unknown tool "<name>"`) and a plan using it is refused (exit 2) |
 
 Full design:
 [farm spec](superpowers/specs/2026-11-02-farm-design.md).

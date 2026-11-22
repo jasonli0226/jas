@@ -321,6 +321,15 @@ func TestSupervisor_FailureNoTTYDrop(t *testing.T) {
 	if ps := r.part("b"); ps.Status != StatusDropped {
 		t.Fatalf("b %+v", ps)
 	}
+	var detail any
+	for _, e := range r.events(t, EvPartEnded) {
+		if e["part"] == "a" {
+			detail = e["detail"]
+		}
+	}
+	if d, _ := detail.(string); !strings.Contains(d, "boom") {
+		t.Fatalf("part_ended detail %q, want the error", detail)
+	}
 	if len(r.events(t, EvOwnerDecision)) == 0 {
 		t.Fatal("no owner_decision for on_failure")
 	}
