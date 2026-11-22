@@ -100,6 +100,24 @@ func (r *Reservation) Settle(used int) {
 	}
 }
 
+// tightest returns the capped pool in p's chain with the least room left,
+// and that room; nil when no pool in the chain has a limit.
+func (p *TokenPool) tightest() (*TokenPool, int) {
+	var (
+		best *TokenPool
+		left int
+	)
+	for _, q := range p.chain() {
+		if q.limit <= 0 {
+			continue
+		}
+		if n := q.limit - q.Used(); best == nil || n < left {
+			best, left = q, n
+		}
+	}
+	return best, left
+}
+
 // Used returns settled tokens plus outstanding reservations.
 func (p *TokenPool) Used() int {
 	p.mu.Lock()

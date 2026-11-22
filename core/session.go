@@ -430,6 +430,9 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		return true, endContextFull, ExitContextFull, "context window full"
 	}
 	w := s.turnWrapUp(m)
+	if w == nil {
+		w = s.earlyWrapUp()
+	}
 	msg, uses, err := s.request(ctx, m, w)
 	if tw := s.tokenWrapUp(err); w == nil && tw != nil {
 		w = tw
@@ -458,6 +461,9 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 	// A reply cut off at the output cap is not an answer, though it has no
 	// tool calls (#194).
 	cut := len(uses) == 0 && m.finish == finishLength
+	if w != nil && cut && w.reason == wrapTokens {
+		return s.wrapCutOff(m, w, msg)
+	}
 	if w != nil && !cut {
 		return s.wrapEnd(m, w, msg, uses)
 	}
@@ -523,14 +529,19 @@ func (s *Session) inject() {
 	s.note(s.c.Log.Append(EvInjected, data))
 }
 
+// newRequest is the next ordinary request over the current history.
+func (s *Session) newRequest() providers.Request {
+	return providers.Request{
+		Model: s.model, System: s.c.System, Tools: s.c.Exec.Reg.Specs(),
+		Messages: slices.Clone(s.messages), MaxTokens: s.outputCap(),
+	}
+}
+
 // request streams one model request over the current history, showing its
 // output and recording its usage. A non-nil w makes it the wrap-up request.
 func (s *Session) request(ctx context.Context, m *msgState, w *wrapUp) (providers.Message, []providers.ContentBlock, error) {
 	c := s.c
-	req := providers.Request{
-		Model: s.model, System: c.System, Tools: c.Exec.Reg.Specs(),
-		Messages: slices.Clone(s.messages), MaxTokens: s.outputCap(),
-	}
+	req := s.newRequest()
 	if w != nil {
 		req = wrapRequest(req, w)
 	}

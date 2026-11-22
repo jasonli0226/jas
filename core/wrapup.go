@@ -60,13 +60,51 @@ func (s *Session) tokenWrapUp(err error) *wrapUp {
 	if !s.c.WrapUp || !errors.As(err, &be) {
 		return nil
 	}
-	prompt := be.Want - s.outputCap()
+	return tokenWrap(be, be.Want-s.outputCap())
+}
+
+// earlyWrapUp makes the next request the token wrap-up when the room it
+// would leave under the token cap is less than wrapReserve, so a model that
+// reasons before it answers still has a full output cap for the answer
+// (#219). nil when WrapUp is off, there is no cap, or there is room.
+func (s *Session) earlyWrapUp() *wrapUp {
+	if !s.c.WrapUp || s.c.Tokens == nil {
+		return nil
+	}
+	pool, left := s.c.Tokens.tightest()
+	if pool == nil {
+		return nil
+	}
+	est := s.estimate(s.newRequest())
+	if left-est >= s.wrapReserve() {
+		return nil
+	}
+	be := &BudgetError{Pool: pool.name, Limit: pool.limit, Used: pool.limit - left, Want: est}
+	return tokenWrap(be, est-s.outputCap())
+}
+
+// tokenWrap is the token wrap-up for cap be and a request whose prompt is
+// about prompt tokens, or nil when the room left is under minWrapOutput.
+func tokenWrap(be *BudgetError, prompt int) *wrapUp {
 	room := be.Limit - be.Used - prompt - len(wrapNoteTokens)/bytesPerToken - wrapNoteSlack
 	if room < minWrapOutput {
 		return nil
 	}
 	return &wrapUp{reason: wrapTokens, maxTokens: room, budget: be}
 }
+
+// wrapReserve is the output room an early token wrap-up holds back: the
+// output cap, or defaultWrapReserve when none is sent.
+func (s *Session) wrapReserve() int {
+	if n := s.outputCap(); n > 0 {
+		return n
+	}
+	return defaultWrapReserve
+}
+
+// defaultWrapReserve is wrapReserve without an output cap; reasoning models
+// can spend tens of thousands of tokens before the answer.
+const defaultWrapReserve = 32000
 
 // wrapNoteSlack covers the estimate's rounding of the note's message.
 const wrapNoteSlack = 16
@@ -88,6 +126,16 @@ func wrapRequest(req providers.Request, w *wrapUp) providers.Request {
 	}
 	req.Messages = msgs
 	return req
+}
+
+// wrapCutOff ends the turn after a token wrap-up reply cut off at its output
+// cap: the budget ran out, so the run ends at the token cap it stood in for
+// (exit 7), not at max_output_tokens (#219).
+func (s *Session) wrapCutOff(m *msgState, w *wrapUp, msg providers.Message) (bool, string, int, string) {
+	s.push(msg, s.logAssistant(msg, false, m.finish))
+	m.final = textOf(msg)
+	_, st, code, reason := s.budgetStopped(w.budget)
+	return true, st, code, reason
 }
 
 // wrapEnd ends the turn after the wrap-up reply. An answer ends it ok; tool
