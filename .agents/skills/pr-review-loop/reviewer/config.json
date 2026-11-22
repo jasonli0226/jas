@@ -1,5 +1,10 @@
 {
   "model": "openrouter/z-ai/glm-5.3",
   "approve": "never",
-  "max_output_tokens": 48000
+  "max_output_tokens": 48000,
+  "elide_at": 0.25,
+  "keep_tool_results": 8,
+  "models": {
+    "openrouter/z-ai/glm-5.3": {"context_window": 128000}
+  }
 }
