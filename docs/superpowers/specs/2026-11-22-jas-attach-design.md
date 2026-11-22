@@ -100,7 +100,11 @@ Owner picked B (2026-11-22).
   farm is still running (`farm status` picks the newest). PR 1 adds a lock
   file `<jas home>/run/<farm-id>.lock`, held by the farm process for its
   lifetime with the existing `core.LockPath` (a held OS lock, released on
-  exit or crash), with the pid written in it for display. "Running" means
+  exit or crash). `LockPath` writes nothing: the farm writes its pid into
+  the file after taking the lock, for display. Attach probes liveness by
+  taking the lock and releasing it at once; so that a probe never makes a
+  starting farm fail, the farm retries `ErrLocked` briefly (for example 3
+  times, 100 ms apart) before treating it as fatal. "Running" means
   the lock is held; otherwise the farm has ended or died, and attach shows
   its final state from the files and exits. A crashed farm and a finished
   one differ by whether `farm.jsonl` has `farm_ended`. In PR 2 the socket
@@ -149,7 +153,7 @@ it. (Builder: exact field names.) Commands:
 | `steer {part, text}` | `Handle.Steer` | ok, or `part not running` |
 | `pause` / `resume` / `drop {part}` | `Handle.Pause` / `Resume` / `Drop` | ok / error text |
 | `stop {hard}` | `Handle.Stop` | ok |
-| `approve {approval_id, answer}` | answer a pending approval: `yes`, `no`, `always_part`, `always_farm` (the existing options) | ok, or `already answered (<answer>, by <source>)`, or `unknown approval` |
+| `approve {approval_id, answer}` | answer a pending approval with one of the existing options (yes, no, always for this part, always for this farm), named as the chat prompt and manual already name them | ok, or `already answered (<answer>, by <source>)`, or `unknown approval` |
 
 Every command is an `owner_decision` in `farm.jsonl` with
 `source: "attach"` (and the existing fields), as the chat's are.
@@ -174,13 +178,35 @@ printed by the farm's own host (terminal or chat) as today, and recorded as
   (when interactive), the chat's inline prompt (chat-hosted farm), and every
   attached client (pushed notice). The first answer is applied; the others
   are told `already answered (<answer>, by <source>)` and their prompt is
-  withdrawn (chat and TTY prompts close themselves; builder: how the TTY
-  prompt is cancelled). Late or duplicate answers to a closed id change
-  nothing.
+  withdrawn (see Withdrawing a prompt). Late or duplicate answers to a
+  closed id change nothing.
 - `approval_closed {approval_id, answer, by}` is pushed to clients and the
   existing `approval` event is logged with the decision and `by`.
-- `always_part` / `always_farm` keep today's meaning (never outlive the
+- The "always" options keep today's meaning (never outlive the
   farm).
+
+**Withdrawing a prompt (builder check: a landmine, designed here).** Today
+`core.Approver` starts a reader goroutine per prompt that cannot be
+interrupted: after a cancel it stays blocked on stdin, holding the
+approver's mutex, until a line arrives (`core/approve.go:109`). That is fine
+only because a cancelled run ends the process. With attach the process keeps
+running, so a withdrawn prompt would leave that goroutine waiting: the next
+prompt blocks on the mutex, and the owner's next line is swallowed by the
+withdrawn prompt. So the farm's TTY gets **one persistent line reader** for
+the process (started with the farm's approvals, reading stdin into a
+channel), and prompts consume lines from it instead of reading stdin
+themselves:
+- A line is applied to the prompt that was on screen when the line was
+  read. A line read after that prompt was withdrawn is never passed to the
+  next prompt: the next prompt is printed only after the withdrawal line
+  (`[backend-api] [a3] answered from attach: yes`), and a line attributed to
+  a closed prompt gets `already answered` like any late answer.
+- Prompts outside farms (`jas run`, chat) keep today's reader; the change
+  is limited to the farm's TTY approvals.
+- The chat's inline approval prompt is model state, not a reader: the chat
+  host withdraws it by a message sent through `Program.Send` from the
+  farm's goroutine (never from `Update`), after which a key press for it is
+  ignored.
 
 **Unattended farms (owner, 2026-11-22: wait, with a timeout).** Applies to a
 farm with no interactive TTY (detached `jas farm run`, CI):
@@ -243,10 +269,12 @@ prints as `[backend-api] approve [a3] shell: npm install zod (y/n/a/A)`.
 ### Events (new)
 
 - Part log: `approval_requested {approval_id, call_id, tool, summary}`;
-  existing `approval` gains `approval_id` and `by`.
+  existing `approval` gains `approval_id` and `by`. `summary` is redacted
+  exactly as the logged call is (the deny floor and redaction apply;
+  nothing appears in it that the `tool_started` args would not show).
 - `farm.jsonl`: `owner_decision` with `source: "attach"`;
-  `attach_connected` / `attach_disconnected {client}` (builder: whether
-  these are worth logging; useful for the "no_client" refusals).
+  `attach_connected` / `attach_disconnected {client}` (logged: they explain
+  `no_client` refusals).
 
 ## Tests (no live model)
 
@@ -265,13 +293,23 @@ prints as `[backend-api] approve [a3] shell: npm install zod (y/n/a/A)`.
 - Steering: delivered at turn boundary; part finishes first → text returned
   to the sending client; client gone → host prints it.
 - Supervisor death: client sees `farm process ended`, falls back to files.
-- CI regression: `jas farm run --json` without TTY, no client: event
-  sequence and exit code identical to today.
+- CI regression: `jas farm run --json` without TTY, no client: stdout and
+  `farm.jsonl` event sequence and exit code identical to today. The part
+  logs differ by one intended line per gated call (`approval_requested`,
+  logged before the refusal); the test names that diff.
+- Prompt withdrawal: TTY prompt open → answered from attach → the
+  withdrawal line prints, and the next approval still prompts and receives
+  its own answer (no swallowed line, no blocked mutex). Same for the chat
+  prompt.
+- Timeout wins: `per_worker_timeout` fires while a call is held → the part
+  ends by that timeout (its usual status, reason and exit code), not
+  `approval_needed`.
+- Lock probe: attach probing while a farm starts → the farm still starts
+  (retry), and attach sees it running.
 
 ## Left to the builder
 
 - Socket protocol field names and version field; client command syntax.
 - File following mechanism (poll interval) and replay line count.
-- How the TTY approval prompt is withdrawn when another answer wins.
 - Setting name for the approval wait window.
-- Whether `attach_connected` / `attach_disconnected` are logged.
+- Exact retry counts for the lock probe.
