@@ -238,6 +238,11 @@ prints each one, those pending when it connects and those that open later:
 [backend-api] approve [a3] shell: npm install zod (y/n/always/farm)
 ```
 
+Attach shows the tool and its one-line summary (the command, or the path
+for a write or edit), not the diff: only the farm's own terminal and the
+chat show a write's preview. When the summary is not enough to decide,
+answer `n`, or answer from the farm's own terminal.
+
 The first answer wins, whether from the farm's own terminal (chat
 `/farm` approvals) or any attach client. A late answer prints
 `already answered (<answer>, by <source>)`; an id that is not pending prints

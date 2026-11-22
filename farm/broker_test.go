@@ -188,6 +188,9 @@ func TestBroker_HostAnswers(t *testing.T) {
 	assert.Eq(t, evs[0].data["approval_id"], any("a1"))
 	assert.Eq(t, evs[0].data["tool"], any("shell"))
 	assert.Eq(t, evs[0].data["summary"], any("go test ./..."))
+	if _, has := evs[0].data["call_id"]; has {
+		t.Fatalf("approval_requested carries call_id, which nothing sets: %+v", evs[0].data)
+	}
 	assert.Eq(t, evs[1].typ, EvApprovalClosed)
 	assert.Eq(t, evs[1].data["approval_id"], any("a1"))
 	assert.Eq(t, evs[1].data["answer"], any("yes"))
@@ -468,10 +471,10 @@ func TestBroker_SlowSubscriberNeverBlocks(t *testing.T) {
 }
 
 func TestBroker_RequestJSON(t *testing.T) {
-	r := ApprovalRequest{ID: "a1", Part: "p", CallID: "c", Tool: "shell", Summary: "s", Diff: &core.Diff{Path: "x"}}
+	r := ApprovalRequest{ID: "a1", Part: "p", Tool: "shell", Summary: "s", Diff: &core.Diff{Path: "x"}}
 	out, err := json.Marshal(r)
 	assert.NoErr(t, err)
-	assert.JSONEq(t, string(out), `{"id":"a1","part":"p","call_id":"c","tool":"shell","summary":"s"}`)
+	assert.JSONEq(t, string(out), `{"id":"a1","part":"p","tool":"shell","summary":"s"}`)
 }
 
 // A host withdrawn by another answer can read who answered: the close is

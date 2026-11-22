@@ -84,7 +84,6 @@ func (a Answer) String() string {
 type ApprovalRequest struct {
 	ID      string     `json:"id"`
 	Part    string     `json:"part"`
-	CallID  string     `json:"call_id"` // empty: core.Gate carries no call id
 	Tool    string     `json:"tool"`
 	Summary string     `json:"summary"` // core.SummarizeCall of the redacted args
 	Diff    *core.Diff `json:"-"`       // display only; nil when none
@@ -424,7 +423,7 @@ func (g *brokerGate) Allow(ctx context.Context, t core.Tool, args json.RawMessag
 		req.Diff = preview()
 	}
 	if err := g.append(EvApprovalRequested, map[string]any{
-		"approval_id": req.ID, "call_id": req.CallID, "tool": req.Tool, "summary": req.Summary,
+		"approval_id": req.ID, "tool": req.Tool, "summary": req.Summary,
 	}); err != nil {
 		return core.Denied, err
 	}

@@ -325,7 +325,7 @@ and notes the dream suggests promoting to the profile.
 Farm events. In a part's log (`parts/<part>/`):
 
 **`approval_requested`** — a gated call is waiting for an answer:
-`approval_id`, `call_id`, `tool`, `summary`.
+`approval_id`, `tool`, `summary`.
 
 **`approval_closed`** — it was settled: `approval_id`, `answer` (`yes`,
 `no`, `always`, `farm`, `refused`, `cancelled`) and `by`: `host` (the farm's
