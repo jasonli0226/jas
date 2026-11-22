@@ -29,7 +29,7 @@ set -euo pipefail
 readonly MAX_TOKENS=1500000
 readonly MAX_TURNS=40 # the pr-review skill budgets against this
 readonly REFORMAT_TIMEOUT=5m # the one-turn rewrite of an unformatted review
-readonly REFORMAT_MAX=100000 # bytes of the unformatted review passed to the rewrite
+readonly REFORMAT_MAX=100000 # bytes from the end of the reviewer output (its answer comes last) passed to the rewrite
 readonly TIMEOUT=30m # GLM reviews of script-heavy PRs can take over 15 minutes
 readonly PROFILE=reviewer
 readonly MARKER=jas-review
@@ -330,7 +330,7 @@ The last line is exactly VERDICT: CHANGES when any finding is high or medium, ot
 
 The review:
 
-$(no_markers <"$work/out" | head -c "$REFORMAT_MAX")"
+$(tail -c "$REFORMAT_MAX" "$work/out" | no_markers)"
 	set +e
 	(cd "$work/tree" && "${sandbox[@]}" \
 		jas run --profile "$PROFILE" --max-turns 1 --wrap-up --timeout "$REFORMAT_TIMEOUT" \

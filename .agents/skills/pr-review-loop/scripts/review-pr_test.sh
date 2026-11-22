@@ -78,7 +78,9 @@ fi
 printf '%s\n' "\$@" >"$tmp/jas-args"
 cat "\$JAS_HOME/profiles/reviewer/AGENTS.md" >"$tmp/jas-agents"
 if [[ -e $tmp/jas-unformatted ]]; then
-	printf '### Findings\n\n1. **[Moderate]** a/a.go:3 — x.\n\n**Verdict: request changes.**\n'
+	# jas run streams every turn; the answer comes last, after 200 KB of turns.
+	head -c 200000 /dev/zero | tr '\\0' 'x' | fold -w 100
+	printf '\n### Findings\n\n1. **[Moderate]** a/a.go:3 — x.\n\n**Verdict: request changes.**\n'
 	exit 0
 fi
 printf '## Findings\n\nNone.\n\nVERDICT: PASS\n'
@@ -211,6 +213,7 @@ grep -qx -- '--max-turns' "$tmp/jas-reformat-args" && grep -qx -- '1' "$tmp/jas-
 	fail "the reformat run is not limited to one turn: $(cat "$tmp/jas-reformat-args")"
 grep -qx -- '--wrap-up' "$tmp/jas-reformat-args" || fail "the reformat run does not have tools off (--wrap-up)"
 grep -q 'Moderate' "$tmp/jas-reformat-args" || fail "the reformat run did not get the first answer"
+[[ $(wc -c <"$tmp/jas-reformat-args") -lt 110000 ]] || fail "the rewrite prompt is not capped"
 
 # main now ships an installer that fails; the installer is read from main's
 # tip, so the PR branch can stay as it is.
