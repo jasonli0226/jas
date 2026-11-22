@@ -53,6 +53,7 @@ type FarmHooks struct {
 	// Host is the farm broker's host asker on this chat, given the broker's
 	// record of closed approvals (farm.Broker.Closed); nil: unattended.
 	Host        func(closed func(id string) (answer, by string, ok bool)) farm.HostAsker
+	Granted     func(farm.GrantNotice) // the broker's OnGrant: what always/farm granted
 	Ask         func(prompt string, choices []string) (string, bool)
 	Undelivered func(part string, texts []string) // steering a part never read
 }

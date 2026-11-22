@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,8 @@ func (f *fakeFarmer) broker() *farm.Broker {
 	if f.b == nil {
 		var b *farm.Broker
 		b = farm.NewBroker(farm.BrokerOptions{Level: core.ShellOnly,
-			Host: f.hooks.Host(func(id string) (string, string, bool) { return b.Closed(id) })})
+			Host:    f.hooks.Host(func(id string) (string, string, bool) { return b.Closed(id) }),
+			OnGrant: f.hooks.Granted})
 		f.b = b
 	}
 	return f.b
@@ -30,15 +32,31 @@ func (f *fakeFarmer) broker() *farm.Broker {
 // arrives on the returned channel.
 func farmAllow(t *testing.T, f *fakeFarmer, part string) chan core.Decision {
 	t.Helper()
+	return farmAllowCall(t, f, part, toolNamed(t, "shell"), shellArgs("go test ./..."))
+}
+
+// farmAllowCall asks part's farm gate to allow a call to tl.
+func farmAllowCall(t *testing.T, f *fakeFarmer, part string, tl core.Tool, args json.RawMessage) chan core.Decision {
+	t.Helper()
 	g, err := f.broker().Gate(part, "", nil)
 	assert.NoErr(t, err)
 	ch := make(chan core.Decision, 1)
-	tl := toolNamed(t, "shell")
 	go func() {
-		d, _ := g.Allow(context.Background(), tl, shellArgs("go test ./..."), nil)
+		d, _ := g.Allow(context.Background(), tl, args, nil)
 		ch <- d
 	}()
 	return ch
+}
+
+func decision(t *testing.T, ch chan core.Decision) core.Decision {
+	t.Helper()
+	select {
+	case d := <-ch:
+		return d
+	case <-time.After(5 * time.Second):
+		t.Fatal("gate never returned")
+	}
+	return core.Denied
 }
 
 func (c *testChat) pumpApproval() {
@@ -228,4 +246,46 @@ func TestChatFarm_AttachAnswerClosesPrompt(t *testing.T) {
 	assert.Contains(t, c.m.approval.prompt, "[b] approve [a2]")
 	c.submit("n")
 	assert.Eq(t, <-next, core.Denied)
+}
+
+// Answering farm releases an identical call queued behind the prompt: it is
+// granted without being asked, and the grant is reported.
+func TestChatFarm_FarmGrantReleasesQueued(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	first := farmAllow(t, f, "a")
+	c.pumpApproval()
+	second := farmAllow(t, f, "b")
+	deadline := time.Now().Add(5 * time.Second)
+	for len(f.broker().Pending()) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("second call never pended")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	c.submit("farm")
+	assert.Eq(t, decision(t, first), core.Granted)
+	assert.Eq(t, decision(t, second), core.AutoGranted)
+	c.drain()
+	if c.m.approval != nil {
+		t.Fatalf("asked again: %+v", c.m.approval)
+	}
+	assert.Contains(t, c.printedText(), "[a] always: ")
+	assert.Contains(t, c.printedText(), "(covers any arguments)")
+}
+
+func TestChatFarm_GrantNotices(t *testing.T) {
+	c, f := farmWithAgents(t, Options{})
+	got := farmAllowCall(t, f, "a", toolNamed(t, "shell"), shellArgs("echo a; rm -rf b"))
+	c.pumpApproval()
+	c.submit("always")
+	assert.Eq(t, decision(t, got), core.Granted)
+	c.drain()
+	assert.Contains(t, c.printedText(), noGrantNotice)
+	write := core.AskAlways(toolNamed(t, "write"))
+	got = farmAllowCall(t, f, "a", write, json.RawMessage(`{"path":"skills/x/SKILL.md","content":"x"}`))
+	c.pumpApproval()
+	c.submit("always")
+	assert.Eq(t, decision(t, got), core.Granted)
+	c.drain()
+	assert.Contains(t, c.printedText(), mustAskNotice)
 }

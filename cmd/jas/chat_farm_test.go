@@ -253,8 +253,14 @@ func TestChatFarm_HostAsksThroughBroker(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			reqs = append(reqs, req)
-			return farm.AnswerYes, nil
+			return farm.AnswerFarm, nil
 		}
+	}
+	var grants []farm.GrantNotice
+	h.Granted = func(n farm.GrantNotice) {
+		mu.Lock()
+		defer mu.Unlock()
+		grants = append(grants, n)
 	}
 	run, err := f.Start(context.Background(), path, "m", core.ShellOnly, h)
 	assert.NoErr(t, err)
@@ -267,5 +273,8 @@ func TestChatFarm_HostAsksThroughBroker(t *testing.T) {
 		t.Fatalf("host asked %+v", reqs)
 	}
 	ans, by, ok := lookup(reqs[0].ID)
-	assert.Eq(t, [3]any{ans, by, ok}, [3]any{"yes", "host", true})
+	assert.Eq(t, [3]any{ans, by, ok}, [3]any{"farm", "host", true})
+	if len(grants) != 1 || grants[0].Kind != farm.GrantAdded {
+		t.Fatalf("grant notices %+v", grants)
+	}
 }

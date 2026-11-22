@@ -30,10 +30,10 @@ type (
 	noticeMsg struct{ s string }
 )
 
-const noGrantNotice = "this command can't get an always grant; allowed once"
+const noGrantNotice = farm.NoGrantNotice
 
 // mustAskNotice answers "always" on a must-ask call (core.MustAsk).
-const mustAskNotice = "writes to the profile's skills always ask; allowed once"
+const mustAskNotice = farm.MustAskNotice
 
 // Gate is the chat's core.Gate. Gated calls not covered by a session grant
 // are put to the user as an inline prompt. One Gate lives as long as the
@@ -209,7 +209,7 @@ func (g *Gate) AskFarm(ctx context.Context, part string, t core.Tool, args json.
 		diff = preview()
 	}
 	return g.askFarm(ctx, farm.ApprovalRequest{Part: part, Tool: t.Name(),
-		Summary: core.SummarizeCall(t.Name(), g.redactArgs(args)), Diff: diff}, nil)
+		Summary: core.SummarizeCall(t.Name(), g.redactArgs(args)), Diff: diff}, nil, nil)
 }
 
 // FarmHost is a farm broker's host asker on this chat: AskFarm's prompt for
@@ -218,7 +218,7 @@ func (g *Gate) AskFarm(ctx context.Context, part string, t core.Tool, args json.
 // attached client's answer withdraws the open prompt, the chat says so.
 func (g *Gate) FarmHost(closed func(id string) (answer, by string, ok bool)) farm.HostAsker {
 	return func(ctx context.Context, req farm.ApprovalRequest) (farm.Answer, error) {
-		text, err := g.askFarm(ctx, req, func() {
+		text, err := g.askFarm(ctx, req, closed, func() {
 			if ans, by, ok := closed(req.ID); ok && strings.HasPrefix(by, attachBy) {
 				g.send(noticeMsg{g.redact(fmt.Sprintf("[%s] [%s] answered from attach: %s",
 					core.Sanitize(req.Part), core.Sanitize(req.ID), ans))})
@@ -232,6 +232,12 @@ func (g *Gate) FarmHost(closed func(id string) (answer, by string, ok bool)) far
 	}
 }
 
+// FarmGranted prints what a farm part's always or farm answer granted (the
+// broker's OnGrant), as the chat's own grants are reported.
+func (g *Gate) FarmGranted(n farm.GrantNotice) {
+	g.send(noticeMsg{g.redact(n.Text())})
+}
+
 // attachBy prefixes the broker's "by" for an answer from an attached client.
 const attachBy = "attach:"
 
@@ -240,15 +246,26 @@ const attachBy = "attach:"
 // redacted here (the summary already is). ctx done with the prompt open
 // withdraws it, then runs withdrawn (nil: nothing) before the slot frees,
 // so anything it posts lands before the next prompt.
-func (g *Gate) askFarm(ctx context.Context, req farm.ApprovalRequest, withdrawn func()) (string, error) {
+//
+// With closed (a broker host), a request that closed while queued is never
+// shown, and after a reply the slot is kept until ctx ends: the broker
+// records the answer's grant (and releases the calls it covers) first.
+func (g *Gate) askFarm(ctx context.Context, req farm.ApprovalRequest, closed func(string) (string, string, bool), withdrawn func()) (string, error) {
 	select {
 	case g.ask <- struct{}{}:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
-	defer func() { <-g.ask }()
+	release := func() { <-g.ask }
 	if err := ctx.Err(); err != nil { // ended while queued: never shown
+		release()
 		return "", err
+	}
+	if closed != nil {
+		if _, _, done := closed(req.ID); done { // answered or granted while queued
+			release()
+			return "", context.Canceled
+		}
 	}
 	label := "[" + core.Sanitize(g.redact(req.Part)) + "]"
 	tool := core.Sanitize(g.redact(req.Tool))
@@ -272,8 +289,14 @@ func (g *Gate) askFarm(ctx context.Context, req farm.ApprovalRequest, withdrawn 
 		if withdrawn != nil {
 			withdrawn()
 		}
+		release()
 		return "", ctx.Err()
 	case text := <-reply:
+		if closed != nil {
+			go func() { <-ctx.Done(); release() }()
+		} else {
+			release()
+		}
 		return text, nil
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jasonli0226/jas/core"
@@ -20,11 +21,53 @@ const attachBy = "attach:"
 type farmTTY struct {
 	lr   *farm.LineReader
 	turn chan struct{} // held while a question is on screen, its withdrawal line included
+
+	mu    sync.Mutex
+	notes []string // lines waiting for the screen (never printed into a prompt)
 }
 
 // newFarmTTY starts the farm's one reader of in; prompts and notes go to out.
 func newFarmTTY(in io.Reader, out io.Writer) *farmTTY {
 	return &farmTTY{lr: farm.NewLineReader(in, out), turn: make(chan struct{}, 1)}
+}
+
+// note prints line once no question is on screen.
+func (t *farmTTY) note(line string) {
+	t.mu.Lock()
+	t.notes = append(t.notes, line)
+	t.mu.Unlock()
+	t.flushIfFree()
+}
+
+// flush prints the waiting notes; the caller holds the screen.
+func (t *farmTTY) flush() {
+	t.mu.Lock()
+	notes := t.notes
+	t.notes = nil
+	t.mu.Unlock()
+	for _, n := range notes {
+		t.lr.Note(n)
+	}
+}
+
+// flushIfFree prints waiting notes when the screen is free. Both note and
+// give call it after their own step, so no note is left behind.
+func (t *farmTTY) flushIfFree() {
+	for {
+		t.mu.Lock()
+		empty := len(t.notes) == 0
+		t.mu.Unlock()
+		if empty {
+			return
+		}
+		select {
+		case t.turn <- struct{}{}:
+			t.flush()
+			<-t.turn
+		default:
+			return // the holder flushes when it gives the screen back
+		}
+	}
 }
 
 // take waits for the screen, or fails (not holding it) when ctx ends
@@ -36,13 +79,19 @@ func (t *farmTTY) take(ctx context.Context) error {
 			t.give()
 			return err
 		}
+		t.flush()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
-func (t *farmTTY) give() { <-t.turn }
+// give prints waiting notes and frees the screen.
+func (t *farmTTY) give() {
+	t.flush()
+	<-t.turn
+	t.flushIfFree()
+}
 
 // ask puts a farm question (see farmAsk); the screen is held across a
 // re-ask so no approval prompt lands between them.
@@ -75,7 +124,9 @@ type closedFunc func(id string) (answer, by string, ok bool)
 // The broker passes the tool name and diff path raw, so they are redacted
 // here (nil redact is identity). An empty or unknown answer is no. When
 // another answer withdraws the prompt, the attach answer is printed before
-// any later question.
+// any later question. A request that closed while it waited for the screen
+// is never shown, and after an answer the screen is kept until ctx ends, so
+// the broker records any grant (and releases the calls it covers) first.
 func (t *farmTTY) approver(redact func(string) string, closed closedFunc) farm.HostAsker {
 	if redact == nil {
 		redact = func(s string) string { return s }
@@ -84,14 +135,21 @@ func (t *farmTTY) approver(redact func(string) string, closed closedFunc) farm.H
 		if err := t.take(ctx); err != nil {
 			return farm.AnswerNo, err
 		}
-		defer t.give()
+		if closed != nil {
+			if _, _, done := closed(req.ID); done { // answered or granted while it waited
+				t.give()
+				return farm.AnswerNo, context.Canceled
+			}
+		}
 		line, err := t.lr.Ask(ctx, approvalPrompt(req, redact))
 		if err != nil {
 			if ctx.Err() != nil {
 				t.withdrawn(req, redact, closed)
 			}
+			t.give()
 			return farm.AnswerNo, err
 		}
+		go func() { <-ctx.Done(); t.give() }()
 		ans, _ := farm.ParseAnswer(line)
 		return ans, nil
 	}
@@ -137,4 +195,13 @@ func brokerOptions(level core.Level, redact func(string) string, cfg farm.Config
 		wait = *flagWait
 	}
 	return farm.BrokerOptions{Level: level, Host: host, Wait: wait, Windows: windowsGrants, Redact: redact}
+}
+
+// granted is the broker's OnGrant on this terminal: the chat's grant
+// notices, printed once no question is on screen.
+func (t *farmTTY) granted(redact func(string) string) func(farm.GrantNotice) {
+	if redact == nil {
+		redact = func(s string) string { return s }
+	}
+	return func(n farm.GrantNotice) { t.note(core.Sanitize(redact(n.Text()))) }
 }

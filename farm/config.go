@@ -272,6 +272,9 @@ func apply(cfg *Config, f fileCfg, vars map[string][]string) error {
 		if err != nil {
 			return fmt.Errorf("budget.%s: %w", d.name, err)
 		}
+		if v < 0 && d.name == "approval_wait" { // a negative hold would wait the default window
+			return fmt.Errorf("budget.%s: %s is negative", d.name, *d.src)
+		}
 		*d.dst = v
 	}
 	set(&cfg.Board.MaxRounds, f.Board.MaxRounds)

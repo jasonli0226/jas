@@ -209,4 +209,9 @@ func TestConfig_ApprovalWait(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "budget.approval_wait") {
 		t.Fatalf("err %v, want a budget.approval_wait error", err)
 	}
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "budget:\n  approval_wait: -1m\n")
+	_, _, err = LoadConfig(root, home, true)
+	if err == nil || !strings.Contains(err.Error(), "budget.approval_wait") || !strings.Contains(err.Error(), "negative") {
+		t.Fatalf("err %v, want a negative budget.approval_wait error", err)
+	}
 }

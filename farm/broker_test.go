@@ -144,15 +144,18 @@ func mustGate(t *testing.T, b *Broker, part string, log core.EventLog) core.Gate
 func TestBroker_ParseAnswer(t *testing.T) {
 	for in, want := range map[string]Answer{
 		"y": AnswerYes, "YES": AnswerYes, "n": AnswerNo, "No": AnswerNo, "": AnswerNo,
-		"always": AnswerAlways, "a": AnswerAlways, "farm": AnswerFarm, " F ": AnswerFarm,
+		"always": AnswerAlways, " Always ": AnswerAlways, "farm": AnswerFarm, " FARM ": AnswerFarm,
 	} {
 		got, ok := ParseAnswer(in)
 		if !ok || got != want {
 			t.Errorf("ParseAnswer(%q) = %v, %v; want %v", in, got, ok, want)
 		}
 	}
-	if _, ok := ParseAnswer("maybe"); ok {
-		t.Error("ParseAnswer(maybe) ok")
+	// A stray key never makes a standing grant: a and f are unknown (no).
+	for _, in := range []string{"maybe", "a", "f", "A", "F"} {
+		if got, ok := ParseAnswer(in); ok || got != AnswerNo {
+			t.Errorf("ParseAnswer(%q) = %v, %v; want no, unknown", in, got, ok)
+		}
 	}
 	for a, s := range map[Answer]string{AnswerYes: "yes", AnswerNo: "no", AnswerAlways: "always", AnswerFarm: "farm"} {
 		assert.Eq(t, a.String(), s)
@@ -503,4 +506,140 @@ func TestBroker_ClosedSeenByWithdrawnHost(t *testing.T) {
 	}
 	_, _, ok := b.Closed("a9")
 	assert.Eq(t, ok, false)
+}
+
+// slotHost is a chat-like host: one prompt at a time, the slot kept until
+// the broker is done with the call (its ctx ends), and nothing shown for a
+// request that closed while it waited. The first prompt gets first.
+type slotHost struct {
+	b       *Broker
+	slot    chan struct{}
+	first   Answer
+	mu      sync.Mutex
+	prompts []string
+}
+
+func (h *slotHost) ask(ctx context.Context, req ApprovalRequest) (Answer, error) {
+	select {
+	case h.slot <- struct{}{}:
+	case <-ctx.Done():
+		return AnswerNo, ctx.Err()
+	}
+	if _, _, closed := h.b.Closed(req.ID); closed {
+		<-h.slot
+		return AnswerNo, context.Canceled
+	}
+	h.mu.Lock()
+	h.prompts = append(h.prompts, req.Part)
+	n := len(h.prompts)
+	h.mu.Unlock()
+	go func() { <-ctx.Done(); <-h.slot }()
+	if n == 1 {
+		return h.first, nil
+	}
+	return AnswerNo, nil
+}
+
+func (h *slotHost) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.prompts)
+}
+
+// A farm answer releases an identical call already waiting for the host:
+// it closes as granted without a prompt.
+func TestBroker_FarmGrantReleasesPending(t *testing.T) {
+	for _, ans := range []Answer{AnswerFarm, AnswerAlways} {
+		h := &slotHost{slot: make(chan struct{}, 1), first: ans}
+		h.b = NewBroker(BrokerOptions{Level: core.ShellOnly, Host: h.ask})
+		parts := []string{"p1", "p2"}
+		if ans == AnswerAlways { // always covers only the same part
+			parts = []string{"p1", "p1"}
+		}
+		logs := []*recLog{{}, {}}
+		g1, g2 := mustGate(t, h.b, parts[0], logs[0]), mustGate(t, h.b, parts[1], logs[1])
+		if ans == AnswerAlways { // one part's session: one gate, two parallel calls
+			g2, logs = g1, logs[:1]
+		}
+		h.slot <- struct{}{} // both calls pend before anyone is asked
+		r1 := allowAsync(context.Background(), g1, shellTool, goTest)
+		r2 := allowAsync(context.Background(), g2, shellTool, goTest)
+		deadline := time.Now().Add(5 * time.Second)
+		for len(h.b.Pending()) < 2 {
+			if time.Now().After(deadline) {
+				t.Fatal("calls never pended")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		<-h.slot
+		d1, d2 := waitResult(t, r1).d, waitResult(t, r2).d
+		if !(d1 == core.Granted && d2 == core.AutoGranted || d1 == core.AutoGranted && d2 == core.Granted) {
+			t.Fatalf("%v: decisions %v %v, want one granted and one auto", ans, d1, d2)
+		}
+		assert.Eq(t, h.count(), 1)
+		var byGrant int
+		for _, l := range logs {
+			for _, e := range l.events() {
+				if e.typ == EvApprovalClosed && e.data["by"] == "grant" {
+					byGrant++
+					assert.Eq(t, e.data["answer"], any("yes"))
+				}
+			}
+		}
+		assert.Eq(t, byGrant, 1)
+	}
+}
+
+// An always for another part does not release a call: always is per part.
+func TestBroker_AlwaysKeepsOtherPartPending(t *testing.T) {
+	h := &slotHost{slot: make(chan struct{}, 1), first: AnswerAlways}
+	h.b = NewBroker(BrokerOptions{Level: core.ShellOnly, Host: h.ask})
+	h.slot <- struct{}{}
+	r1 := allowAsync(context.Background(), mustGate(t, h.b, "p1", nil), shellTool, goTest)
+	r2 := allowAsync(context.Background(), mustGate(t, h.b, "p2", nil), shellTool, goTest)
+	for len(h.b.Pending()) < 2 {
+		time.Sleep(time.Millisecond)
+	}
+	<-h.slot
+	waitResult(t, r1)
+	waitResult(t, r2)
+	assert.Eq(t, h.count(), 2)
+}
+
+// The broker reports what an always or farm answer granted, for the host
+// to print the notices the chat printed.
+func TestBroker_GrantNotices(t *testing.T) {
+	var mu sync.Mutex
+	var got []GrantNotice
+	h := &countHost{a: AnswerAlways}
+	b := NewBroker(BrokerOptions{Level: core.ShellOnly, Host: h.ask, OnGrant: func(n GrantNotice) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, n)
+	}})
+	g := mustGate(t, b, "api", nil)
+	ctx := context.Background()
+	_, _ = g.Allow(ctx, shellTool, goTest, nil)
+	_, _ = g.Allow(ctx, shellTool, json.RawMessage(`{"command":"echo a; rm -rf b"}`), nil)
+	write := core.AskAlways(brokerTool{name: "write", kind: core.Mutating})
+	_, _ = g.Allow(ctx, write, json.RawMessage(`{"path":"skills/x/SKILL.md"}`), nil)
+	h.a = AnswerYes
+	_, _ = g.Allow(ctx, shellTool, json.RawMessage(`{"command":"ls"}`), nil) // yes: no grant notice
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 3 {
+		t.Fatalf("notices %+v", got)
+	}
+	assert.Eq(t, got[0].Kind, GrantAdded)
+	assert.Eq(t, got[0].Part, "api")
+	assert.Eq(t, got[0].Text(), "[api] always: "+got[0].Grant+" (covers any arguments)")
+	if got[0].Grant == "" {
+		t.Fatal("no grant pattern")
+	}
+	assert.Eq(t, got[1].Kind, GrantNone)
+	assert.Eq(t, got[1].Text(), NoGrantNotice)
+	assert.Eq(t, got[2].Kind, GrantMustAsk)
+	assert.Eq(t, got[2].Text(), MustAskNotice)
+	assert.Eq(t, NoGrantNotice, "this command can't get an always grant; allowed once")
+	assert.Eq(t, MustAskNotice, "writes to the profile's skills always ask; allowed once")
 }

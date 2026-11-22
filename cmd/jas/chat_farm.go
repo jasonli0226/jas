@@ -262,7 +262,9 @@ func (f *chatFarmer) Start(ctx context.Context, planPath, model string, level co
 	if h.Host != nil {
 		host = h.Host(func(id string) (string, string, bool) { return broker.Closed(id) })
 	}
-	broker = farm.NewBroker(brokerOptions(level, e.red.Redact, cfg, nil, host))
+	bo := brokerOptions(level, e.red.Redact, cfg, nil, host)
+	bo.OnGrant = h.Granted
+	broker = farm.NewBroker(bo)
 	opts.Broker = broker
 	if h.Worker != nil {
 		opts.WorkerUI = func(part string) core.UI { return core.NewRedactingUI(h.Worker(part), e.red.Redact) }

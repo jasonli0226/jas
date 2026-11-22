@@ -68,6 +68,9 @@ func parseFarmRunArgs(args []string) (farmRunArgs, error) {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})
+	if ra.approvalWait != nil && *ra.approvalWait < 0 {
+		return ra, usageErr("--approval-wait: %s is negative", *ra.approvalWait)
+	}
 	return ra, nil
 }
 
@@ -103,13 +106,18 @@ func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty b
 		ask    func(string, []string) (string, bool)
 		host   farm.HostAsker
 		broker *farm.Broker
+		tty    *farmTTY
 	)
 	if e.interactive {
-		tty := newFarmTTY(e.stdin, os.Stderr)
+		tty = newFarmTTY(e.stdin, os.Stderr)
 		ask = farmAsk(ctx, tty)
 		host = tty.approver(e.red.Redact, func(id string) (string, string, bool) { return broker.Closed(id) })
 	}
-	broker = farm.NewBroker(brokerOptions(e.level, e.red.Redact, cfg, approvalWait, host))
+	bo := brokerOptions(e.level, e.red.Redact, cfg, approvalWait, host)
+	if tty != nil {
+		bo.OnGrant = tty.granted(e.red.Redact)
+	}
+	broker = farm.NewBroker(bo)
 	code, reason, err := farm.RunFarm(ctx, farm.RunOptions{
 		PlanPath: planPath, Home: e.home, Main: e.root, JSON: jsonOut, AllowDirty: allowDirty,
 		Stdout: os.Stdout, Stderr: os.Stderr, Ask: ask,

@@ -93,6 +93,26 @@ func TestFarmRun_ApprovalWaitFlag(t *testing.T) {
 	if _, err := parseFarmRunArgs([]string{"plan.yaml", "--approval-wait", "soon"}); err == nil {
 		t.Fatal("want a usage error for a bad duration")
 	}
+	if _, err := parseFarmRunArgs([]string{"plan.yaml", "--approval-wait", "-1m"}); err == nil || !strings.Contains(err.Error(), "negative") {
+		t.Fatalf("err %v, want a usage error for a negative wait", err)
+	}
+}
+
+// A negative approval wait is a usage error (exit 2), never a silent
+// default window, from the flag or from farm.yaml.
+func TestFarmRun_NegativeApprovalWaitExit2(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	plan := approvedPlan(t, repo)
+	url, reqs := testutil.FakeOpenAI(t, nil)
+	_, errOut, code := runJasIn(t, repo, farmRunEnv(url, home, t), "farm", "run", plan, "--trust-project", "--approval-wait", "-1m")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "approval-wait")
+	assert.NoErr(t, os.WriteFile(filepath.Join(home, "farm.yaml"), []byte("check: \"true\"\nbudget:\n  approval_wait: -5m\n"), 0o644))
+	_, errOut, code = runJasIn(t, repo, farmRunEnv(url, home, t), "farm", "run", plan, "--trust-project")
+	assert.Eq(t, code, 2)
+	assert.Contains(t, errOut, "budget.approval_wait")
+	assert.Eq(t, len(reqs()), 0)
+	assert.Eq(t, len(farmDirs(t, home)), 0)
 }
 
 // lockedBuf is a strings.Builder safe for the prompt writer and the test.
@@ -165,8 +185,10 @@ func gateDone(t *testing.T, ch <-chan gateResult) gateResult {
 func ttyBroker(in io.Reader, out io.Writer, redact func(string) string) (*farmTTY, *farm.Broker) {
 	tty := newFarmTTY(in, out)
 	var b *farm.Broker
-	b = farm.NewBroker(brokerOptions(core.ShellOnly, redact, farm.Config{}, nil,
-		tty.approver(redact, func(id string) (string, string, bool) { return b.Closed(id) })))
+	o := brokerOptions(core.ShellOnly, redact, farm.Config{}, nil,
+		tty.approver(redact, func(id string) (string, string, bool) { return b.Closed(id) }))
+	o.OnGrant = tty.granted(redact)
+	b = farm.NewBroker(o)
 	return tty, b
 }
 
@@ -219,5 +241,69 @@ func TestFarmRun_TTYPromptRedacts(t *testing.T) {
 	assert.Contains(t, text, "[api] approve [a1] write: [REDACTED]/a.go?")
 	if strings.Contains(text, "sekret") {
 		t.Fatalf("unredacted prompt:\n%s", text)
+	}
+}
+
+// The TTY prints what an always answer granted, as the chat does.
+func TestFarmRun_TTYGrantNotices(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &lockedBuf{}
+	_, b := ttyBroker(pr, out, nil)
+	g, err := b.Gate("api", "", nil)
+	assert.NoErr(t, err)
+	shell := farmTool(t, "shell")
+	answer := func(tl core.Tool, args, wantNote string) {
+		t.Helper()
+		n := strings.Count(out.String(), "[y/N/always/farm] ")
+		res := allowIn(g, tl, args, nil)
+		deadline := time.Now().Add(5 * time.Second)
+		for strings.Count(out.String(), "[y/N/always/farm] ") == n {
+			if time.Now().After(deadline) {
+				t.Fatalf("no prompt: %q", out.String())
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		_, err := io.WriteString(pw, "always\n")
+		assert.NoErr(t, err)
+		assert.Eq(t, gateDone(t, res).d, core.Granted)
+		waitOut(t, out, wantNote)
+	}
+	answer(shell, `{"command":"go test ./..."}`, "(covers any arguments)\n")
+	assert.Contains(t, out.String(), "[api] always: ")
+	answer(shell, `{"command":"echo a; rm -rf b"}`, farm.NoGrantNotice+"\n")
+	answer(core.AskAlways(farmTool(t, "write")), `{"path":"skills/x/SKILL.md","content":"x"}`, farm.MustAskNotice+"\n")
+}
+
+// Answering farm on the TTY releases an identical call waiting behind the
+// prompt: it is never shown.
+func TestFarmRun_TTYFarmReleasesQueued(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &lockedBuf{}
+	_, b := ttyBroker(pr, out, nil)
+	shell := farmTool(t, "shell")
+	ga, err := b.Gate("a", "", nil)
+	assert.NoErr(t, err)
+	gb, err := b.Gate("b", "", nil)
+	assert.NoErr(t, err)
+	first := allowIn(ga, shell, `{"command":"go test ./..."}`, nil)
+	waitOut(t, out, "[a] approve [a1]")
+	second := allowIn(gb, shell, `{"command":"go test ./..."}`, nil)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(b.Pending()) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("second call never pended")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	_, err = io.WriteString(pw, "farm\n")
+	assert.NoErr(t, err)
+	assert.Eq(t, gateDone(t, first).d, core.Granted)
+	assert.Eq(t, gateDone(t, second).d, core.AutoGranted)
+	waitOut(t, out, "(covers any arguments)\n")
+	time.Sleep(20 * time.Millisecond) // a wrong second prompt would show by now
+	if n := strings.Count(out.String(), "approve ["); n != 1 {
+		t.Fatalf("%d prompts:\n%s", n, out.String())
 	}
 }

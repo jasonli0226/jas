@@ -317,8 +317,9 @@ func (m *Model) farmHooks(gen int) FarmHooks {
 		Undelivered: func(part string, texts []string) {
 			send(farmUndeliveredMsg{part: part, texts: texts})
 		},
-		Host: m.gate.FarmHost, // grants live in the farm's broker
-		Ask:  farmAsker(raw),
+		Host:    m.gate.FarmHost, // grants live in the farm's broker
+		Granted: m.gate.FarmGranted,
+		Ask:     farmAsker(raw),
 	}
 }
 

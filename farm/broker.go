@@ -32,6 +32,7 @@ const (
 	answerRefused   = "refused"
 	answerCancelled = "cancelled" // the part's ctx ended first
 	byHost          = "host"
+	byGrant         = "grant"     // a standing grant covered it while it waited
 	byTimeout       = "timeout"   // the hold window ended
 	byNoClient      = "no_client" // nobody to ask, or the last client left
 	byDeadline      = "deadline"  // the part's ctx deadline passed
@@ -48,17 +49,18 @@ const (
 	AnswerFarm                 // allow; a standing grant for every part
 )
 
-// ParseAnswer reads y/yes, n/no/"", always/a, farm/f, ignoring case and
-// surrounding space.
+// ParseAnswer reads y/yes, n/no/"", always and farm, ignoring case and
+// surrounding space. Anything else is unknown (no, ok false): no single
+// letter makes a standing grant.
 func ParseAnswer(s string) (Answer, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "n", "no":
 		return AnswerNo, true
 	case "y", "yes":
 		return AnswerYes, true
-	case "a", "always":
+	case "always":
 		return AnswerAlways, true
-	case "f", "farm":
+	case "farm":
 		return AnswerFarm, true
 	}
 	return AnswerNo, false
@@ -88,7 +90,11 @@ type ApprovalRequest struct {
 }
 
 // HostAsker asks the farm's own terminal or chat; it must stop asking when
-// ctx is done. nil = no host (unattended).
+// ctx is done. nil = no host (unattended). A host that shows one prompt at a
+// time should keep its prompt slot until ctx ends even after answering: the
+// broker records the answer's grant first (releasing identical calls that
+// wait), and a request that closed while the host waited for the slot
+// (Broker.Closed) should not be shown.
 type HostAsker func(ctx context.Context, req ApprovalRequest) (Answer, error)
 
 // Notice tells subscribers an approval opened or closed.
@@ -99,6 +105,40 @@ type Notice struct {
 	By      string // closed: "host" | "attach:<client>" | "timeout" | "no_client"
 }
 
+// Notices for an always or farm answer that grants nothing standing; the
+// chat printed the same texts before farms had a broker.
+const (
+	NoGrantNotice = "this command can't get an always grant; allowed once"
+	MustAskNotice = "writes to the profile's skills always ask; allowed once"
+)
+
+// GrantKind is what an always or farm answer did.
+type GrantKind int
+
+const (
+	GrantAdded   GrantKind = iota // a standing grant (Grant names it)
+	GrantNone                     // the call cannot be granted; allowed once
+	GrantMustAsk                  // a must-ask call; allowed once
+)
+
+// GrantNotice reports an always or farm answer's grant to the host.
+type GrantNotice struct {
+	Part  string
+	Kind  GrantKind
+	Grant string // GrantAdded: the grant as core.Grants.Add shows it
+}
+
+// Text is the line a host prints for n (unredacted).
+func (n GrantNotice) Text() string {
+	switch n.Kind {
+	case GrantNone:
+		return NoGrantNotice
+	case GrantMustAsk:
+		return MustAskNotice
+	}
+	return fmt.Sprintf("[%s] always: %s (covers any arguments)", n.Part, core.Sanitize(n.Grant))
+}
+
 // BrokerOptions configures a Broker.
 type BrokerOptions struct {
 	Level   core.Level    // used when a role sets no approve level
@@ -107,6 +147,9 @@ type BrokerOptions struct {
 	Windows bool          // core.NewGrants
 	Redact  func(string) string
 	After   func(time.Duration) <-chan time.Time // nil = time.After (tests inject)
+	// OnGrant hears what each always or farm answer granted, before the
+	// host's ctx for that call ends; nil: nobody.
+	OnGrant func(GrantNotice)
 }
 
 // Broker is every farm part's approval gate. Each gated call becomes a
@@ -129,6 +172,7 @@ type Broker struct {
 type outcome struct {
 	answer  Answer
 	refused bool   // closed with no answer
+	auto    bool   // closed by a standing grant: AutoGranted
 	text    string // the answer as logged: Answer.String(), "refused" or "cancelled"
 	by      string
 }
@@ -136,6 +180,9 @@ type outcome struct {
 type approval struct {
 	seq  int
 	req  ApprovalRequest
+	g    *brokerGate // the asking part's gate, for coverage
+	t    core.Tool
+	args json.RawMessage
 	held bool          // unattended: refused when the last client leaves (Wait 0)
 	done chan struct{} // closed with out set
 	out  outcome
@@ -277,18 +324,39 @@ func (b *Broker) close(id string, out outcome) {
 	}
 }
 
-// open registers a request logged as requested. Unattended with no client
-// and no wait, it is refused at once (still logged and announced first).
-func (b *Broker) open(req ApprovalRequest, seq int) *approval {
+// open registers a request logged as requested. A grant recorded since the
+// gate's coverage check closes it at once as granted; unattended with no
+// client and no wait, it is refused at once (still logged and announced
+// first).
+func (b *Broker) open(g *brokerGate, t core.Tool, args json.RawMessage, req ApprovalRequest, seq int) *approval {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	a := &approval{seq: seq, req: req, held: b.o.Host == nil, done: make(chan struct{})}
+	a := &approval{seq: seq, req: req, g: g, t: t, args: args, held: b.o.Host == nil, done: make(chan struct{})}
 	b.pending[req.ID] = a
 	b.notifyLocked(Notice{Type: EvApprovalRequested, Request: req})
+	if g.covered(t, args) {
+		b.closeLocked(req.ID, grantedOutcome)
+		return a
+	}
 	if a.held && b.clients == 0 && b.o.Wait == 0 {
 		b.closeLocked(req.ID, outcome{refused: true, text: answerRefused, by: byNoClient})
 	}
 	return a
+}
+
+// grantedOutcome closes a call a standing grant now covers.
+var grantedOutcome = outcome{answer: AnswerYes, auto: true, text: AnswerYes.String(), by: byGrant}
+
+// releaseCovered closes every open approval a standing grant now covers, so
+// identical calls waiting behind the answered one are not asked again.
+func (b *Broker) releaseCovered() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, a := range b.pending {
+		if a.g.covered(a.t, a.args) {
+			b.closeLocked(id, grantedOutcome)
+		}
+	}
 }
 
 // nextID returns a new farm-unique approval id.
@@ -355,8 +423,12 @@ func (g *brokerGate) Allow(ctx context.Context, t core.Tool, args json.RawMessag
 	}); err != nil {
 		return core.Denied, err
 	}
-	a := b.open(req, seq)
-	out, err := g.wait(ctx, a)
+	a := b.open(g, t, args, req, seq)
+	// The host's ctx ends once the call is decided (withdrawing its prompt
+	// if something else answered), after any grant is recorded.
+	hctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	out, err := g.wait(ctx, hctx, a)
 	if lerr := g.append(EvApprovalClosed, map[string]any{
 		"approval_id": req.ID, "answer": out.text, "by": out.by,
 	}); lerr != nil && err == nil {
@@ -368,21 +440,20 @@ func (g *brokerGate) Allow(ctx context.Context, t core.Tool, args json.RawMessag
 	return g.decide(t, args, out), nil
 }
 
-// wait blocks until a closes, asking the host when there is one. ctx done
-// closes a as cancelled and returns ctx.Err(), unless an answer won first.
-func (g *brokerGate) wait(ctx context.Context, a *approval) (outcome, error) {
+// wait blocks until a closes, asking the host (on hctx) when there is one.
+// ctx done closes a as cancelled and returns ctx.Err(), unless an answer
+// won first.
+func (g *brokerGate) wait(ctx, hctx context.Context, a *approval) (outcome, error) {
 	b := g.b
+	select {
+	case <-a.done: // granted or refused at once
+		return a.out, nil
+	default:
+	}
 	var window <-chan time.Time
 	if b.o.Host != nil {
-		hctx, cancel := context.WithCancel(ctx)
-		defer cancel() // withdraws the host's prompt once anything closes a
 		go g.askHost(hctx, a.req)
 	} else {
-		select {
-		case <-a.done: // refused at once
-			return a.out, nil
-		default:
-		}
 		window = b.o.After(b.window())
 	}
 	select {
@@ -421,10 +492,14 @@ func (g *brokerGate) askHost(hctx context.Context, req ApprovalRequest) {
 }
 
 // decide turns a closed approval into a decision, recording a standing
-// grant for always/farm (never for a must-ask call).
+// grant for always/farm (never for a must-ask call), telling OnGrant, and
+// releasing the open calls the grant covers.
 func (g *brokerGate) decide(t core.Tool, args json.RawMessage, out outcome) core.Decision {
 	if out.refused {
 		return core.Unavailable
+	}
+	if out.auto {
+		return core.AutoGranted
 	}
 	var grants *core.Grants
 	switch out.answer {
@@ -437,8 +512,19 @@ func (g *brokerGate) decide(t core.Tool, args json.RawMessage, out outcome) core
 	default:
 		return core.Denied
 	}
+	n := GrantNotice{Part: g.part, Kind: GrantMustAsk}
 	if !core.MustAsk(t) {
-		grants.Add(t.Name(), args) // an ungrantable call is allowed once
+		grant, ok := grants.Add(t.Name(), args) // an ungrantable call is allowed once
+		n.Kind, n.Grant = GrantNone, grant
+		if ok {
+			n.Kind = GrantAdded
+		}
+	}
+	if g.b.o.OnGrant != nil {
+		g.b.o.OnGrant(n)
+	}
+	if n.Kind == GrantAdded {
+		g.b.releaseCovered()
 	}
 	return core.Granted
 }
