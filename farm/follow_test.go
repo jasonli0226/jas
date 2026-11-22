@@ -296,3 +296,13 @@ func TestPartLogs_AttemptOrder(t *testing.T) {
 		t.Fatalf("order %v", names)
 	}
 }
+
+// A farm.jsonl line torn at Start is delivered once it is completed.
+func TestFollow_FarmLogTornAtStart(t *testing.T) {
+	r := newFollowRig(t)
+	full := line(EvPartStarted, "part", "p1")
+	appendTo(t, r.farmLog(), full[:8])
+	r.start(t, 0)
+	appendTo(t, r.farmLog(), full[8:])
+	r.w.waitFor(t, hasEvent("", EvPartStarted))
+}

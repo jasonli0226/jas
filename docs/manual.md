@@ -31,6 +31,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas dream [flags]` | consolidate the profile's memory into a reviewed proposal ([Dreams](#dreams)) |
 | `jas dream list\|diff\|apply\|discard\|undo` | review, apply, drop or revert a dream ([Dreams](#dreams)) |
 | `jas farm …` | experimental parallel worktree runner |
+| `jas attach [<farm-id> [<part>]]` | watch a running farm from another terminal ([`jas attach`](#jas-attach)) |
 | `jas --version` | print the version |
 
 ### Settings flags (chat, `jas run`, `jas farm plan|run`)
@@ -907,6 +908,7 @@ Field-level detail, reader rules and the resume rules: [event-log.md](event-log.
 | `~/.jas/trust.json` | project trust decisions |
 | `~/.jas/farm.yaml` | user farm config |
 | `~/.jas/sessions/<id>/events.jsonl` | session event logs |
+| `~/.jas/run/<farm-id>.lock`, `.pid` | held by a running farm (`jas attach` checks it); the pid file is advisory, for finding the process |
 | `<root>/.jas/config.json`, `config.local.json` | project / local settings |
 | `<root>/.jas/farm.yaml` | project farm config |
 | `<root>/.jas/sessions/<id>.json` | live session records (`jas sessions`) |

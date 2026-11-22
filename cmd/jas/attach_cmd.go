@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jasonli0226/jas/core"
@@ -34,7 +35,7 @@ func attachCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return runAttach(ctx, home, args, os.Stdout, 0)
 }
@@ -86,15 +87,21 @@ func runAttach(ctx context.Context, home string, args []string, out io.Writer, p
 		return nil
 	}
 	outcome, err := f.Run(ctx)
-	if err == nil && outcome == farm.FollowDied {
+	if err != nil {
+		return err
+	}
+	switch outcome {
+	case farm.FollowEnded:
+		printFarmEnd(out, dir)
+	case farm.FollowDied:
 		// farm_ended may predate Start, written just before the lock dropped.
-		if reason, ok := farmEndReason(filepath.Join(dir, "farm.jsonl")); ok {
-			fmt.Fprintf(out, "farm ended: %s\n", reason)
+		if _, ok := farmEndReason(filepath.Join(dir, "farm.jsonl")); ok {
+			printFarmEnd(out, dir)
 		} else {
 			fmt.Fprintln(out, "farm process ended")
 		}
 	}
-	return err
+	return nil
 }
 
 // onlyRunningFarm returns the one running farm; with none it says so and

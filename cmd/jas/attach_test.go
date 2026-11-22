@@ -217,6 +217,9 @@ func TestAttach_FollowsRunning(t *testing.T) {
 	if err := wait(); err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(out.String(), "farm ended: ok") {
+		t.Fatalf("no end line when the farm ended while attached:\n%s", out.String())
+	}
 }
 
 func TestAttach_PartDetail(t *testing.T) {

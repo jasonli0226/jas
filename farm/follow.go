@@ -59,7 +59,8 @@ type tail struct {
 // caller has not.
 func (f *Follow) Start() {
 	f.tails = map[string]*tail{}
-	farmLog := &tail{path: filepath.Join(f.Dir, farmLogName), off: fileSize(filepath.Join(f.Dir, farmLogName))}
+	data, _ := os.ReadFile(filepath.Join(f.Dir, farmLogName))
+	farmLog := &tail{path: filepath.Join(f.Dir, farmLogName), off: int64(bytes.LastIndexByte(data, '\n') + 1)}
 	f.tails[farmLog.path] = farmLog
 	f.startParts(f.tails)
 }
@@ -241,12 +242,4 @@ func attemptOf(path string) int {
 		return 1
 	}
 	return n
-}
-
-func fileSize(path string) int64 {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return fi.Size()
 }
