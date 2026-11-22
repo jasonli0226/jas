@@ -224,7 +224,7 @@ Output from the farm is sanitized and redacted before it is printed.
 
 An unknown command prints the command list and sends nothing. Replies print
 nothing on success (except `stop`, which prints `ok`) and the error text on
-failure. A steer that its part
+failure; a part the plan does not have prints `unknown part "<part>"`. A steer that its part
 finished without reading comes back as
 `[<part>] not delivered (part finished): <text>`; if the client that sent it
 has left, the farm's own output (`jas farm run` or the chat) prints that line.
@@ -232,7 +232,10 @@ has left, the farm's own output (`jas farm run` or the chat) prints that line.
 Answers are full words only: `y`/`yes`, `n`/`no`, `always` (that tool for that
 part only, as the chat's `always`) and
 `farm` (a standing grant for that tool for every part of the farm). There is no single-letter
-`always` or `farm`.
+`always` or `farm`. After an `always` or `farm` answer, every attached client
+prints what it granted, as the farm's own terminal does:
+`[<part>] always: shell: ls (covers any arguments)`, or `allowed once` when
+the call can't get a standing grant.
 
 #### Approvals
 
@@ -252,7 +255,8 @@ The first answer wins, whether from the farm's own terminal (chat
 `/farm` approvals) or any attach client. A late answer prints
 `already answered (<answer>, by <source>)`; an id that is not pending prints
 `unknown approval`. When another answer settles an approval, attach prints
-`approval [<id>] closed: <answer> (by <source>)`. The chat's approval level is
+`approval [<id>] closed: <answer> (by <source>)`; an answer this client gave
+reads `by you`, there and in `already answered`. The chat's approval level is
 fixed when the farm starts; attach does not change it. On `jas farm run`'s
 terminal, a prompt another answer settles is withdrawn (its line ends, then
 `[<part>] [<id>] answered from attach: <answer>` when attach answered it); an
@@ -287,10 +291,12 @@ watching; commands then print the same notice.
 The protocol is JSON lines. A client sends
 `{"id","cmd","part","text","hard","approval_id","answer"}` (`cmd`: `hello`,
 `steer`, `pause`, `resume`, `drop`, `stop`, `approve`) and the farm replies
-`{"reply":{"id","ok","error",...}}` with the same id; `hello` is first and
-returns `farm_id`, `protocol` (1) and the pending approvals. The farm also
-pushes `{"notice":{...}}` lines (`approval_requested`, `approval_closed`,
-`steer_undelivered`). A reply to a line that is not valid JSON has an empty
+`{"reply":{"id","ok","error",...}}` with the same id; `hello` is first (any
+other command before it is refused with `hello first`) and returns
+`farm_id`, `protocol` (1), `client` (this client as `by` names it, such as
+`attach:c1`) and the pending approvals. The farm also pushes
+`{"notice":{...}}` lines (`approval_requested`, `approval_closed`,
+`approval_granted` with its `text`, `steer_undelivered`). A reply to a line that is not valid JSON has an empty
 `id`.
 
 ## Chat

@@ -35,6 +35,7 @@ type attachCtl struct {
 	redact func(string) string
 	status func() // re-prints the farm status table
 
+	self  string     // this client as the farm's "by" names it (from hello)
 	wmu   sync.Mutex // serializes writes and the request counter
 	seq   int
 	mu    sync.Mutex
@@ -61,6 +62,7 @@ func dialAttachCtl(home, id string, out io.Writer, redact func(string) string, s
 		fmt.Fprintln(out, attachNoControl)
 		return nil
 	}
+	c.self = rep.Client
 	for _, p := range rep.Pending {
 		c.addPending(p)
 	}
@@ -150,6 +152,9 @@ func (c *attachCtl) reply(r *farm.AttachReply) {
 	c.mu.Unlock()
 	switch {
 	case !r.OK && r.Error != "":
+		if c.self != "" {
+			r.Error = strings.ReplaceAll(r.Error, "by "+c.self+")", "by you)")
+		}
 		c.print(r.Error)
 	case r.OK && stop:
 		c.print("ok")
@@ -167,12 +172,22 @@ func (c *attachCtl) notice(n *farm.AttachNotice) {
 			return
 		}
 		c.dropPending(n.Request.ID)
-		c.print(fmt.Sprintf("[%s] approval [%s] closed: %s (by %s)", n.Request.Part, n.Request.ID, n.Answer, n.By))
+		c.print(fmt.Sprintf("[%s] approval [%s] closed: %s (by %s)", n.Request.Part, n.Request.ID, n.Answer, c.by(n.By)))
+	case farm.NoticeApprovalGranted:
+		c.print(n.Text)
 	case farm.NoticeSteerUndelivered:
 		for _, t := range n.Texts {
 			c.print(fmt.Sprintf("[%s] not delivered (part finished): %s", n.Part, t))
 		}
 	}
+}
+
+// by names who answered an approval, "you" when it was this client.
+func (c *attachCtl) by(who string) string {
+	if c.self != "" && who == c.self {
+		return "you"
+	}
+	return who
 }
 
 func approvalLine(r farm.ApprovalRequest) string {

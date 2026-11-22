@@ -67,7 +67,7 @@ func ctlHome(t *testing.T, id string, pending []farm.ApprovalRequest, reply func
 				continue
 			}
 			if req.Cmd == farm.AttachHello {
-				_ = enc.Encode(farm.AttachMessage{Reply: &farm.AttachReply{ID: req.ID, OK: true, FarmID: id, Protocol: farm.AttachProtocol, Pending: pending}})
+				_ = enc.Encode(farm.AttachMessage{Reply: &farm.AttachReply{ID: req.ID, OK: true, FarmID: id, Protocol: farm.AttachProtocol, Client: "attach:c7", Pending: pending}})
 				ff.once.Do(func() { close(ff.ready) }) // after the hello reply
 				continue
 			}
@@ -195,6 +195,26 @@ func TestAttach_ControlApprovalNotices(t *testing.T) {
 	waitOutput(t, out, "[backend-api] approve [a3] shell: npm install zod (y/n/always/farm)")
 	ff.push(t, farm.AttachNotice{Type: "approval_closed", Request: &req, Answer: "yes", By: "host"})
 	waitOutput(t, out, "approval [a3] closed: yes (by host)")
+}
+
+func TestAttach_ControlNamesOwnAnswersYou(t *testing.T) {
+	pend := []farm.ApprovalRequest{{ID: "a1", Part: "p1", Tool: "shell", Summary: "ls"}}
+	home, ff := ctlHome(t, ctlFarm, pend, func(farm.AttachRequest) *farm.AttachReply {
+		return &farm.AttachReply{Error: "already answered (yes, by attach:c7)"}
+	})
+	out, _ := ctlAttach(t, home, strings.NewReader("n a1\n"))
+	waitOutput(t, out, "already answered (yes, by you)")
+	ff.push(t, farm.AttachNotice{Type: "approval_closed", Request: &pend[0], Answer: "yes", By: "attach:c7"})
+	waitOutput(t, out, "approval [a1] closed: yes (by you)")
+	ff.push(t, farm.AttachNotice{Type: "approval_closed", Request: &pend[0], Answer: "yes", By: "attach:c70"})
+	waitOutput(t, out, "approval [a1] closed: yes (by attach:c70)")
+}
+
+func TestAttach_ControlGrantNotice(t *testing.T) {
+	home, ff := ctlHome(t, ctlFarm, nil, nil)
+	out, _ := ctlAttach(t, home, idleInput(t))
+	ff.push(t, farm.AttachNotice{Type: farm.NoticeApprovalGranted, Part: "p1", Text: "[p1] always: shell: ls (covers any arguments)"})
+	waitOutput(t, out, "[p1] always: shell: ls (covers any arguments)")
 }
 
 func TestAttach_ControlFarmEnds(t *testing.T) {

@@ -35,6 +35,10 @@ const (
 // session.
 const errNotRunningText = "part not running"
 
+// errHelloFirstText refuses a command sent before hello: a client must be
+// present (and get its notices) before it changes the farm.
+const errHelloFirstText = "hello first"
+
 // attachServer serves a running farm's attach socket. It also wraps the
 // host's Watcher, so steer texts a client sent that a part never read go
 // back to that client rather than to the host.
@@ -263,6 +267,14 @@ func (s *attachServer) left(c *attachConn) {
 
 func (s *attachServer) handle(c *attachConn, req AttachRequest) {
 	rep := AttachReply{ID: req.ID}
+	s.mu.Lock()
+	said := c.hello
+	s.mu.Unlock()
+	if !said && req.Cmd != AttachHello {
+		rep.Error = errHelloFirstText
+		c.send(AttachMessage{Reply: &rep})
+		return
+	}
 	var err error
 	switch req.Cmd {
 	case AttachHello:
@@ -309,7 +321,7 @@ func needPart(part string) error {
 // hello registers c's presence (once), replies with the pending approvals
 // and then forwards the broker's notices to c.
 func (s *attachServer) hello(c *attachConn, req AttachRequest) {
-	rep := AttachReply{ID: req.ID, OK: true, FarmID: s.h.FarmID(), Protocol: AttachProtocol}
+	rep := AttachReply{ID: req.ID, OK: true, FarmID: s.h.FarmID(), Protocol: AttachProtocol, Client: attachSource + ":" + c.name}
 	b := s.h.Broker()
 	s.mu.Lock()
 	first := !c.hello
@@ -344,7 +356,7 @@ func (s *attachServer) forward(c *attachConn, notices <-chan Notice) {
 	defer s.wg.Done()
 	for n := range notices {
 		req := n.Request
-		c.send(AttachMessage{Notice: &AttachNotice{Type: n.Type, Request: &req, Answer: n.Answer, By: n.By, Part: req.Part}})
+		c.send(AttachMessage{Notice: &AttachNotice{Type: n.Type, Request: &req, Answer: n.Answer, By: n.By, Part: req.Part, Text: n.Text}})
 	}
 }
 

@@ -97,12 +97,14 @@ type ApprovalRequest struct {
 // (Broker.Closed) should not be shown.
 type HostAsker func(ctx context.Context, req ApprovalRequest) (Answer, error)
 
-// Notice tells subscribers an approval opened or closed.
+// Notice tells subscribers an approval opened, closed, or (always/farm)
+// what its answer granted.
 type Notice struct {
-	Type    string // EvApprovalRequested | EvApprovalClosed
+	Type    string // EvApprovalRequested | EvApprovalClosed | NoticeApprovalGranted
 	Request ApprovalRequest
 	Answer  string // closed: answer or "refused"
 	By      string // closed: "host" | "attach:<client>" | "grant" | "timeout" | "no_client" | "stop" | "deadline" | "cancel"
+	Text    string // granted: the line GrantNotice.Text gives, part-prefixed
 }
 
 // Notices for an always or farm answer that grants nothing standing; the
@@ -527,6 +529,13 @@ func (g *brokerGate) decide(t core.Tool, args json.RawMessage, out outcome) core
 	if g.b.o.OnGrant != nil {
 		g.b.o.OnGrant(n)
 	}
+	text := n.Text()
+	if n.Kind != GrantAdded {
+		text = "[" + g.part + "] " + text
+	}
+	g.b.mu.Lock()
+	g.b.notifyLocked(Notice{Type: NoticeApprovalGranted, Request: ApprovalRequest{Part: g.part}, Text: text})
+	g.b.mu.Unlock()
 	if n.Kind == GrantAdded {
 		g.b.releaseCovered()
 	}

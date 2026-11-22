@@ -282,7 +282,7 @@ func TestAttachServer_Hello(t *testing.T) {
 	req := waitPending(t, b)
 	c := dialAttach(t, r.home, h.FarmID())
 	rep := c.hello()
-	if rep.Protocol != AttachProtocol || rep.FarmID != h.FarmID() {
+	if rep.Protocol != AttachProtocol || rep.FarmID != h.FarmID() || rep.Client != "attach:c1" {
 		t.Fatalf("hello %+v", rep)
 	}
 	if len(rep.Pending) != 1 || rep.Pending[0].ID != req.ID || rep.Pending[0].Tool != "shell" || rep.Pending[0].Part != "a" {
@@ -325,9 +325,15 @@ func TestAttachServer_SteerNotRunning(t *testing.T) {
 	h := start(t, r)
 	waitStarted(t, started)
 	c := dialAttach(t, r.home, h.FarmID())
+	c.hello()
 	rep := c.do(AttachRequest{Cmd: "steer", Part: "zz", Text: "x"})
+	for _, cmd := range []string{"pause", "resume", "drop"} {
+		if rep := c.do(AttachRequest{Cmd: cmd, Part: "zz"}); rep.OK || rep.Error != `unknown part "zz"` {
+			t.Errorf("%s zz %+v", cmd, rep)
+		}
+	}
 	close(release)
-	if rep.OK || rep.Error != "part not running" {
+	if rep.OK || rep.Error != `unknown part "zz"` {
 		t.Fatalf("steer zz %+v", rep)
 	}
 	waitDone(t, h)
@@ -341,6 +347,7 @@ func TestAttachServer_PauseResumeDrop(t *testing.T) {
 	h := start(t, r)
 	waitStarted(t, started)
 	c := dialAttach(t, r.home, h.FarmID())
+	c.hello()
 	for _, cmd := range []string{"pause", "resume", "drop"} {
 		if rep := c.do(AttachRequest{Cmd: cmd, Part: "a"}); !rep.OK {
 			close(release)
@@ -432,12 +439,34 @@ func TestAttachServer_Notices(t *testing.T) {
 	waitDone(t, h)
 }
 
+func TestAttachServer_GrantNotice(t *testing.T) {
+	r, _, started, release := heldRig(t, 0)
+	h := start(t, r)
+	waitStarted(t, started)
+	c := dialAttach(t, r.home, h.FarmID())
+	c.hello()
+	close(release)
+	n := c.notice(EvApprovalRequested)
+	if rep := c.do(AttachRequest{Cmd: "approve", ApprovalID: n.Request.ID, Answer: "farm"}); !rep.OK {
+		t.Fatalf("approve %+v", rep)
+	}
+	g := c.notice(NoticeApprovalGranted)
+	if g.Part != "a" || g.Text != "[a] always: shell: echo hi (covers any arguments)" {
+		t.Fatalf("granted %+v", g)
+	}
+	waitDone(t, h)
+}
+
 func TestAttachServer_PresenceNeedsHello(t *testing.T) {
 	r, _, started, release := heldRig(t, 0)
 	h := start(t, r)
 	waitStarted(t, started)
 	c := dialAttach(t, r.home, h.FarmID())
-	c.do(AttachRequest{Cmd: "steer", Part: "zz", Text: "x"}) // connected, served, no hello
+	for _, req := range []AttachRequest{{Cmd: "steer", Part: "a", Text: "x"}, {Cmd: "stop"}, {Cmd: "approve", Answer: "yes"}} {
+		if rep := c.do(req); rep.OK || rep.Error != "hello first" {
+			t.Fatalf("%s before hello %+v", req.Cmd, rep)
+		}
+	}
 	close(release)
 	waitDone(t, h)
 	if by := partClosedBy(t, r, "a"); by != byNoClient {
@@ -522,6 +551,7 @@ func TestAttachServer_SteerUndeliveredClientGone(t *testing.T) {
 				time.Sleep(time.Millisecond)
 			}
 			cl := dialAttach(t, home.Load().(string), id.Load().(string))
+			cl.hello()
 			if rep := cl.do(AttachRequest{Cmd: "steer", Part: "a", Text: "late"}); !rep.OK {
 				t.Errorf("steer %+v", rep)
 			}
@@ -553,6 +583,7 @@ func TestAttachServer_BadInput(t *testing.T) {
 	if !ok || m.Reply == nil || m.Reply.OK || m.Reply.Error == "" {
 		t.Fatalf("bad JSON got %+v", m)
 	}
+	c.hello()
 	if rep := c.do(AttachRequest{Cmd: "dance"}); rep.OK || !strings.Contains(rep.Error, "unknown command") {
 		t.Fatalf("unknown command %+v", rep)
 	}
