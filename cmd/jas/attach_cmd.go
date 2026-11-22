@@ -37,12 +37,12 @@ func attachCmd(ctx context.Context, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runAttach(ctx, home, args, os.Stdout, 0)
+	return runAttach(ctx, home, args, os.Stdin, os.Stdout, 0)
 }
 
 // runAttach is jas attach against home, printing to out; poll 0 uses the
 // follower's default.
-func runAttach(ctx context.Context, home string, args []string, out io.Writer, poll time.Duration) error {
+func runAttach(ctx context.Context, home string, args []string, in io.Reader, out io.Writer, poll time.Duration) error {
 	if len(args) > 2 || (len(args) > 0 && strings.HasPrefix(args[0], "-")) {
 		return usageErr(attachUsage)
 	}
@@ -85,6 +85,12 @@ func runAttach(ctx context.Context, home string, args []string, out io.Writer, p
 	if !running() {
 		printFarmEnd(out, dir)
 		return nil
+	}
+	if c := dialAttachCtl(home, id, out, red.Redact, statusPrinter(out, dir)); c != nil {
+		defer c.close()
+		if in != nil {
+			go c.commands(in)
+		}
 	}
 	outcome, err := f.Run(ctx)
 	if err != nil {

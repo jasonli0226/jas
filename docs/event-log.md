@@ -320,6 +320,24 @@ and notes the dream suggests promoting to the profile.
 **`dream_undone`** — `jas dream undo` restored memory from before an apply.
 `dream_id`.
 
+## Farm events (approvals and attach)
+
+Farm events. In a part's log (`parts/<part>/`):
+
+**`approval_requested`** — a gated call is waiting for an answer:
+`approval_id`, `call_id`, `tool`, `summary`.
+
+**`approval_closed`** — it was settled: `approval_id`, `answer` (`yes`,
+`no`, `always`, `farm`, `refused`, `cancelled`) and `by`: `host` (the farm's
+terminal), `attach:<client>`, `timeout`, `no_client` (held for nobody),
+`grant` (another answer's grant released the call: `yes` by `grant`),
+`deadline` or `cancel`.
+
+In `farm.jsonl`: **`attach_connected`** and **`attach_disconnected`**
+(`client`), **`attach_unavailable`** (`error`: the socket could not be
+served, attach only watches), and **`owner_decision`** with `source:
+"attach"` for a command that came from an attach client.
+
 ## Ordering and durability
 
 Within one user message, the order is:

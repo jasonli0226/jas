@@ -97,7 +97,7 @@ func attachAsync(t *testing.T, home string, args ...string) (*syncBuf, func() er
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
-	go func() { done <- runAttach(ctx, home, args, out, attachPoll) }()
+	go func() { done <- runAttach(ctx, home, args, nil, out, attachPoll) }()
 	return out, func() error {
 		select {
 		case err := <-done:
@@ -127,7 +127,7 @@ func TestAttach_NoneRunning(t *testing.T) {
 	home := t.TempDir()
 	fixtureFarm(t, home, "20261122T010000-aa1", []string{"p1"})
 	var out bytes.Buffer
-	err := runAttach(context.Background(), home, nil, &out, attachPoll)
+	err := runAttach(context.Background(), home, nil, nil, &out, attachPoll)
 	if err != nil || !strings.Contains(out.String(), "no farm is running") {
 		t.Fatalf("err %v, output %q", err, out.String())
 	}
@@ -139,7 +139,7 @@ func TestAttach_SeveralRunning(t *testing.T) {
 		fixtureFarm(t, home, id, []string{"p1"})
 		lockFixture(t, home, id)
 	}
-	err := runAttach(context.Background(), home, nil, &bytes.Buffer{}, attachPoll)
+	err := runAttach(context.Background(), home, nil, nil, &bytes.Buffer{}, attachPoll)
 	if exitCodeOf(err) != core.ExitUsage || !strings.Contains(err.Error(), "aa1") || !strings.Contains(err.Error(), "bb2") {
 		t.Fatalf("err %v", err)
 	}
@@ -149,7 +149,7 @@ func TestAttach_AmbiguousPrefix(t *testing.T) {
 	home := t.TempDir()
 	fixtureFarm(t, home, "20261122-aa1", []string{"p1"})
 	fixtureFarm(t, home, "20261122-aa2", []string{"p1"})
-	err := runAttach(context.Background(), home, []string{"20261122-aa"}, &bytes.Buffer{}, attachPoll)
+	err := runAttach(context.Background(), home, []string{"20261122-aa"}, nil, &bytes.Buffer{}, attachPoll)
 	if exitCodeOf(err) != core.ExitUsage || !strings.Contains(err.Error(), "20261122-aa1") || !strings.Contains(err.Error(), "20261122-aa2") {
 		t.Fatalf("err %v", err)
 	}
@@ -158,7 +158,7 @@ func TestAttach_AmbiguousPrefix(t *testing.T) {
 func TestAttach_UnknownFarm(t *testing.T) {
 	home := t.TempDir()
 	fixtureFarm(t, home, "20261122-aa1", []string{"p1"})
-	err := runAttach(context.Background(), home, []string{"zz"}, &bytes.Buffer{}, attachPoll)
+	err := runAttach(context.Background(), home, []string{"zz"}, nil, &bytes.Buffer{}, attachPoll)
 	if exitCodeOf(err) != core.ExitUsage {
 		t.Fatalf("err %v", err)
 	}
@@ -170,7 +170,7 @@ func TestAttach_EndedFarm(t *testing.T) {
 	fixtureFarm(t, home, id, []string{"p1"})
 	writeAppend(t, filepath.Join(farmDir(home, id), "farm.jsonl"), evLine("farm_ended", "reason", "ok"))
 	var out bytes.Buffer
-	err := runAttach(context.Background(), home, []string{"20261122-aa"}, &out, attachPoll)
+	err := runAttach(context.Background(), home, []string{"20261122-aa"}, nil, &out, attachPoll)
 	if err != nil || !strings.Contains(out.String(), "farm "+id) || !strings.Contains(out.String(), "farm ended: ok") {
 		t.Fatalf("err %v, output:\n%s", err, out.String())
 	}
@@ -181,7 +181,7 @@ func TestAttach_DeadFarm(t *testing.T) {
 	id := "20261122-aa1"
 	fixtureFarm(t, home, id, []string{"p1"})
 	var out bytes.Buffer
-	err := runAttach(context.Background(), home, []string{id}, &out, attachPoll)
+	err := runAttach(context.Background(), home, []string{id}, nil, &out, attachPoll)
 	if err != nil || !strings.Contains(out.String(), "farm process ended without finishing") {
 		t.Fatalf("err %v, output:\n%s", err, out.String())
 	}
@@ -246,7 +246,7 @@ func TestAttach_UnknownPart(t *testing.T) {
 	home := t.TempDir()
 	id := "20261122-aa1"
 	fixtureFarm(t, home, id, []string{"p1"})
-	err := runAttach(context.Background(), home, []string{id, "nope"}, &bytes.Buffer{}, attachPoll)
+	err := runAttach(context.Background(), home, []string{id, "nope"}, nil, &bytes.Buffer{}, attachPoll)
 	if exitCodeOf(err) != core.ExitUsage {
 		t.Fatalf("err %v", err)
 	}

@@ -184,12 +184,13 @@ jas attach <farm-id>              # a farm by id or unique id prefix
 jas attach <farm-id> <part>       # also that part's (or integrate's) replies and tool results
 ```
 
-Watch a farm from another terminal: started by `jas farm run` or by the
-chat's `/farm`. Attach prints the `jas farm status` table, the last 3 tool
+Watch and steer a farm from another terminal: started by `jas farm run` or by
+the chat's `/farm`. Attach prints the `jas farm status` table, the last 3 tool
 calls of each part, then one line per event as the farm runs (the same lines
-`jas farm run` prints). It only reads the farm's files under
-`~/.jas/farms/<farm-id>/`; it never changes the farm. A farm is running while
-its process holds `~/.jas/run/<farm-id>.lock`.
+`jas farm run` prints). It reads the farm's files under
+`~/.jas/farms/<farm-id>/`; a farm is running while its process holds
+`~/.jas/run/<farm-id>.lock`. To change the farm it also talks to the running
+farm over a Unix socket (below).
 
 - Ctrl-C detaches; the farm keeps running.
 - When the farm ends, attach prints its end line and exits. If the farm
@@ -200,8 +201,70 @@ its process holds `~/.jas/run/<farm-id>.lock`.
   several running it lists them and exits 2. An unknown or ambiguous id, an
   unknown part or extra arguments exit 2.
 
-Watching only, for now: steering, pause and approvals from an attached
-terminal come later.
+#### Command line
+
+While the farm runs, attach reads commands from its own stdin, one per line.
+Output from the farm is sanitized and redacted before it is printed.
+
+| command | does |
+|---|---|
+| `steer <part> <text>` | send `text` to a running part (or `integrate`) as the owner's next message |
+| `pause <part>` / `resume <part>` / `drop <part>` | as the chat's `/farm pause`, `resume`, `drop` |
+| `stop [hard]` | stop the farm (`hard` cancels running calls at once) |
+| `status` | print the status table again |
+| `y` \| `n` \| `always` \| `farm` `[<approval-id>]` | answer a gated call; the id defaults to the oldest pending approval |
+
+An unknown command prints the command list and sends nothing. Replies print
+nothing on success and the error text on failure. A steer that its part
+finished without reading comes back as
+`[<part>] not delivered (part finished): <text>`.
+
+Answers are full words only: `y`/`yes`, `n`/`no`, `always` (this tool for the
+rest of the farm's run, as the chat's `always`) and
+`farm` (a standing grant for the whole farm). There is no single-letter
+`always` or `farm`.
+
+#### Approvals
+
+A part's gated call becomes a pending approval with a stable id. Attach
+prints each one, those pending when it connects and those that open later:
+
+```
+[backend-api] approve [a3] shell: npm install zod (y/n/always/farm)
+```
+
+The first answer wins, whether from the farm's own terminal (chat
+`/farm` approvals) or any attach client. A late answer prints
+`already answered (<answer>, by <source>)`; an id that is not pending prints
+`unknown approval`. When another answer settles an approval, attach prints
+`approval [<id>] closed: <answer> (by <source>)`. The chat's approval level is
+fixed when the farm starts; attach does not change it.
+
+A farm with no terminal (`jas farm run` without a TTY) holds a gated call
+for an answer only while an attach client is connected, for up to 10 minutes
+(`budget.approval_wait`, or `--approval-wait <duration>`). `--approval-wait`
+holds even with nobody attached, so a client can attach later and answer; a
+negative value is a usage error. The part's own timeouts still apply while it
+is held. With nobody attached (and no `--approval-wait`) a gated call is
+refused at once, as before.
+
+#### Socket and protocol
+
+A running farm listens on `~/.jas/run/<farm-id>.sock` (mode 0600). It is
+unavailable on Windows and when the path is too long for a Unix socket; the
+farm then logs `attach_unavailable` and attach only watches, printing once
+`control unavailable (watching only)`. Attach does the same when it cannot
+connect. If the socket closes while the farm still runs, attach keeps
+watching; commands then print the same notice.
+
+The protocol is JSON lines. A client sends
+`{"id","cmd","part","text","hard","approval_id","answer"}` (`cmd`: `hello`,
+`steer`, `pause`, `resume`, `drop`, `stop`, `approve`) and the farm replies
+`{"reply":{"id","ok","error",...}}` with the same id; `hello` is first and
+returns `farm_id`, `protocol` (1) and the pending approvals. The farm also
+pushes `{"notice":{...}}` lines (`approval_requested`, `approval_closed`,
+`steer_undelivered`). A reply to a line that is not valid JSON has an empty
+`id`.
 
 ## Chat
 
