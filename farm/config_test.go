@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonli0226/jas/internal/assert"
 )
@@ -191,5 +192,26 @@ func TestLoadConfig_GeneratedValidation(t *testing.T) {
 				t.Fatalf("err = %v, want one naming generated", err)
 			}
 		})
+	}
+}
+
+func TestConfig_ApprovalWait(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	cfg, _, err := LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.Budget.ApprovalWait, time.Duration(0))
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "budget:\n  approval_wait: 5m\n")
+	cfg, _, err = LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.Budget.ApprovalWait, 5*time.Minute)
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "budget:\n  approval_wait: x\n")
+	_, _, err = LoadConfig(root, home, true)
+	if err == nil || !strings.Contains(err.Error(), "budget.approval_wait") {
+		t.Fatalf("err %v, want a budget.approval_wait error", err)
+	}
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "budget:\n  approval_wait: -1m\n")
+	_, _, err = LoadConfig(root, home, true)
+	if err == nil || !strings.Contains(err.Error(), "budget.approval_wait") || !strings.Contains(err.Error(), "negative") {
+		t.Fatalf("err %v, want a negative budget.approval_wait error", err)
 	}
 }

@@ -207,10 +207,8 @@ func TestGate_MustAskIgnoresGrants(t *testing.T) {
 	write := toolNamed(t, "write")
 	g, msgs := newRecordingGate(core.AllMutating)
 	_, ok := g.Grants().Add("write", args)
-	assert.Eq(t, ok, true) // a standing write grant must not cover it
-	farm := core.NewGrants(false)
-	farm.Add("write", args)
-	for _, gate := range []core.Gate{g, g.ForPart("coder", core.Never, farm)} {
+	assert.Eq(t, ok, true)                // a standing write grant must not cover it
+	for _, gate := range []core.Gate{g} { // a farm part's grants live in its broker (farm tests)
 		res := make(chan allowResult, 1)
 		go func() {
 			d, err := gate.Allow(context.Background(), core.AskAlways(write), args, nil)
@@ -223,4 +221,84 @@ func TestGate_MustAskIgnoresGrants(t *testing.T) {
 		assert.Eq(t, (<-msgs).(noticeMsg).s, mustAskNotice)
 	}
 	eqStrings(t, g.Grants().List(), []string{"write"})
+}
+
+func TestGate_AskFarmWithdrawn(t *testing.T) {
+	c, _ := farmWithAgents(t, Options{})
+	shell := toolNamed(t, "shell")
+	type res struct {
+		text string
+		err  error
+	}
+	ask := func(ctx context.Context, cmd string) chan res {
+		ch := make(chan res, 1)
+		go func() {
+			text, err := c.m.gate.AskFarm(ctx, "a", shell, shellArgs(cmd), nil)
+			ch <- res{text, err}
+		}()
+		return ch
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	first := ask(ctx, "npm install zod")
+	c.pumpApproval()
+	assert.Contains(t, c.m.approval.prompt, "[a] approve shell: npm install zod?")
+	cancel()
+	c.pumpUntil(func(msg tea.Msg) bool { _, ok := msg.(approvalWithdrawnMsg); return ok })
+	if c.m.approval != nil {
+		t.Fatalf("withdrawn prompt still open: %+v", c.m.approval)
+	}
+	assert.Eq(t, c.m.farm.agent("a").needsApproval, false)
+	select {
+	case r := <-first:
+		if !errors.Is(r.err, context.Canceled) {
+			t.Fatalf("first AskFarm = %+v, want context.Canceled", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("AskFarm did not return on cancel")
+	}
+	second := ask(context.Background(), "go test ./...")
+	c.pumpApproval()
+	assert.Contains(t, c.m.approval.prompt, "go test ./...")
+	c.submit("always")
+	select {
+	case r := <-second:
+		assert.NoErr(t, r.err)
+		assert.Eq(t, r.text, "always")
+	case <-time.After(5 * time.Second):
+		t.Fatal("second AskFarm got no reply")
+	}
+}
+
+// A call waiting for the prompt slot that is withdrawn never shows.
+func TestGate_AskFarmWithdrawnWhileQueued(t *testing.T) {
+	g, msgs := newRecordingGate(core.Never)
+	shell := toolNamed(t, "shell")
+	first := make(chan string, 1)
+	go func() {
+		text, _ := g.AskFarm(context.Background(), "a", shell, shellArgs("one"), nil)
+		first <- text
+	}()
+	open := nextApproval(t, msgs)
+	ctx, cancel := context.WithCancel(context.Background())
+	queued := make(chan error, 1)
+	go func() {
+		_, err := g.AskFarm(ctx, "b", shell, shellArgs("two"), nil)
+		queued <- err
+	}()
+	cancel()
+	select {
+	case err := <-queued:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued AskFarm err %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued AskFarm did not return")
+	}
+	open.reply <- "y"
+	assert.Eq(t, <-first, "y")
+	select {
+	case m := <-msgs:
+		t.Fatalf("the withdrawn queued call posted %T", m)
+	default:
+	}
 }

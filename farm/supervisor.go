@@ -55,14 +55,13 @@ type Supervisor struct {
 
 	// Hard cancels everything (second Ctrl-C); nil means never. The ctx
 	// given to RunParts is the soft stop (first Ctrl-C).
-	Hard      context.Context
-	Policy    core.ExecPolicy // base worker policy; see WorkerPolicy
-	Approvals *Approvals      // nil: no TTY, approval level never unless a role sets one
-	Redact    func(string) string
-	Watch     Watcher // nil: no progress lines (--json, tests)
-	// WorkerUI and Gates: see RunOptions.
+	Hard   context.Context
+	Policy core.ExecPolicy // base worker policy; see WorkerPolicy
+	Broker *Broker         // every part's approval gate; nil: unattended at level never
+	Redact func(string) string
+	Watch  Watcher // nil: no progress lines (--json, tests)
+	// WorkerUI: see RunOptions.
 	WorkerUI func(part string) core.UI
-	Gates    func(part, approve string) (core.Gate, error)
 
 	// mergeCheck is a passing integrate_check on a clean merge that nothing
 	// changed afterwards; Verdict reuses it instead of running check again.
@@ -93,8 +92,8 @@ type sched struct {
 	retry    map[string]string // part -> why its last attempt failed
 	running  int
 	stopping bool
-	dropping map[string]bool // running parts the owner dropped
-	asking   int             // failure questions waiting for the owner
+	dropping map[string]string // running parts the owner dropped -> the decision's source
+	asking   int               // failure questions waiting for the owner
 	out      Outcome
 }
 
@@ -242,11 +241,11 @@ func (s *Supervisor) depsDone(st *sched, p Part) bool {
 // handle records one attempt's end and applies the failure policy.
 func (s *Supervisor) handle(st *sched, e attemptEnd, abort context.CancelFunc) {
 	s.ctl.setCancel(e.id, nil)
-	if st.dropping[e.id] {
+	if source, ok := st.dropping[e.id]; ok {
 		delete(st.dropping, e.id)
 		st.status[e.id] = StatusPaused // no longer running; dropped below
 		s.event(EvPartEnded, map[string]any{"part": e.id, "exit_code": e.exitCode, "status": StatusDropped})
-		s.dropped(st, e.id)
+		s.dropped(st, e.id, source)
 		return
 	}
 	ended := map[string]any{"part": e.id, "exit_code": e.exitCode}
@@ -342,11 +341,14 @@ func (s *Supervisor) setStatus(st *sched, ids []string, from, to string) {
 }
 
 // stop ends scheduling and makes running workers stop after their current
-// request.
+// request; approvals held for nobody at the terminal are refused.
 func (s *Supervisor) stop(st *sched) {
 	st.stopping = true
 	s.stopFlag.Store(true)
 	s.ctl.stop()
+	if s.Broker != nil {
+		s.Broker.Stop()
+	}
 }
 
 func (s *Supervisor) budgetStop(st *sched, reason, detail string) {

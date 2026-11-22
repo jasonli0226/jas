@@ -213,24 +213,29 @@ func (s *Supervisor) takeSteering(w *worker) []string {
 
 // dropOwner drops a part and its dependents for the owner: a running part
 // is cancelled and dropped when its attempt ends (see handle).
-func (s *Supervisor) dropOwner(st *sched, id string) error {
+func (s *Supervisor) dropOwner(st *sched, id, source string) error {
 	switch st.status[id] {
 	case StatusRunning:
 		if st.dropping == nil {
-			st.dropping = map[string]bool{}
+			st.dropping = map[string]string{}
 		}
-		st.dropping[id] = true
+		st.dropping[id] = source
 		s.ctl.cancel(id)
 	case StatusQueued, StatusPaused, StatusFailed:
-		s.dropped(st, id)
+		s.dropped(st, id, source)
 	default:
 		return ErrPartNotRunning
 	}
 	return nil
 }
 
-// dropped marks id and its dependents dropped and logs the owner's choice.
-func (s *Supervisor) dropped(st *sched, id string) {
+// sourceOwner is the owner_decision source of the host's own commands (the
+// chat or the farm's terminal).
+const sourceOwner = "owner"
+
+// dropped marks id and its dependents dropped and logs the owner's choice,
+// made from source.
+func (s *Supervisor) dropped(st *sched, id, source string) {
 	s.setStatus(st, append([]string{id}, dependents(s.Plan, id)...), "", StatusDropped)
-	s.event(EvOwnerDecision, map[string]any{"part": id, "choice": choiceDrop, "source": "owner"})
+	s.event(EvOwnerDecision, map[string]any{"part": id, "choice": choiceDrop, "source": source})
 }

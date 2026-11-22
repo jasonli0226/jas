@@ -20,6 +20,7 @@ type Handle struct {
 	hardCancel context.CancelFunc
 	done       chan struct{}
 	res        Result
+	srv        *attachServer
 }
 
 // StartFarm runs the preflight checks and, if they pass, starts the farm on
@@ -33,9 +34,14 @@ func StartFarm(ctx context.Context, opts RunOptions) (*Handle, error) {
 	git := NewGit()
 	pre, err := preflight(soft, git, opts)
 	if err == nil {
+		// The attach server wraps the host's watcher, so steers a client
+		// sent that a part never read go back to that client.
+		srv := newAttachServer(hostWatcher(opts))
+		opts.Watch = srv
 		var r *farmRun
 		if r, err = startFarm(git, opts, pre); err == nil {
-			h := &Handle{r: r, softCancel: softCancel, hardCancel: hardCancel, done: make(chan struct{})}
+			h := &Handle{r: r, softCancel: softCancel, hardCancel: hardCancel, done: make(chan struct{}), srv: srv}
+			srv.start(h, opts.Home)
 			go h.run(soft)
 			return h, nil
 		}
@@ -48,6 +54,7 @@ func StartFarm(ctx context.Context, opts RunOptions) (*Handle, error) {
 func (h *Handle) run(ctx context.Context) {
 	defer close(h.done)
 	defer h.r.close()
+	defer h.srv.stop() // before close: a client leaving logs to farm.jsonl
 	code, reason, err := h.r.run(ctx)
 	h.res = Result{Code: code, Reason: reason, Branch: h.r.branch, Err: err}
 	h.softCancel()
@@ -65,6 +72,9 @@ func (h *Handle) Done() <-chan struct{} { return h.done }
 
 // FarmID names the farm (its directory under <home>/farms).
 func (h *Handle) FarmID() string { return h.r.s.FarmID }
+
+// Broker is the run's approval broker; StartFarm always sets one.
+func (h *Handle) Broker() *Broker { return h.r.s.Broker }
 
 // Snapshot is a copy of the current manifest.
 func (h *Handle) Snapshot() Manifest {
@@ -94,12 +104,13 @@ func (h *Handle) Steer(part, text string) error {
 }
 
 // Pause makes a running part wait before its next model request.
-func (h *Handle) Pause(part string) error { return h.pauseResume(part, true) }
+func (h *Handle) Pause(part string) error { return h.pauseResume(part, true, sourceOwner) }
 
 // Resume releases a paused part.
-func (h *Handle) Resume(part string) error { return h.pauseResume(part, false) }
+func (h *Handle) Resume(part string) error { return h.pauseResume(part, false, sourceOwner) }
 
-func (h *Handle) pauseResume(part string, pause bool) error {
+// pauseResume pauses or resumes part; the owner_decision names source.
+func (h *Handle) pauseResume(part string, pause bool, source string) error {
 	s := h.r.s
 	if s.ctl.worker(part) == nil {
 		return ErrPartNotRunning
@@ -113,14 +124,17 @@ func (h *Handle) pauseResume(part string, pause bool) error {
 	} else if !s.ctl.resume(part) {
 		return nil
 	}
-	s.event(EvOwnerDecision, map[string]any{"part": part, "choice": choice, "source": "owner"})
+	s.event(EvOwnerDecision, map[string]any{"part": part, "choice": choice, "source": source})
 	return nil
 }
 
 // Drop drops a part and its dependents; a running part is cancelled.
-func (h *Handle) Drop(part string) error {
+func (h *Handle) Drop(part string) error { return h.drop(part, sourceOwner) }
+
+// drop is Drop with the owner_decision naming source.
+func (h *Handle) drop(part, source string) error {
 	var err error
-	if !h.r.s.ctl.do(func(st *sched) { err = h.r.s.dropOwner(st, part) }) {
+	if !h.r.s.ctl.do(func(st *sched) { err = h.r.s.dropOwner(st, part, source) }) {
 		return ErrPartNotRunning
 	}
 	return err

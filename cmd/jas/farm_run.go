@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -17,14 +18,15 @@ import (
 )
 
 // farmRunOnlyFlags are jas farm run flags that are not stored settings.
-var farmRunOnlyFlags = map[string]bool{"json": true, "allow-dirty": true, "trust-project": true}
+var farmRunOnlyFlags = map[string]bool{"json": true, "allow-dirty": true, "trust-project": true, "approval-wait": true}
 
 type farmRunArgs struct {
-	plan       string
-	json       bool
-	allowDirty bool
-	trust      bool
-	flags      map[string]string
+	plan         string
+	json         bool
+	allowDirty   bool
+	trust        bool
+	approvalWait *time.Duration // nil: budget.approval_wait
+	flags        map[string]string
 }
 
 // parseFarmRunArgs reads flags and the single plan path, accepting flags on
@@ -36,6 +38,7 @@ func parseFarmRunArgs(args []string) (farmRunArgs, error) {
 	fs.BoolVar(&ra.json, "json", false, "stream farm.jsonl events (only) to stdout")
 	fs.BoolVar(&ra.allowDirty, "allow-dirty", false, "run on a dirty tree; uncommitted changes are not part of the farm")
 	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
+	wait := fs.Duration("approval-wait", 0, "unattended: hold gated calls this long for an attached client (overrides budget.approval_wait)")
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name)
@@ -58,10 +61,16 @@ func parseFarmRunArgs(args []string) (farmRunArgs, error) {
 	ra.plan = rest[0]
 	ra.flags = map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "approval-wait" {
+			ra.approvalWait = wait
+		}
 		if !farmRunOnlyFlags[f.Name] {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
 	})
+	if ra.approvalWait != nil && *ra.approvalWait < 0 {
+		return ra, usageErr("--approval-wait: %s is negative", *ra.approvalWait)
+	}
 	return ra, nil
 }
 
@@ -75,12 +84,15 @@ func farmRunCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return runPlan(ctx, e, ra.plan, ra.json, ra.allowDirty)
+	return runPlan(ctx, e, ra.plan, ra.json, ra.allowDirty, ra.approvalWait)
 }
 
 // runPlan runs an approved plan with farm.RunFarm. ctx is the soft stop
-// (first Ctrl-C); a second Ctrl-C cancels the hard context.
-func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty bool) error {
+// (first Ctrl-C); a second Ctrl-C cancels the hard context. On a TTY one
+// line reader on stdin serves every farm question and is the approval
+// broker's host; without one the broker is unattended (approvalWait, nil
+// for budget.approval_wait, holds gated calls for an attached client).
+func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty bool, approvalWait *time.Duration) error {
 	cfg, notices, err := farm.LoadConfig(e.root, e.home, e.pc.trusted)
 	if err != nil {
 		return usageErr("farm config: %v", err)
@@ -90,16 +102,27 @@ func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty b
 	}
 	hard, release := secondInterrupt()
 	defer release()
-	var ask func(string, []string) (string, bool)
+	var (
+		ask    func(string, []string) (string, bool)
+		host   farm.HostAsker
+		broker *farm.Broker
+		tty    *farmTTY
+	)
 	if e.interactive {
-		ask = farmAsk(ctx, e.stdin, os.Stderr)
+		tty = newFarmTTY(e.stdin, os.Stderr)
+		ask = farmAsk(ctx, tty)
+		host = tty.approver(e.red.Redact, func(id string) (string, string, bool) { return broker.Closed(id) })
 	}
+	bo := brokerOptions(e.level, e.red.Redact, cfg, approvalWait, host)
+	if tty != nil {
+		bo.OnGrant = tty.granted(e.red.Redact)
+	}
+	broker = farm.NewBroker(bo)
 	code, reason, err := farm.RunFarm(ctx, farm.RunOptions{
 		PlanPath: planPath, Home: e.home, Main: e.root, JSON: jsonOut, AllowDirty: allowDirty,
 		Stdout: os.Stdout, Stderr: os.Stderr, Ask: ask,
 		Cfg: cfg, Trusted: e.pc.trusted, NewSession: farmSession(e),
-		Approvals: farm.NewApprovals(e.stdin, os.Stderr, e.interactive, e.level),
-		Hard:      hard, Policy: e.policy, Redact: e.red.Redact, Width: stdoutWidth,
+		Broker: broker, Hard: hard, Policy: e.policy, Redact: e.red.Redact, Width: stdoutWidth,
 	})
 	if err != nil {
 		return err // a refusal is already an exit 2 ExitError

@@ -3,7 +3,6 @@ package farm
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -384,7 +383,7 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 	log, ui := s.workerLog(id, flog)
 	w.log = log
 	sid := core.NewSessionID(time.Now())
-	gate, err := s.gate(id, w.role.Approve)
+	gate, err := s.gate(id, w.role.Approve, log)
 	if err != nil {
 		return err
 	}
@@ -532,16 +531,15 @@ func (s *Supervisor) workerLog(part string, log core.EventLog) (core.EventLog, c
 	return core.NewUILog(log, ui), ui
 }
 
-// gate is the part's approval gate. Without shared approvals there is no
-// TTY: gated calls end the part with approval_needed.
-func (s *Supervisor) gate(part, approve string) (core.Gate, error) {
-	if s.Gates != nil {
-		return s.Gates(part, approve)
+// gate is the part's approval gate: the Broker's, logging to the part's
+// log. Without a Broker (a Supervisor built by hand) the part gets an
+// unattended one at level never: a gated call ends it with approval_needed.
+func (s *Supervisor) gate(part, approve string, log core.EventLog) (core.Gate, error) {
+	b := s.Broker
+	if b == nil {
+		b = NewBroker(BrokerOptions{Level: core.Never, Redact: s.Redact})
 	}
-	if s.Approvals != nil {
-		return s.Approvals.Gate(part, approve)
-	}
-	return NewApprovals(strings.NewReader(""), io.Discard, false, core.Never).Gate(part, approve)
+	return b.Gate(part, approve, log)
 }
 
 // register writes the worker's session record. Records are advisory, so a

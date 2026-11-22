@@ -255,13 +255,19 @@ func (f *chatFarmer) Start(ctx context.Context, planPath, model string, level co
 		PlanPath: planPath, Home: e.home, Main: e.root, Stdout: io.Discard, Stderr: io.Discard,
 		Ask: h.Ask, Cfg: cfg, Trusted: e.pc.trusted, NewSession: f.b.workerSession(e),
 		Policy: e.policy, Redact: e.red.Redact, Watch: hookWatcher{h},
-		Approvals: farm.NewApprovals(strings.NewReader(""), io.Discard, false, level),
 	}
+	// Grants live in the broker; the chat's prompts are its host.
+	var broker *farm.Broker
+	var host farm.HostAsker
+	if h.Host != nil {
+		host = h.Host(func(id string) (string, string, bool) { return broker.Closed(id) })
+	}
+	bo := brokerOptions(level, e.red.Redact, cfg, nil, host)
+	bo.OnGrant = h.Granted
+	broker = farm.NewBroker(bo)
+	opts.Broker = broker
 	if h.Worker != nil {
 		opts.WorkerUI = func(part string) core.UI { return core.NewRedactingUI(h.Worker(part), e.red.Redact) }
-	}
-	if h.Gate != nil {
-		opts.Gates = h.Gate
 	}
 	run, err := farm.StartFarm(ctx, opts)
 	if err != nil {

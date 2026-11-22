@@ -911,20 +911,24 @@ func TestRunFarm_WorkerUIPerPart(t *testing.T) {
 	}
 }
 
-func TestRunFarm_GatesHookPerPart(t *testing.T) {
+func TestRunFarm_BrokerGatesEveryPart(t *testing.T) {
 	r := newRunRig(t, "true", twoParts(), twoWriters)
 	var mu sync.Mutex
-	var got []string
-	r.opts.Gates = func(part, approve string) (core.Gate, error) {
+	seen := map[string]bool{}
+	r.opts.Broker = NewBroker(BrokerOptions{Level: core.AllMutating, Host: func(_ context.Context, req ApprovalRequest) (Answer, error) {
 		mu.Lock()
-		got = append(got, part+":"+approve)
+		seen[req.Part] = true
 		mu.Unlock()
-		return &core.Approver{Level: core.Never}, nil
-	}
+		return AnswerYes, nil
+	}})
 	if code, reason := r.run(context.Background()); code != 0 {
 		t.Fatalf("exit %d %s", code, reason)
 	}
-	sortedEq(t, got, "a:", "b:")
+	mu.Lock()
+	defer mu.Unlock()
+	if !seen["a"] || !seen["b"] {
+		t.Fatalf("host asked for %v, want a and b", seen)
+	}
 }
 
 // withGenerated sets the run's generated list as if farm.yaml listed it.

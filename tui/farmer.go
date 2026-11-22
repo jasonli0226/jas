@@ -48,9 +48,12 @@ type FarmPlan struct {
 // FarmHooks is how a running farm reports to the chat. Every hook is called
 // from farm goroutines.
 type FarmHooks struct {
-	Event       func(typ string, m map[string]any)            // farm.jsonl events
-	Worker      func(part string) core.UI                     // a UI per session (parts, "integrate")
-	Gate        func(part, approve string) (core.Gate, error) // approval gate per session
+	Event  func(typ string, m map[string]any) // farm.jsonl events
+	Worker func(part string) core.UI          // a UI per session (parts, "integrate")
+	// Host is the farm broker's host asker on this chat, given the broker's
+	// record of closed approvals (farm.Broker.Closed); nil: unattended.
+	Host        func(closed func(id string) (answer, by string, ok bool)) farm.HostAsker
+	Granted     func(farm.GrantNotice) // the broker's OnGrant: what always/farm granted
 	Ask         func(prompt string, choices []string) (string, bool)
 	Undelivered func(part string, texts []string) // steering a part never read
 }

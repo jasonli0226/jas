@@ -1,19 +1,56 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonli0226/jas/internal/assert"
 )
 
+// askWith answers the farm question with input's lines, each typed once
+// the prompt is on screen (a line typed while no question waits is
+// ignored), then ends the input.
 func askWith(input string, choices []string) (string, bool, string) {
-	var out strings.Builder
-	ask := farmAsk(context.Background(), bufio.NewReader(strings.NewReader(input)), &out)
-	ans, ok := ask("retry, drop or abort? ", choices)
-	return ans, ok, out.String()
+	const prompt = "retry, drop or abort? "
+	pr, pw := io.Pipe()
+	out := &lockedBuf{}
+	type res struct {
+		ans string
+		ok  bool
+	}
+	done := make(chan res, 1)
+	go func() {
+		ans, ok := farmAsk(context.Background(), newFarmTTY(pr, out))(prompt, choices)
+		done <- res{ans, ok}
+	}()
+	deadline := time.After(5 * time.Second)
+	n := 0
+	for _, line := range strings.SplitAfter(input, "\n") {
+		if line == "" {
+			continue
+		}
+		n++
+		for strings.Count(out.String(), prompt) < n {
+			select {
+			case r := <-done:
+				return r.ans, r.ok, out.String()
+			case <-deadline:
+				panic("farm question never asked again: " + out.String())
+			case <-time.After(2 * time.Millisecond):
+			}
+		}
+		_, _ = io.WriteString(pw, line)
+	}
+	pw.Close()
+	select {
+	case r := <-done:
+		return r.ans, r.ok, out.String()
+	case <-deadline:
+		panic("farm question never answered: " + out.String())
+	}
 }
 
 var finalChoices = []string{"merge", "keep", "discard"}

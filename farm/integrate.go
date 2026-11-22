@@ -245,7 +245,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	if err != nil {
 		return err
 	}
-	gate, err := s.gate(integratePart, role.Approve)
+	gate, err := s.gate(integratePart, role.Approve, log)
 	if err != nil {
 		return err
 	}

@@ -89,7 +89,6 @@ type RunOptions struct {
 	// NewSession builds a worker's or the integrator's session; see
 	// Supervisor.NewSession.
 	NewSession func(w WorkerSession) (*core.Session, error)
-	Approvals  *Approvals      // shared TTY approvals; nil: approval level never
 	Hard       context.Context // second Ctrl-C; nil: never
 	Width      func() int      // terminal columns for progress lines; nil or 0: no clipping
 	// Watch receives farm and worker events; set, it replaces the default
@@ -98,8 +97,10 @@ type RunOptions struct {
 	// WorkerUI gives each session (a part, or "integrate") a UI that gets its
 	// streamed text and log events; nil: quiet.
 	WorkerUI func(part string) core.UI
-	// Gates supplies each session's approval gate; nil: Approvals.
-	Gates  func(part, approve string) (core.Gate, error)
+	// Broker is every session's approval gate; nil: an unattended broker
+	// at approval level never (no host, so a gated call is refused unless a
+	// client is attached or an approval wait is set).
+	Broker *Broker
 	Policy core.ExecPolicy // base policy for workers
 	Redact func(string) string
 }
@@ -119,6 +120,17 @@ func RunFarm(ctx context.Context, opts RunOptions) (exitCode int, reason string,
 	}
 	res := h.Wait()
 	return res.Code, res.Reason, res.Err
+}
+
+// hostWatcher is the host's watcher: RunOptions.Watch, else (without
+// --json) progress lines on stdout, else nil.
+func hostWatcher(o RunOptions) Watcher {
+	if o.Watch != nil || o.JSON {
+		return o.Watch
+	}
+	prog := NewProgress(o.Stdout, o.Redact)
+	prog.Width = o.Width
+	return prog
 }
 
 func withDefaults(o RunOptions) RunOptions {
@@ -308,11 +320,6 @@ func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id,
 		return nil, err
 	}
 	watch := o.Watch
-	if watch == nil && !o.JSON {
-		prog := NewProgress(o.Stdout, o.Redact)
-		prog.Width = o.Width
-		watch = prog
-	}
 	log := watchFarmLog(watch, idLog{EventLog: flog, id: id})
 	board, err := OpenBoard(filepath.Join(dir, boardFile), o.Redact, o.Cfg.Board)
 	if err != nil {
@@ -323,13 +330,17 @@ func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id,
 	if o.Policy.Root != "" {
 		deny = o.Policy.Denied
 	}
+	broker := o.Broker
+	if broker == nil {
+		broker = NewBroker(BrokerOptions{Level: core.Never, Redact: o.Redact})
+	}
 	wt := &Worktrees{Git: git, Main: o.Main, Dir: pre.wtDir, FarmID: id, Copy: o.Cfg.Worktree.Copy, Setup: o.Cfg.Worktree.Setup, Deny: deny}
 	s := &Supervisor{
 		Plan: pre.plan, Cfg: o.Cfg, FarmID: id, Dir: dir, Main: o.Main, Git: git, WT: wt, Board: board, Log: log,
 		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA},
 		NewSession: o.NewSession, Ask: o.Ask, Pools: NewPools(o.Cfg), Hard: o.Hard,
-		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact, Watch: watch,
-		WorkerUI: o.WorkerUI, Gates: o.Gates, Gen: gen,
+		Policy: o.Policy, Redact: o.Redact, Watch: watch,
+		WorkerUI: o.WorkerUI, Broker: broker, Gen: gen,
 	}
 	r := &farmRun{o: o, git: git, pre: pre, s: s, log: log, board: board, start: now}
 	s.event(EvFarmStarted, map[string]any{

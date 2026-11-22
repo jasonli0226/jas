@@ -212,8 +212,13 @@ func (p *Progress) WorkerEvent(part, typ string, m map[string]any) {
 	}
 }
 
-// SteerUndelivered is a no-op: the CLI has no steering.
-func (p *Progress) SteerUndelivered(string, []string) {}
+// SteerUndelivered prints each steer text (from an attach client that has
+// since left) that its part finished without reading.
+func (p *Progress) SteerUndelivered(part string, texts []string) {
+	for _, t := range texts {
+		p.print(fmt.Sprintf("[%s] not delivered (part finished): %s", part, t))
+	}
+}
 
 // watchLog is an event log that also reports each event to a watcher.
 type watchLog struct {

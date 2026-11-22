@@ -158,7 +158,7 @@ would, counting the project as trusted only when you already trusted it.
 
 ```
 jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
-jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project]
+jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project] [--approval-wait <duration>]
 jas farm "<task>"                 # plan, approve, run in one terminal
 jas farm status [<farm-id>]       # parts, tokens, check verdict (offline)
 jas farm clean [<farm-id>] [--branches]
@@ -170,6 +170,7 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 | `-o plan.yaml` | where `plan` writes the plan |
 | `--allow-dirty` | plan or run on a dirty tree; uncommitted changes are not part of the farm |
 | `--json` | (`run`) stream `farm.jsonl` events, only, on stdout |
+| `--approval-wait <duration>` | (`run`, no TTY) hold gated calls this long for a `jas attach` client to answer, even with none attached; overrides `budget.approval_wait` |
 | `--branches` | (`clean`) also delete the `jas/farm/<id>/*` branches |
 | `--trust-project` | load the project's context and `.jas/farm.yaml` without asking |
 
@@ -183,12 +184,13 @@ jas attach <farm-id>              # a farm by id or unique id prefix
 jas attach <farm-id> <part>       # also that part's (or integrate's) replies and tool results
 ```
 
-Watch a farm from another terminal: started by `jas farm run` or by the
-chat's `/farm`. Attach prints the `jas farm status` table, the last 3 tool
+Watch and steer a farm from another terminal: started by `jas farm run` or by
+the chat's `/farm`. Attach prints the `jas farm status` table, the last 3 tool
 calls of each part, then one line per event as the farm runs (the same lines
-`jas farm run` prints). It only reads the farm's files under
-`~/.jas/farms/<farm-id>/`; it never changes the farm. A farm is running while
-its process holds `~/.jas/run/<farm-id>.lock`.
+`jas farm run` prints). It reads the farm's files under
+`~/.jas/farms/<farm-id>/`; a farm is running while its process holds
+`~/.jas/run/<farm-id>.lock`. To change the farm it also talks to the running
+farm over a Unix socket (below).
 
 - Ctrl-C detaches; the farm keeps running.
 - When the farm ends, attach prints its end line and exits. If the farm
@@ -199,8 +201,92 @@ its process holds `~/.jas/run/<farm-id>.lock`.
   several running it lists them and exits 2. An unknown or ambiguous id, an
   unknown part or extra arguments exit 2.
 
-Watching only, for now: steering, pause and approvals from an attached
-terminal come later.
+#### Command line
+
+While the farm runs, attach reads commands from its own stdin, one per line.
+Only a terminal stdin is read: run in the background (`jas attach <id> &`) or
+with stdin from a pipe or file, attach watches only, does not connect for
+control (it does not count as an attached client) and never reads stdin.
+Output from the farm is sanitized and redacted before it is printed.
+
+| command | does |
+|---|---|
+| `steer <part> <text>` | send `text` to a running part (or `integrate`) as the owner's next message |
+| `pause <part>` / `resume <part>` / `drop <part>` | as the chat's `/farm pause`, `resume`, `drop` |
+| `stop [hard]` | stop the farm (`hard` cancels running calls at once) |
+| `status` | print the status table again |
+| `y` \| `n` \| `always` \| `farm` `[<approval-id>]` | answer a gated call; the id defaults to the oldest pending approval |
+
+An unknown command prints the command list and sends nothing. Replies print
+nothing on success (except `stop`, which prints `ok`) and the error text on
+failure. A steer that its part
+finished without reading comes back as
+`[<part>] not delivered (part finished): <text>`; if the client that sent it
+has left, the farm's own output (`jas farm run` or the chat) prints that line.
+
+Answers are full words only: `y`/`yes`, `n`/`no`, `always` (that tool for that
+part only, as the chat's `always`) and
+`farm` (a standing grant for that tool for every part of the farm). There is no single-letter
+`always` or `farm`.
+
+#### Approvals
+
+A part's gated call becomes a pending approval with a stable id. Attach
+prints each one, those pending when it connects and those that open later:
+
+```
+[backend-api] approve [a3] shell: npm install zod (y/n/always/farm)
+```
+
+Attach shows the tool and its one-line summary (the command, or the path
+for a write or edit), not the diff: only the farm's own terminal and the
+chat show a write's preview. When the summary is not enough to decide,
+answer `n`, or answer from the farm's own terminal.
+
+The first answer wins, whether from the farm's own terminal (chat
+`/farm` approvals) or any attach client. A late answer prints
+`already answered (<answer>, by <source>)`; an id that is not pending prints
+`unknown approval`. When another answer settles an approval, attach prints
+`approval [<id>] closed: <answer> (by <source>)`. The chat's approval level is
+fixed when the farm starts; attach does not change it. On `jas farm run`'s
+terminal, a prompt another answer settles is withdrawn (its line ends, then
+`[<part>] [<id>] answered from attach: <answer>` when attach answered it); an
+answer typed just after another one won prints
+`[<part>] [<id>] already answered (<answer>, by <source>)`.
+
+A farm with no terminal (`jas farm run` without a TTY) holds a gated call
+for an answer for up to 10 minutes. With `budget.approval_wait` 0 (the
+default) it holds only while an attach client is connected: with nobody
+attached a gated call is refused at once (`approval_needed`, as before), and
+when the last attached terminal leaves, held calls are refused (`by:
+no_client`). `budget.approval_wait` or `--approval-wait <duration>` (which
+overrides it) replaces the 10 minutes with its value and holds gated calls
+even with nobody attached, so a client can attach later and answer. A negative
+`--approval-wait` is a usage error. A held call is refused when the window
+ends (`by: timeout`). The part's own timeouts still apply while it is held.
+A soft stop (attach `stop`, or the first Ctrl-C) refuses every held call at
+once (`by: stop`) and any later gated call on that farm, so a held approval
+never keeps a stopping farm alive; a farm with a terminal or chat keeps
+prompting.
+
+#### Socket and protocol
+
+A running farm listens on `~/.jas/run/<farm-id>.sock` (mode 0600). It is
+unavailable on Windows (the farm serves no socket and logs nothing) and when
+the path is too long for a Unix socket (the farm then logs
+`attach_unavailable`); either way attach only watches, printing once
+`control unavailable (watching only)`. Attach does the same when it cannot
+connect. If the socket closes while the farm still runs, attach keeps
+watching; commands then print the same notice.
+
+The protocol is JSON lines. A client sends
+`{"id","cmd","part","text","hard","approval_id","answer"}` (`cmd`: `hello`,
+`steer`, `pause`, `resume`, `drop`, `stop`, `approve`) and the farm replies
+`{"reply":{"id","ok","error",...}}` with the same id; `hello` is first and
+returns `farm_id`, `protocol` (1) and the pending approvals. The farm also
+pushes `{"notice":{...}}` lines (`approval_requested`, `approval_closed`,
+`steer_undelivered`). A reply to a line that is not valid JSON has an empty
+`id`.
 
 ## Chat
 
@@ -833,6 +919,7 @@ verdict. Merge the branch yourself and run the check.
 | `budget.per_worker_timeout` | 30m | wall-clock cap per part |
 | `budget.farm_timeout` | 2h | wall-clock cap for the farm |
 | `budget.requests_per_minute` | — | rate limit across workers |
+| `budget.approval_wait` | 0 | without a TTY, hold gated calls this long (replacing the 10 minute default) for an attach client, even with none attached; 0 holds them up to 10 minutes, only while a client is attached |
 | `board.max_rounds` | 3 | board message rounds |
 | `board.post_chars` / `board.deliver_chars` | 500 / 2000 | board message size caps |
 | `on_failure` | `drop` | `drop` a failed part or `abort` the farm |
