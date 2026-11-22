@@ -384,7 +384,7 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 	log, ui := s.workerLog(id, flog)
 	w.log = log
 	sid := core.NewSessionID(time.Now())
-	gate, err := s.gate(id, w.role.Approve)
+	gate, err := s.gate(id, w.role.Approve, log)
 	if err != nil {
 		return err
 	}
@@ -532,9 +532,13 @@ func (s *Supervisor) workerLog(part string, log core.EventLog) (core.EventLog, c
 	return core.NewUILog(log, ui), ui
 }
 
-// gate is the part's approval gate. Without shared approvals there is no
-// TTY: gated calls end the part with approval_needed.
-func (s *Supervisor) gate(part, approve string) (core.Gate, error) {
+// gate is the part's approval gate. With a Broker, approvals go through it
+// and log to the part's log; otherwise (Gates, Approvals) without shared
+// approvals there is no TTY: gated calls end the part with approval_needed.
+func (s *Supervisor) gate(part, approve string, log core.EventLog) (core.Gate, error) {
+	if s.Broker != nil {
+		return s.Broker.Gate(part, approve, log)
+	}
 	if s.Gates != nil {
 		return s.Gates(part, approve)
 	}

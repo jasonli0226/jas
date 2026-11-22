@@ -99,7 +99,10 @@ type RunOptions struct {
 	// streamed text and log events; nil: quiet.
 	WorkerUI func(part string) core.UI
 	// Gates supplies each session's approval gate; nil: Approvals.
-	Gates  func(part, approve string) (core.Gate, error)
+	Gates func(part, approve string) (core.Gate, error)
+	// Broker, when set, is every session's approval gate and replaces
+	// Approvals and Gates. nil: today's path.
+	Broker *Broker
 	Policy core.ExecPolicy // base policy for workers
 	Redact func(string) string
 }
@@ -329,7 +332,7 @@ func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id,
 		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA},
 		NewSession: o.NewSession, Ask: o.Ask, Pools: NewPools(o.Cfg), Hard: o.Hard,
 		Policy: o.Policy, Approvals: o.Approvals, Redact: o.Redact, Watch: watch,
-		WorkerUI: o.WorkerUI, Gates: o.Gates, Gen: gen,
+		WorkerUI: o.WorkerUI, Gates: o.Gates, Broker: o.Broker, Gen: gen,
 	}
 	r := &farmRun{o: o, git: git, pre: pre, s: s, log: log, board: board, start: now}
 	s.event(EvFarmStarted, map[string]any{

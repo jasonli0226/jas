@@ -58,6 +58,7 @@ type Supervisor struct {
 	Hard      context.Context
 	Policy    core.ExecPolicy // base worker policy; see WorkerPolicy
 	Approvals *Approvals      // nil: no TTY, approval level never unless a role sets one
+	Broker    *Broker         // set: every gate goes through it (Approvals and Gates are then unused)
 	Redact    func(string) string
 	Watch     Watcher // nil: no progress lines (--json, tests)
 	// WorkerUI and Gates: see RunOptions.
