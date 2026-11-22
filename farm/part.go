@@ -25,8 +25,11 @@ const (
 
 // worker is one running attempt of a part.
 type worker struct {
-	part  Part
-	role  Role
+	part Part
+	role Role
+	// spent is the part's tokens from earlier attempts; the manifest shows
+	// spent plus this attempt's pool as the worker runs.
+	spent int
 	path  string // worktree
 	start string // worktree HEAD before the worker ran (base + merged deps)
 	pol   core.ExecPolicy
@@ -371,6 +374,11 @@ func (s *Supervisor) prepare(ctx context.Context, w *worker, attempt int) (attem
 // openWorker opens the part's log, record and session.
 func (s *Supervisor) openWorker(w *worker, attempt int) error {
 	id := w.part.ID
+	s.Manifest.Update(func(m *Manifest) {
+		if ps := m.Parts[id]; ps != nil {
+			w.spent = ps.Tokens
+		}
+	})
 	name := eventsFile
 	if attempt > 1 {
 		name = fmt.Sprintf("events-%d.jsonl", attempt)
@@ -381,6 +389,7 @@ func (s *Supervisor) openWorker(w *worker, attempt int) error {
 		return err
 	}
 	log, ui := s.workerLog(id, flog)
+	log = s.tokenLog(w, log)
 	w.log = log
 	sid := core.NewSessionID(time.Now())
 	gate, err := s.gate(id, w.role.Approve, log)
@@ -430,7 +439,7 @@ func (s *Supervisor) closeWorker(w *worker) {
 		used = w.pool.Used()
 	}
 	s.setPart(w.part.ID, func(ps *PartState) {
-		ps.Tokens += used
+		ps.Tokens = w.spent + used
 		ps.Undelivered = undelivered
 	})
 	_ = w.rec.Close()
@@ -529,6 +538,18 @@ func (s *Supervisor) workerLog(part string, log core.EventLog) (core.EventLog, c
 	}
 	ui := s.WorkerUI(part)
 	return core.NewUILog(log, ui), ui
+}
+
+// tokenLog updates the part's manifest tokens at each usage event: the
+// session settles the pool before it logs usage, so the count is exact.
+func (s *Supervisor) tokenLog(w *worker, log core.EventLog) core.EventLog {
+	return watchLog{EventLog: log, note: func(typ string, _ map[string]any) {
+		if typ != core.EvUsage || w.pool == nil {
+			return
+		}
+		used := w.pool.Used()
+		s.setPart(w.part.ID, func(ps *PartState) { ps.Tokens = w.spent + used })
+	}}
 }
 
 // gate is the part's approval gate: the Broker's, logging to the part's

@@ -783,3 +783,23 @@ func TestSupervisor_HardCancelDuringCommitPauses(t *testing.T) {
 		t.Fatalf("outcome %+v", out)
 	}
 }
+
+func TestSupervisor_PartTokensTrackUsageWhileRunning(t *testing.T) {
+	plan := Plan{Task: "t", Parts: []Part{coder("a", "a/**")}}
+	var r *supRig
+	var mid PartState
+	r = newSup(t, plan, testCfg(), func(string, int) []fake.Turn {
+		first := writeCall("a/x.go", "package a\n")
+		first.Usage = providers.Usage{PromptTokens: 100, CompletionTokens: 20}
+		last := final("a ok")
+		last.OnEmit = func() { mid = r.part("a") }
+		return []fake.Turn{first, last}
+	})
+	r.run(t, context.Background())
+	if mid.Status != StatusRunning || mid.Tokens != 120 {
+		t.Fatalf("mid-run part %+v, want running with 120 tokens", mid)
+	}
+	if got := r.part("a").Tokens; got != 135 {
+		t.Fatalf("final tokens %d, want 135", got)
+	}
+}

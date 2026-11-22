@@ -143,8 +143,14 @@ func TestHandle_PauseHoldsNextRequest(t *testing.T) {
 	if n := len(pr.requests("a")); n != 1 {
 		t.Fatalf("paused part made %d requests, want 1", n)
 	}
+	if st := h.Snapshot().Parts["a"].Status; st != StatusPaused {
+		t.Fatalf("paused part's manifest status %q", st)
+	}
 	if err := h.Resume("a"); err != nil {
 		t.Fatal(err)
+	}
+	if st := h.Snapshot().Parts["a"].Status; st != StatusRunning && st != StatusDone {
+		t.Fatalf("resumed part's manifest status %q", st)
 	}
 	if res := h.Wait(); res.Code != 0 {
 		t.Fatalf("result %+v", res)

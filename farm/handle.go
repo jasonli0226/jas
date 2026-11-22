@@ -124,6 +124,15 @@ func (h *Handle) pauseResume(part string, pause bool, source string) error {
 	} else if !s.ctl.resume(part) {
 		return nil
 	}
+	from, to := StatusRunning, StatusPaused
+	if !pause {
+		from, to = to, from
+	}
+	s.setPart(part, func(ps *PartState) {
+		if ps.Status == from { // the part may have ended meanwhile
+			ps.Status = to
+		}
+	})
 	s.event(EvOwnerDecision, map[string]any{"part": part, "choice": choice, "source": source})
 	return nil
 }

@@ -174,6 +174,11 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 | `--branches` | (`clean`) also delete the `jas/farm/<id>/*` branches |
 | `--trust-project` | load the project's context and `.jas/farm.yaml` without asking |
 
+`status` reads `manifest.json`, which the farm keeps current while it runs:
+a part's tokens update after each model request, a part paused from `/farm`
+or attach shows `paused`, and the last line reads `final: none yet` until
+the farm has an outcome.
+
 Configuration: [Farm](#farm).
 
 ### `jas attach`
