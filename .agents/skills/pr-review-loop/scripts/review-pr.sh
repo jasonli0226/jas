@@ -26,7 +26,7 @@
 # Exit codes: 0 PASS, 1 CHANGES, 2 usage error, 3 the review did not finish.
 set -euo pipefail
 
-readonly MAX_TOKENS=800000
+readonly MAX_TOKENS=1500000
 readonly MAX_TURNS=40 # the pr-review skill budgets against this
 readonly TIMEOUT=30m # GLM reviews of script-heavy PRs can take over 15 minutes
 readonly PROFILE=reviewer
