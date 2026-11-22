@@ -27,7 +27,7 @@
 set -euo pipefail
 
 readonly MAX_TOKENS=1500000
-readonly MAX_TURNS=60 # the pr-review skill budgets against this
+readonly MAX_TURNS=40 # the pr-review skill budgets against this
 readonly TIMEOUT=30m # GLM reviews of script-heavy PRs can take over 15 minutes
 readonly PROFILE=reviewer
 readonly MARKER=jas-review
