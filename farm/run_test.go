@@ -311,7 +311,9 @@ func TestRunFarm_RefusesBeforeWorktrees(t *testing.T) {
 func TestRunFarm_ConflictGoesToIntegrator(t *testing.T) {
 	parts := []Part{coder("a", "a.txt"), coder("b", "a.txt")}
 	var intMsg string
-	r := newRunRig(t, "grep -q AB a.txt", parts, func(ws WorkerSession) []fake.Turn {
+	var midTokens int
+	var r *runRig
+	r = newRunRig(t, "grep -q AB a.txt", parts, func(ws WorkerSession) []fake.Turn {
 		switch ws.Part.ID {
 		case "a", "b":
 			return writes(map[string]string{"a.txt": strings.ToUpper(ws.Part.ID) + "\n"}, "done")
@@ -323,8 +325,15 @@ func TestRunFarm_ConflictGoesToIntegrator(t *testing.T) {
 		write, _ := json.Marshal(map[string]string{"path": "a.txt", "content": "AB\n"})
 		commit, _ := json.Marshal(map[string]string{"command": "git add a.txt && git commit --no-verify -q -m resolve"})
 		intMsg = ws.System
+		last := final("merged b, fixed a.txt")
+		last.OnEmit = func() { // three requests of 15 tokens each are settled
+			m, err := LoadManifest(filepath.Join(r.farmDir(), manifestFile))
+			if err == nil && m.Integrator != nil {
+				midTokens = m.Integrator.Tokens
+			}
+		}
 		return []fake.Turn{call("shell", string(merge)), call("write", string(write)),
-			call("shell", string(commit)), final("merged b, fixed a.txt")}
+			call("shell", string(commit)), last}
 	})
 	r.opts.Cfg.Split.DisjointFiles = false
 	code, reason := r.run(context.Background())
@@ -345,6 +354,9 @@ func TestRunFarm_ConflictGoesToIntegrator(t *testing.T) {
 	}
 	if fmt.Sprint(ended["conflicts"]) != "[b]" {
 		t.Fatalf("integrate_ended conflicts %v", ended["conflicts"])
+	}
+	if midTokens != 45 {
+		t.Fatalf("integrator tokens in the manifest mid-run %d, want 45", midTokens)
 	}
 }
 

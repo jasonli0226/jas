@@ -263,7 +263,7 @@ func printFarmStatus(w io.Writer, m farm.Manifest) {
 		fmt.Fprintf(w, "check: exit %d in %s\n", m.Check.ExitCode, m.Check.Duration.Round(time.Millisecond))
 	}
 	choice, reason := m.FinalChoice, m.Reason
-	if choice == "" && reason == "" { // the farm has no outcome yet
+	if reason == "" { // no outcome yet: end() writes Reason last, after any FinalChoice
 		fmt.Fprintf(w, "final: none yet  total tokens %d\n", m.TotalTokens)
 		return
 	}

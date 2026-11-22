@@ -175,7 +175,7 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 | `--trust-project` | load the project's context and `.jas/farm.yaml` without asking |
 
 `status` reads `manifest.json`, which the farm keeps current while it runs:
-a part's tokens update after each model request, a part paused from `/farm`
+a part's (and the integrator's) tokens update after each model request, a part paused from `/farm`
 or attach shows `paused`, and the last line reads `final: none yet` until
 the farm has an outcome.
 
@@ -939,7 +939,7 @@ verdict. Merge the branch yourself and run the check.
 | `board.post_chars` / `board.deliver_chars` | 500 / 2000 | board message size caps |
 | `on_failure` | `drop` | `drop` a failed part or `abort` the farm |
 | `models.planner`, `models.integrator` | session model | models for those roles |
-| `roles.<name>` | — | custom roles: `tools`, `writes`, `prompt`, `approve`, `model`, `budget`. `tools` names built-in tools (`read`, `grep`, `ls`, `write`, `edit`, `shell`, …); a role naming any other is unavailable (`unknown tool "<name>"`) and a plan using it is refused (exit 2) |
+| `roles.<name>` | — | custom roles: `tools`, `writes`, `prompt`, `approve`, `model`, `budget`. `tools` names built-in tools, only `read`, `grep`, `ls`, `write`, `edit` and `shell`; a role naming any other is unavailable (`unknown tool "<name>"`) and a plan using it is refused (exit 2) |
 
 Full design:
 [farm spec](superpowers/specs/2026-11-02-farm-design.md).

@@ -540,15 +540,24 @@ func (s *Supervisor) workerLog(part string, log core.EventLog) (core.EventLog, c
 	return core.NewUILog(log, ui), ui
 }
 
-// tokenLog updates the part's manifest tokens at each usage event: the
-// session settles the pool before it logs usage, so the count is exact.
+// tokenLog updates the part's manifest tokens at each usage event.
 func (s *Supervisor) tokenLog(w *worker, log core.EventLog) core.EventLog {
-	return watchLog{EventLog: log, note: func(typ string, _ map[string]any) {
-		if typ != core.EvUsage || w.pool == nil {
+	return usageLog(log, func() {
+		if w.pool == nil {
 			return
 		}
 		used := w.pool.Used()
 		s.setPart(w.part.ID, func(ps *PartState) { ps.Tokens = w.spent + used })
+	})
+}
+
+// usageLog calls onUsage after each usage event is logged. The session
+// settles its pool before it logs usage, so a pool read there is exact.
+func usageLog(log core.EventLog, onUsage func()) core.EventLog {
+	return watchLog{EventLog: log, note: func(typ string, _ map[string]any) {
+		if typ == core.EvUsage {
+			onUsage()
+		}
 	}}
 }
 
