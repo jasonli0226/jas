@@ -1,6 +1,6 @@
 # `jas attach`: reach a running farm from another terminal
 
-Status: draft, awaiting owner approval (2026-11-22); builder check done. Issue #156; design §5;
+Status: approved (owner, 2026-11-22); builder check and review done. Issue #156; design §5;
 farm spec "Next version".
 
 ## Intent
