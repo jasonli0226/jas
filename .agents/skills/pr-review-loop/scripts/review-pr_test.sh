@@ -72,6 +72,10 @@ cat >"$bin/jas" <<EOF
 printf '%s\n' "\$@" >>"$tmp/jas-calls"
 if [[ "\$*" == *"Rewrite this code review"* ]]; then
 	printf '%s\n' "\$@" >"$tmp/jas-reformat-args"
+	if [[ -e $tmp/jas-reformat-bad ]]; then
+		printf 'Still no format.\n'
+		exit 0
+	fi
 	printf '## Findings\n\n1. [medium] a/a.go:3 — x.\n\n## Checked\n\n1. read a.go\n\nVERDICT: CHANGES\n'
 	exit 0
 fi
@@ -214,6 +218,25 @@ grep -qx -- '--max-turns' "$tmp/jas-reformat-args" && grep -qx -- '1' "$tmp/jas-
 grep -qx -- '--wrap-up' "$tmp/jas-reformat-args" || fail "the reformat run does not have tools off (--wrap-up)"
 grep -q 'Moderate' "$tmp/jas-reformat-args" || fail "the reformat run did not get the first answer"
 [[ $(wc -c <"$tmp/jas-reformat-args") -lt 110000 ]] || fail "the rewrite prompt is not capped"
+
+# On Git Bash the rewrite prompt fits its command-line cap too.
+printf '#!/usr/bin/env bash\necho MINGW64_NT-10.0\n' >"$bin/uname"
+chmod +x "$bin/uname"
+touch "$tmp/jas-unformatted"
+review reformatwin 'printf "package a\n\nfunc A() int { return 4 }\n" >a/a.go'
+rm -f "$tmp/jas-unformatted" "$bin/uname"
+[[ $code == 1 ]] || fail "a reformatted review on Git Bash exited $code, want 1: $(tail -3 <<<"$out")"
+[[ $(wc -c <"$tmp/jas-reformat-args") -lt 30000 ]] ||
+	fail "the rewrite prompt on Git Bash is $(wc -c <"$tmp/jas-reformat-args") bytes, past its cap"
+
+# A rewrite that is still unformatted gives up: exit 3, nothing posted, and
+# the message says the review itself finished.
+touch "$tmp/jas-unformatted" "$tmp/jas-reformat-bad"
+review reformatbad 'printf "package a\n\nfunc A() int { return 5 }\n" >a/a.go'
+rm -f "$tmp/jas-unformatted" "$tmp/jas-reformat-bad"
+[[ $code == 3 ]] || fail "an unformatted rewrite exited $code, want 3: $(tail -3 <<<"$out")"
+! grep -q 'jas review:' <<<"$out" || fail "an unformatted rewrite posted a review: $out"
+grep -q 'format rewrite' <<<"$out" || fail "the give-up message does not say the rewrite failed: $(tail -3 <<<"$out")"
 
 # main now ships an installer that fails; the installer is read from main's
 # tip, so the PR branch can stay as it is.
