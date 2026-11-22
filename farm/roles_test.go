@@ -2,6 +2,7 @@ package farm
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -105,5 +106,17 @@ func TestRoles_DigestStable(t *testing.T) {
 	assert.NoErr(t, err)
 	if RolesDigest(a) == RolesDigest(c) {
 		t.Fatal("digest should change with prompt")
+	}
+}
+
+func TestRoles_UnknownToolMakesRoleUnavailable(t *testing.T) {
+	cfg, _, err := LoadConfig(t.TempDir(), t.TempDir(), true)
+	assert.NoErr(t, err)
+	cfg.Roles = map[string]RoleDef{"gated": {Tools: []string{"read", "find"}, Approve: "shell"}}
+	_, unavail := Available(cfg)
+	assert.Eq(t, unavail["gated"], `unknown tool "find"`)
+	_, err = ResolveRole(cfg, "gated", []string{"a/**"})
+	if err == nil || !strings.Contains(err.Error(), `unknown tool "find"`) {
+		t.Fatalf("ResolveRole: %v", err)
 	}
 }

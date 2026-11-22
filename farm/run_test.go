@@ -282,6 +282,10 @@ func TestRunFarm_RefusesBeforeWorktrees(t *testing.T) {
 		"unknown role": func(r *runRig) {
 			r.writePlan(Plan{Task: "t", Base: head(r), Parts: []Part{{ID: "a", Role: "wizard", Goal: "g", Owns: []string{"a/**"}}}}, true)
 		},
+		"unknown tool in role": func(r *runRig) {
+			r.opts.Cfg.Roles = map[string]RoleDef{"gated": {Tools: []string{"read", "find"}}}
+			r.writePlan(Plan{Task: "t", Base: head(r), Parts: []Part{{ID: "a", Role: "gated", Goal: "g", Owns: []string{"a/**"}}}}, true)
+		},
 		"dirty tree": func(r *runRig) { writeFile(t, filepath.Join(r.main, "junk.txt"), "x") },
 		"no check":   func(r *runRig) { r.opts.Cfg.Check = "" },
 		"proposed roles": func(r *runRig) {

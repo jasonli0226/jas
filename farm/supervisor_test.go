@@ -321,6 +321,15 @@ func TestSupervisor_FailureNoTTYDrop(t *testing.T) {
 	if ps := r.part("b"); ps.Status != StatusDropped {
 		t.Fatalf("b %+v", ps)
 	}
+	var detail any
+	for _, e := range r.events(t, EvPartEnded) {
+		if e["part"] == "a" {
+			detail = e["detail"]
+		}
+	}
+	if d, _ := detail.(string); !strings.Contains(d, "boom") {
+		t.Fatalf("part_ended detail %q, want the error", detail)
+	}
 	if len(r.events(t, EvOwnerDecision)) == 0 {
 		t.Fatal("no owner_decision for on_failure")
 	}
@@ -772,5 +781,25 @@ func TestSupervisor_HardCancelDuringCommitPauses(t *testing.T) {
 	}
 	if !out.Interrupted || len(out.Failed) != 0 {
 		t.Fatalf("outcome %+v", out)
+	}
+}
+
+func TestSupervisor_PartTokensTrackUsageWhileRunning(t *testing.T) {
+	plan := Plan{Task: "t", Parts: []Part{coder("a", "a/**")}}
+	var r *supRig
+	var mid PartState
+	r = newSup(t, plan, testCfg(), func(string, int) []fake.Turn {
+		first := writeCall("a/x.go", "package a\n")
+		first.Usage = providers.Usage{PromptTokens: 100, CompletionTokens: 20}
+		last := final("a ok")
+		last.OnEmit = func() { mid = r.part("a") }
+		return []fake.Turn{first, last}
+	})
+	r.run(t, context.Background())
+	if mid.Status != StatusRunning || mid.Tokens != 120 {
+		t.Fatalf("mid-run part %+v, want running with 120 tokens", mid)
+	}
+	if got := r.part("a").Tokens; got != 135 {
+		t.Fatalf("final tokens %d, want 135", got)
 	}
 }

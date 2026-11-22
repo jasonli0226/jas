@@ -59,3 +59,21 @@ func TestProgress_SteerUndelivered(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestProgressLine_FailedShowsDetail(t *testing.T) {
+	for _, c := range []struct {
+		m    map[string]any
+		want string
+	}{
+		{map[string]any{"part": "a", "status": StatusFailed, "reason": ReasonError, "detail": "role gated: unknown tool \"find\"\nmore"},
+			`[a] failed: error (role gated: unknown tool "find")`},
+		{map[string]any{"part": "a", "status": StatusFailed, "reason": ReasonApprovalNeeded, "detail": "approval_needed"},
+			"[a] failed: approval_needed"},
+		{map[string]any{"part": "a", "status": StatusFailed, "reason": ReasonError},
+			"[a] failed: error"},
+	} {
+		if got := ProgressLine(EvPartEnded, c.m); got != c.want {
+			t.Errorf("line %q, want %q", got, c.want)
+		}
+	}
+}

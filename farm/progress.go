@@ -14,6 +14,9 @@ import (
 // progressArgRunes caps the argument shown on a tool line.
 const progressArgRunes = 80
 
+// progressDetailRunes caps a failed part's detail on its progress line.
+const progressDetailRunes = 200
+
 // Progress prints one plain line per farm event and per worker tool call, so
 // a farm run without --json shows what it is doing. Lines are redacted and
 // sanitized; safe for concurrent use.
@@ -88,7 +91,11 @@ func farmLine(typ string, m map[string]any) string {
 		return fmt.Sprintf("[%s] part_check deferred to the merged check: %v (set part_check: \"\" if parts cannot pass check alone)", part, m["reason"])
 	case EvPartEnded:
 		if m["status"] == StatusFailed {
-			return fmt.Sprintf("[%s] failed: %v", part, m["reason"])
+			line := fmt.Sprintf("[%s] failed: %v", part, m["reason"])
+			if d := firstLine(orEmpty(m["detail"])); d != "" && d != fmt.Sprint(m["reason"]) {
+				line += " (" + clipRunes(d, progressDetailRunes) + ")"
+			}
+			return line
 		}
 		return strings.TrimSpace(fmt.Sprintf("[%s] %v %v", part, m["status"], orEmpty(m["diffstat"])))
 	case EvBoardPosted:
