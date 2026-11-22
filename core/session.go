@@ -476,7 +476,7 @@ func (s *Session) turn(ctx context.Context, m *msgState) (done bool, status stri
 		m.final = textOf(msg)
 		return true, endOK, ExitOK, ""
 	}
-	results, err := c.Exec.Run(ctx, uses)
+	results, err := c.Exec.RunWithHistory(ctx, s.messages, uses)
 	s.push(providers.Message{Role: providers.RoleUser, Content: results}, "")
 	if err != nil { // queued steering stays queued for the caller
 		if ctx.Err() != nil {

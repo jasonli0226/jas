@@ -249,7 +249,9 @@ has a `tool_result` and no `tool_started`.
 `unavailable`). Only when someone was asked, or no one could be. Calls let
 through by the approve level or a standing grant log no `approval`.
 
-**`tool_result`** — `call_id`, `tool`, `status`, `output`; optional `diff`.
+**`tool_result`** — `call_id`, `tool`, `status`, `output`; optional `diff`,
+`unchanged` (true: a repeated `read` whose output was replaced by a note,
+which `output` holds).
 `status`: `ok`, `error`, `denied`, `cancelled`, `interrupted`, `not_run`. The
 last two are written only on resume (below).
 

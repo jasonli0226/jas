@@ -430,7 +430,7 @@ Docker recipes.
 
 | tool | does | gated at |
 |---|---|---|
-| `read` | read a file (also skill directories, hidden skills included) | — |
+| `read` | read a file (also skill directories, hidden skills included). A repeat of a read of the same file and range whose output is unchanged, while that earlier result is still in the history (not compacted or elided), returns a one-line note (`unchanged since your read of <path> N turns ago (same range)`) instead; the next identical read returns the content | — |
 | `ls` | list a directory | — |
 | `grep` | search file contents | — |
 | `write` | create or overwrite a file (atomic) | `mutating` |
