@@ -174,6 +174,33 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 
 Configuration: [Farm](#farm).
 
+### `jas attach`
+
+```
+jas attach                        # the one running farm
+jas attach <farm-id>              # a farm by id or unique id prefix
+jas attach <farm-id> <part>       # also that part's replies and tool results
+```
+
+Watch a farm from another terminal: started by `jas farm run` or by the
+chat's `/farm`. Attach prints the `jas farm status` table, the last 3 tool
+calls of each part, then one line per event as the farm runs (the same lines
+`jas farm run` prints). It only reads the farm's files under
+`~/.jas/farms/<farm-id>/`; it never changes the farm. A farm is running while
+its process holds `~/.jas/run/<farm-id>.lock`.
+
+- Ctrl-C detaches; the farm keeps running.
+- When the farm ends, attach prints its end line and exits. If the farm
+  process dies, attach prints `farm process ended` and exits.
+- A farm that is not running shows its table and how it ended
+  (`farm ended: <reason>`, or `farm process ended without finishing`).
+- With no argument and no running farm, attach says so and exits 0; with
+  several running it lists them and exits 2. An unknown or ambiguous id, an
+  unknown part or extra arguments exit 2.
+
+Watching only, for now: steering, pause and approvals from an attached
+terminal come later.
+
 ## Chat
 
 The chat prints into your terminal's scrollback (no full-screen mode).

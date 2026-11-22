@@ -24,6 +24,7 @@ const usage = `usage:
   jas farm run plan.yaml [--json] [--allow-dirty]
   jas farm "task"
   jas farm status|clean|vars
+  jas attach [<farm-id> [<part>]]
   jas config set|get|unset|list|init
   jas profile list [--json] | use <name> | new <name> | show [name]
   jas auth add|list|rm|rotate
@@ -74,6 +75,8 @@ func dispatch(ctx context.Context, args []string) int {
 		return report(sessionsCmd(args[1:]))
 	case "dream":
 		return report(dreamCmd(ctx, args[1:]))
+	case "attach":
+		return report(attachCmd(ctx, args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "jas: unknown command %q\n%s\n", args[0], usage)
 		return core.ExitUsage
