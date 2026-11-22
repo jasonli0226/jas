@@ -32,16 +32,15 @@ func farmStatusCmd(args []string) error {
 	if len(args) > 1 {
 		return usageErr("usage: jas farm status [<farm-id>]")
 	}
-	var id string
-	if len(args) == 1 {
-		var err error
-		if id, err = farmIDArg(args[0]); err != nil {
-			return err
-		}
-	}
 	home, err := settingsHome()
 	if err != nil {
 		return err
+	}
+	var id string
+	if len(args) == 1 {
+		if id, err = matchFarm(home, args[0]); err != nil {
+			return err
+		}
 	}
 	m, err := loadFarmManifest(home, id)
 	if err != nil {
@@ -71,16 +70,15 @@ func farmCleanCmd(ctx context.Context, args []string) error {
 	if len(rest) > 1 {
 		return usageErr("usage: jas farm clean [<farm-id>] [--branches]")
 	}
-	var id string
-	if len(rest) == 1 {
-		var err error
-		if id, err = farmIDArg(rest[0]); err != nil {
-			return err
-		}
-	}
 	home, err := settingsHome()
 	if err != nil {
 		return err
+	}
+	var id string
+	if len(rest) == 1 {
+		if id, err = matchFarm(home, rest[0]); err != nil {
+			return err
+		}
 	}
 	m, err := loadFarmManifest(home, id)
 	if err != nil {
@@ -124,6 +122,9 @@ func farmCleanCmd(ctx context.Context, args []string) error {
 		if err := deleteFarmBranches(ctx, git, root, m.FarmID); err != nil {
 			return err
 		}
+	}
+	if err := farm.RemoveFarmLock(home, m.FarmID); err != nil && !errors.Is(err, core.ErrLocked) {
+		fmt.Fprintf(os.Stderr, "jas: could not remove the farm's lock file: %v\n", err)
 	}
 	return nil
 }

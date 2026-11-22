@@ -65,3 +65,24 @@ func FarmRunning(home, id string) bool {
 	_ = unlock()
 	return false
 }
+
+// RemoveFarmLock deletes an ended farm's lock file; ErrLocked means the farm
+// is still running. It probes the lock and releases it before removing (a
+// locked file can't be removed on Windows); farm ids are never reused, so
+// no new owner can take the lock in between.
+func RemoveFarmLock(home, id string) error {
+	if _, err := os.Stat(lockPath(home, id)); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	unlock, err := core.LockPath(lockPath(home, id))
+	if err != nil {
+		return err
+	}
+	if err := unlock(); err != nil {
+		return err
+	}
+	if err := os.Remove(lockPath(home, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
