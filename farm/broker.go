@@ -529,7 +529,7 @@ func (g *brokerGate) decide(t core.Tool, args json.RawMessage, out outcome) core
 	if g.b.o.OnGrant != nil {
 		g.b.o.OnGrant(n)
 	}
-	text := n.Text()
+	text := g.b.o.Redact(n.Text()) // it leaves the farm, as request summaries do
 	if n.Kind != GrantAdded {
 		text = "[" + g.part + "] " + text
 	}

@@ -100,7 +100,7 @@ func (h *Handle) Snapshot() Manifest {
 // Steer queues owner text for a running part; it reaches the model at the
 // next turn boundary, or comes back through Watcher.SteerUndelivered.
 func (h *Handle) Steer(part, text string) error {
-	if err := h.known(part, true); err != nil {
+	if err := h.known(part); err != nil {
 		return err
 	}
 	if !h.r.s.ctl.steer(part, text) {
@@ -117,7 +117,7 @@ func (h *Handle) Resume(part string) error { return h.pauseResume(part, false, s
 
 // pauseResume pauses or resumes part; the owner_decision names source.
 func (h *Handle) pauseResume(part string, pause bool, source string) error {
-	if err := h.known(part, true); err != nil {
+	if err := h.known(part); err != nil {
 		return err
 	}
 	s := h.r.s
@@ -151,7 +151,7 @@ func (h *Handle) Drop(part string) error { return h.drop(part, sourceOwner) }
 
 // drop is Drop with the owner_decision naming source.
 func (h *Handle) drop(part, source string) error {
-	if err := h.known(part, false); err != nil {
+	if err := h.known(part); err != nil {
 		return err
 	}
 	var err error
@@ -161,10 +161,10 @@ func (h *Handle) drop(part, source string) error {
 	return err
 }
 
-// known checks part names a part of the plan (or, with integrate, the
-// integrator): an error that says so, not "not running".
-func (h *Handle) known(part string, integrate bool) error {
-	if integrate && part == integratePart {
+// known checks part names a part of the plan or the integrator: an error
+// that says so, not "not running".
+func (h *Handle) known(part string) error {
+	if part == integratePart {
 		return nil
 	}
 	for _, p := range h.r.s.Plan.Parts {

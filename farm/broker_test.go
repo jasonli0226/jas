@@ -647,6 +647,28 @@ func TestBroker_GrantNotices(t *testing.T) {
 	assert.Eq(t, MustAskNotice, "writes to the profile's skills always ask; allowed once")
 }
 
+// The approval_granted notice leaves the farm (attach), so it is redacted
+// as request summaries are; the host's OnGrant redacts at print time.
+func TestBroker_GrantedNoticeRedacted(t *testing.T) {
+	h := &countHost{a: AnswerFarm}
+	b := NewBroker(BrokerOptions{Level: core.ShellOnly, Host: h.ask,
+		Redact: func(s string) string { return strings.ReplaceAll(s, "hunter2", "[REDACTED]") }})
+	notes, unsub := b.Subscribe()
+	defer unsub()
+	g := mustGate(t, b, "api", nil)
+	_, _ = g.Allow(context.Background(), shellTool, json.RawMessage(`{"command":"echo hunter2"}`), nil)
+	for {
+		n := nextNotice(t, notes)
+		if n.Type != NoticeApprovalGranted {
+			continue
+		}
+		if strings.Contains(n.Text, "hunter2") || !strings.HasPrefix(n.Text, "[api] ") {
+			t.Fatalf("granted text %q", n.Text)
+		}
+		return
+	}
+}
+
 func TestBroker_StopRefusesHeld(t *testing.T) {
 	b := NewBroker(BrokerOptions{Level: core.ShellOnly, After: neverAfter})
 	b.SetClients(1)
