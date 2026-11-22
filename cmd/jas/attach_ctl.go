@@ -35,11 +35,12 @@ type attachCtl struct {
 	redact func(string) string
 	status func() // re-prints the farm status table
 
-	wmu  sync.Mutex // serializes writes and the request counter
-	seq  int
-	mu   sync.Mutex
-	open bool                   // the socket is still up
-	pend []farm.ApprovalRequest // oldest first
+	wmu   sync.Mutex // serializes writes and the request counter
+	seq   int
+	mu    sync.Mutex
+	open  bool                   // the socket is still up
+	pend  []farm.ApprovalRequest // oldest first
+	stops map[string]bool        // ids of stop requests awaiting a reply
 }
 
 // dialAttachCtl connects to the farm's socket and says hello. It prints
@@ -90,6 +91,14 @@ func (c *attachCtl) send(req farm.AttachRequest) error {
 	defer c.wmu.Unlock()
 	c.seq++
 	req.ID = fmt.Sprintf("r%d", c.seq)
+	if req.Cmd == farm.AttachStop {
+		c.mu.Lock()
+		if c.stops == nil {
+			c.stops = map[string]bool{}
+		}
+		c.stops[req.ID] = true
+		c.mu.Unlock()
+	}
 	b, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -123,12 +132,27 @@ func (c *attachCtl) readLoop(rd *bufio.Reader) {
 		if json.Unmarshal(line, &m) != nil {
 			continue
 		}
-		if m.Reply != nil && !m.Reply.OK && m.Reply.Error != "" {
-			c.print(m.Reply.Error)
+		if m.Reply != nil {
+			c.reply(m.Reply)
 		}
 		if m.Notice != nil {
 			c.notice(m.Notice)
 		}
+	}
+}
+
+// reply prints a failed reply's error, and "ok" for a stop that worked;
+// other successful replies print nothing.
+func (c *attachCtl) reply(r *farm.AttachReply) {
+	c.mu.Lock()
+	stop := c.stops[r.ID]
+	delete(c.stops, r.ID)
+	c.mu.Unlock()
+	switch {
+	case !r.OK && r.Error != "":
+		c.print(r.Error)
+	case r.OK && stop:
+		c.print("ok")
 	}
 }
 

@@ -132,6 +132,15 @@ func ctlAttach(t *testing.T, home string, in io.Reader) (*syncBuf, func() error)
 
 const ctlFarm = "20261122T010000-ctl"
 
+// idleInput is a command input that never sends a line (a terminal nobody
+// types in), so attach connects for control.
+func idleInput(t *testing.T) io.Reader {
+	t.Helper()
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	return pr
+}
+
 func TestAttach_ControlSteer(t *testing.T) {
 	home, ff := ctlHome(t, ctlFarm, nil, nil)
 	ctlAttach(t, home, strings.NewReader("steer p1 use slog\n"))
@@ -173,14 +182,14 @@ func TestAttach_ControlAlreadyAnswered(t *testing.T) {
 
 func TestAttach_ControlUndelivered(t *testing.T) {
 	home, ff := ctlHome(t, ctlFarm, nil, nil)
-	out, _ := ctlAttach(t, home, nil)
+	out, _ := ctlAttach(t, home, idleInput(t))
 	ff.push(t, farm.AttachNotice{Type: farm.NoticeSteerUndelivered, Part: "p1", Texts: []string{"use slog"}})
 	waitOutput(t, out, "[p1] not delivered (part finished): use slog")
 }
 
 func TestAttach_ControlApprovalNotices(t *testing.T) {
 	home, ff := ctlHome(t, ctlFarm, nil, nil)
-	out, _ := ctlAttach(t, home, nil)
+	out, _ := ctlAttach(t, home, idleInput(t))
 	req := farm.ApprovalRequest{ID: "a3", Part: "backend-api", Tool: "shell", Summary: "npm install zod"}
 	ff.push(t, farm.AttachNotice{Type: "approval_requested", Request: &req})
 	waitOutput(t, out, "[backend-api] approve [a3] shell: npm install zod (y/n/always/farm)")
@@ -190,7 +199,7 @@ func TestAttach_ControlApprovalNotices(t *testing.T) {
 
 func TestAttach_ControlFarmEnds(t *testing.T) {
 	home, ff := ctlHome(t, ctlFarm, nil, nil)
-	out, wait := ctlAttach(t, home, nil)
+	out, wait := ctlAttach(t, home, idleInput(t))
 	waitOutput(t, out, "p1")
 	ff.waitClient(t)
 	writeAppend(t, filepath.Join(farmDir(home, ctlFarm), "farm.jsonl"), evLine(farm.EvFarmEnded, "reason", "done"))
@@ -218,7 +227,7 @@ func TestAttach_ControlUnknownCommand(t *testing.T) {
 
 func TestAttach_ControlSanitizes(t *testing.T) {
 	home, ff := ctlHome(t, ctlFarm, nil, nil)
-	out, _ := ctlAttach(t, home, nil)
+	out, _ := ctlAttach(t, home, idleInput(t))
 	req := farm.ApprovalRequest{ID: "a1", Part: "p1", Tool: "shell", Summary: "echo \x1b[31mred\x1b[0m"}
 	ff.push(t, farm.AttachNotice{Type: "approval_requested", Request: &req})
 	waitOutput(t, out, "approve [a1] shell: echo")
@@ -278,5 +287,46 @@ func TestAttach_WatchOnlyWithoutSocket(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "no pending approval") || !strings.Contains(out.String(), "farm ended: done") {
 		t.Fatalf("unexpected output:\n%s", out.String())
+	}
+}
+
+func TestAttach_NoInputWatchesOnly(t *testing.T) {
+	// No terminal on stdin (attach in the background or in a pipe): attach
+	// watches, never connects for control, and says nothing about it.
+	home, ff := ctlHome(t, ctlFarm, nil, nil)
+	out, wait := ctlAttach(t, home, nil)
+	waitOutput(t, out, "p1")
+	select {
+	case <-ff.ready:
+		t.Fatal("attach connected for control with no command input")
+	case <-time.After(200 * time.Millisecond):
+	}
+	writeAppend(t, filepath.Join(farmDir(home, ctlFarm), "farm.jsonl"), evLine(farm.EvFarmEnded, "reason", "done"))
+	_ = ff.release()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), attachNoControl) {
+		t.Fatalf("control notice printed:\n%s", out.String())
+	}
+}
+
+func TestAttach_ControlStopPrintsOK(t *testing.T) {
+	home, ff := ctlHome(t, ctlFarm, nil, nil)
+	out, _ := ctlAttach(t, home, strings.NewReader("steer p1 x\nstop\n"))
+	ff.next(t)
+	if r := ff.next(t); r.Cmd != farm.AttachStop {
+		t.Fatalf("got %+v", r)
+	}
+	waitOutput(t, out, "\nok\n")
+	time.Sleep(50 * time.Millisecond) // a late reply line would show here
+	n := 0
+	for _, l := range strings.Split(out.String(), "\n") {
+		if l == "ok" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("ok printed %d times (steer must stay silent):\n%s", n, out.String())
 	}
 }

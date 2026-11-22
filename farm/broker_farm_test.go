@@ -92,3 +92,33 @@ func TestFarm_BrokerAnswerReachesPart(t *testing.T) {
 		t.Fatalf("part a %+v", ps)
 	}
 }
+
+func TestFarm_SoftStopReleasesHeldApproval(t *testing.T) {
+	r := gatedRig(t)
+	b := NewBroker(BrokerOptions{Level: core.Never, After: neverAfter})
+	b.SetClients(1)
+	r.opts.Broker = b
+	h, err := StartFarm(context.Background(), r.opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(b.Pending()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(b.Pending()) == 0 {
+		t.Fatal("no pending approval")
+	}
+	h.Stop(false)
+	done := make(chan struct{})
+	go func() { h.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("soft stop did not release the held approval")
+	}
+	ans, by, ok := b.Closed("a1")
+	if !ok || ans != "refused" || by != "stop" {
+		t.Fatalf("a1 closed %q by %q (%v)", ans, by, ok)
+	}
+}

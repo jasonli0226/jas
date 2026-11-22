@@ -48,3 +48,14 @@ func TestProgressLine_Regenerated(t *testing.T) {
 		}
 	}
 }
+
+func TestProgress_SteerUndelivered(t *testing.T) {
+	var b strings.Builder
+	p := NewProgress(&b, func(s string) string { return strings.ReplaceAll(s, "sk-secret", "[REDACTED]") })
+	p.SteerUndelivered("api", []string{"use slog", "key sk-secret\x1b[31m"})
+	want := "[api] not delivered (part finished): use slog\n" +
+		`[api] not delivered (part finished): key [REDACTED]\x1b[31m` + "\n"
+	if got := b.String(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

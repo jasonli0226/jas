@@ -124,7 +124,9 @@ type closedFunc func(id string) (answer, by string, ok bool)
 // The broker passes the tool name and diff path raw, so they are redacted
 // here (nil redact is identity). An empty or unknown answer is no. When
 // another answer withdraws the prompt, the attach answer is printed before
-// any later question. A request that closed while it waited for the screen
+// any later question; any other withdrawal just ends the prompt's line. A
+// line typed for a request that something else closed first prints
+// "already answered". A request that closed while it waited for the screen
 // is never shown, and after an answer the screen is kept until ctx ends, so
 // the broker records any grant (and releases the calls it covers) first.
 func (t *farmTTY) approver(redact func(string) string, closed closedFunc) farm.HostAsker {
@@ -149,15 +151,17 @@ func (t *farmTTY) approver(redact func(string) string, closed closedFunc) farm.H
 			t.give()
 			return farm.AnswerNo, err
 		}
+		t.lateAnswer(req, redact, closed)
 		go func() { <-ctx.Done(); t.give() }()
 		ans, _ := farm.ParseAnswer(line)
 		return ans, nil
 	}
 }
 
-// withdrawn ends a withdrawn prompt's line and, when an attached client
-// answered it, says so.
+// withdrawn ends a withdrawn prompt's line (whatever withdrew it) and, when
+// an attached client answered it, says so.
 func (t *farmTTY) withdrawn(req farm.ApprovalRequest, redact func(string) string, closed closedFunc) {
+	t.lr.Note("")
 	if closed == nil {
 		return
 	}
@@ -165,7 +169,19 @@ func (t *farmTTY) withdrawn(req farm.ApprovalRequest, redact func(string) string
 	if !ok || !strings.HasPrefix(by, attachBy) {
 		return
 	}
-	t.lr.Note("\n" + core.Sanitize(redact(fmt.Sprintf("[%s] [%s] answered from attach: %s", req.Part, req.ID, ans))))
+	t.lr.Note(core.Sanitize(redact(fmt.Sprintf("[%s] [%s] answered from attach: %s", req.Part, req.ID, ans))))
+}
+
+// lateAnswer says so when a line was typed for a request something else
+// (an attached client, a grant) closed first: the typed answer changed
+// nothing.
+func (t *farmTTY) lateAnswer(req farm.ApprovalRequest, redact func(string) string, closed closedFunc) {
+	if closed == nil {
+		return
+	}
+	if ans, by, ok := closed(req.ID); ok {
+		t.lr.Note(core.Sanitize(redact(fmt.Sprintf("[%s] [%s] already answered (%s, by %s)", req.Part, req.ID, ans, by))))
+	}
 }
 
 // approvalPrompt is the TTY's approval text: the diff under

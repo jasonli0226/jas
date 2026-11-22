@@ -37,6 +37,7 @@ const (
 	byNoClient      = "no_client" // nobody to ask, or the last client left
 	byDeadline      = "deadline"  // the part's ctx deadline passed
 	byCancel        = "cancel"    // the part's ctx was cancelled
+	byStop          = "stop"      // the farm soft-stopped while it was held
 )
 
 // Answer is an answer to an approval: the chat's words.
@@ -102,7 +103,7 @@ type Notice struct {
 	Type    string // EvApprovalRequested | EvApprovalClosed
 	Request ApprovalRequest
 	Answer  string // closed: answer or "refused"
-	By      string // closed: "host" | "attach:<client>" | "timeout" | "no_client"
+	By      string // closed: "host" | "attach:<client>" | "grant" | "timeout" | "no_client" | "stop" | "deadline" | "cancel"
 }
 
 // Notices for an always or farm answer that grants nothing standing; the
@@ -162,6 +163,7 @@ type Broker struct {
 	mu      sync.Mutex
 	seq     int
 	clients int
+	stopped bool // Stop: held approvals are refused
 	pending map[string]*approval
 	closed  map[string]outcome // answered ids, for late answers
 	subs    map[int]chan Notice
@@ -327,7 +329,7 @@ func (b *Broker) close(id string, out outcome) {
 // open registers a request logged as requested. A grant recorded since the
 // gate's coverage check closes it at once as granted; unattended with no
 // client and no wait, it is refused at once (still logged and announced
-// first).
+// first). After Stop, a held request is refused at once.
 func (b *Broker) open(g *brokerGate, t core.Tool, args json.RawMessage, req ApprovalRequest, seq int) *approval {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -338,7 +340,10 @@ func (b *Broker) open(g *brokerGate, t core.Tool, args json.RawMessage, req Appr
 		b.closeLocked(req.ID, grantedOutcome)
 		return a
 	}
-	if a.held && b.clients == 0 && b.o.Wait == 0 {
+	switch {
+	case a.held && b.stopped:
+		b.closeLocked(req.ID, outcome{refused: true, text: answerRefused, by: byStop})
+	case a.held && b.clients == 0 && b.o.Wait == 0:
 		b.closeLocked(req.ID, outcome{refused: true, text: answerRefused, by: byNoClient})
 	}
 	return a
@@ -527,4 +532,18 @@ func (g *brokerGate) decide(t core.Tool, args json.RawMessage, out outcome) core
 		g.b.releaseCovered()
 	}
 	return core.Granted
+}
+
+// Stop is the farm's soft stop: every held approval (no host) closes as
+// refused by "stop", and later held calls are refused at once, so a held
+// call never keeps a stopping farm alive. A host keeps prompting.
+func (b *Broker) Stop() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.stopped = true
+	for id, a := range b.pending {
+		if a.held {
+			b.closeLocked(id, outcome{refused: true, text: answerRefused, by: byStop})
+		}
+	}
 }

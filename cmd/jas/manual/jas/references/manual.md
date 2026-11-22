@@ -204,6 +204,9 @@ farm over a Unix socket (below).
 #### Command line
 
 While the farm runs, attach reads commands from its own stdin, one per line.
+Only a terminal stdin is read: run in the background (`jas attach <id> &`) or
+with stdin from a pipe or file, attach watches only, does not connect for
+control (it does not count as an attached client) and never reads stdin.
 Output from the farm is sanitized and redacted before it is printed.
 
 | command | does |
@@ -215,9 +218,11 @@ Output from the farm is sanitized and redacted before it is printed.
 | `y` \| `n` \| `always` \| `farm` `[<approval-id>]` | answer a gated call; the id defaults to the oldest pending approval |
 
 An unknown command prints the command list and sends nothing. Replies print
-nothing on success and the error text on failure. A steer that its part
+nothing on success (except `stop`, which prints `ok`) and the error text on
+failure. A steer that its part
 finished without reading comes back as
-`[<part>] not delivered (part finished): <text>`.
+`[<part>] not delivered (part finished): <text>`; if the client that sent it
+has left, the farm's own output (`jas farm run` or the chat) prints that line.
 
 Answers are full words only: `y`/`yes`, `n`/`no`, `always` (that tool for that
 part only, as the chat's `always`) and
@@ -238,7 +243,11 @@ The first answer wins, whether from the farm's own terminal (chat
 `already answered (<answer>, by <source>)`; an id that is not pending prints
 `unknown approval`. When another answer settles an approval, attach prints
 `approval [<id>] closed: <answer> (by <source>)`. The chat's approval level is
-fixed when the farm starts; attach does not change it.
+fixed when the farm starts; attach does not change it. On `jas farm run`'s
+terminal, a prompt another answer settles is withdrawn (its line ends, then
+`[<part>] [<id>] answered from attach: <answer>` when attach answered it); an
+answer typed just after another one won prints
+`[<part>] [<id>] already answered (<answer>, by <source>)`.
 
 A farm with no terminal (`jas farm run` without a TTY) holds a gated call
 for an answer for up to 10 minutes. With `budget.approval_wait` 0 (the
@@ -250,12 +259,17 @@ overrides it) replaces the 10 minutes with its value and holds gated calls
 even with nobody attached, so a client can attach later and answer. A negative
 `--approval-wait` is a usage error. A held call is refused when the window
 ends (`by: timeout`). The part's own timeouts still apply while it is held.
+A soft stop (attach `stop`, or the first Ctrl-C) refuses every held call at
+once (`by: stop`) and any later gated call on that farm, so a held approval
+never keeps a stopping farm alive; a farm with a terminal or chat keeps
+prompting.
 
 #### Socket and protocol
 
 A running farm listens on `~/.jas/run/<farm-id>.sock` (mode 0600). It is
-unavailable on Windows and when the path is too long for a Unix socket; the
-farm then logs `attach_unavailable` and attach only watches, printing once
+unavailable on Windows (the farm serves no socket and logs nothing) and when
+the path is too long for a Unix socket (the farm then logs
+`attach_unavailable`); either way attach only watches, printing once
 `control unavailable (watching only)`. Attach does the same when it cannot
 connect. If the socket closes while the farm still runs, attach keeps
 watching; commands then print the same notice.

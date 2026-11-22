@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -209,7 +210,7 @@ func TestFarmRun_TTYWithdrawnNextPrompts(t *testing.T) {
 	second := allowIn(g, shell, `{"command":"go test ./..."}`, nil)
 	waitOut(t, out, "[api] approve [a2] shell: go test ./...? [y/N/always/farm] ")
 	text := out.String()
-	note := "[api] [a1] answered from attach: yes\n"
+	note := "[y/N/always/farm] \n[api] [a1] answered from attach: yes\n" // one line end, not two
 	if i, j := strings.Index(text, note), strings.Index(text, "[a2]"); i < 0 || i > j {
 		t.Fatalf("withdrawal line not printed before the next prompt:\n%s", text)
 	}
@@ -306,4 +307,66 @@ func TestFarmRun_TTYFarmReleasesQueued(t *testing.T) {
 	if n := strings.Count(out.String(), "approve ["); n != 1 {
 		t.Fatalf("%d prompts:\n%s", n, out.String())
 	}
+}
+
+// A prompt withdrawn by something other than attach (here its call's ctx
+// ends) still ends its line, so the next output starts on a fresh one.
+func TestFarmRun_TTYWithdrawnEndsLine(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &lockedBuf{}
+	tty, b := ttyBroker(pr, out, nil)
+	g, err := b.Gate("api", "", nil)
+	assert.NoErr(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	res := make(chan error, 1)
+	go func() {
+		_, err := g.Allow(ctx, farmTool(t, "shell"), json.RawMessage(`{"command":"ls"}`), nil)
+		res <- err
+	}()
+	waitOut(t, out, "[api] approve [a1] shell: ls? [y/N/always/farm] ")
+	cancel()
+	select {
+	case <-res:
+	case <-time.After(5 * time.Second):
+		t.Fatal("gate never returned")
+	}
+	tty.note("next")
+	waitOut(t, out, "next\n")
+	if !strings.Contains(out.String(), "[y/N/always/farm] \nnext\n") {
+		t.Fatalf("prompt line not ended:\n%q", out.String())
+	}
+}
+
+// Typing an answer just as an attached client answered: the typed line is
+// consumed, so the TTY says the request was already answered.
+func TestFarmRun_TTYAnswerAfterAttachAnswered(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &lockedBuf{}
+	tty := newFarmTTY(pr, out)
+	var calls atomic.Int32
+	closed := func(string) (string, string, bool) {
+		if calls.Add(1) == 1 { // the check before the prompt: still open
+			return "", "", false
+		}
+		return "no", "attach:c1", true
+	}
+	host := tty.approver(nil, closed)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_, _ = host(ctx, farm.ApprovalRequest{ID: "a3", Part: "api", Tool: "shell", Summary: "ls"})
+		close(done)
+	}()
+	waitOut(t, out, "[y/N/always/farm] ")
+	_, err := io.WriteString(pw, "y\n")
+	assert.NoErr(t, err)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host never returned")
+	}
+	waitOut(t, out, "[api] [a3] already answered (no, by attach:c1)\n")
 }

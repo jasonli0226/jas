@@ -331,6 +331,7 @@ Farm events. In a part's log (`parts/<part>/`):
 `no`, `always`, `farm`, `refused`, `cancelled`) and `by`: `host` (the farm's
 terminal), `attach:<client>`, `timeout`, `no_client` (held for nobody),
 `grant` (another answer's grant released the call: `yes` by `grant`),
+`stop` (the farm soft-stopped while the call was held: `refused` by `stop`),
 `deadline` or `cancel`.
 
 In `farm.jsonl`: **`attach_connected`** and **`attach_disconnected`**

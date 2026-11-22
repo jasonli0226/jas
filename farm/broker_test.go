@@ -643,3 +643,53 @@ func TestBroker_GrantNotices(t *testing.T) {
 	assert.Eq(t, NoGrantNotice, "this command can't get an always grant; allowed once")
 	assert.Eq(t, MustAskNotice, "writes to the profile's skills always ask; allowed once")
 }
+
+func TestBroker_StopRefusesHeld(t *testing.T) {
+	b := NewBroker(BrokerOptions{Level: core.ShellOnly, After: neverAfter})
+	b.SetClients(1)
+	notes, unsub := b.Subscribe()
+	defer unsub()
+	log := &recLog{}
+	g := mustGate(t, b, "p1", log)
+	res := allowAsync(context.Background(), g, shellTool, goTest)
+	nextNotice(t, notes)
+	noResult(t, res)
+	b.Stop()
+	r := waitResult(t, res)
+	assert.NoErr(t, r.err)
+	assert.Eq(t, r.d, core.Unavailable)
+	evs := log.events()
+	assert.Eq(t, evs[len(evs)-1].data["answer"], any("refused"))
+	assert.Eq(t, evs[len(evs)-1].data["by"], any("stop"))
+	// A later gated call on a stopped broker is refused at once.
+	d, err := g.Allow(context.Background(), shellTool, goTest, nil)
+	assert.NoErr(t, err)
+	assert.Eq(t, d, core.Unavailable)
+	evs = log.events()
+	assert.Eq(t, evs[len(evs)-1].data["by"], any("stop"))
+}
+
+func TestBroker_StopKeepsHostPrompting(t *testing.T) {
+	asked := make(chan struct{})
+	answer := make(chan Answer)
+	host := func(ctx context.Context, _ ApprovalRequest) (Answer, error) {
+		close(asked)
+		select {
+		case a := <-answer:
+			return a, nil
+		case <-ctx.Done():
+			return AnswerNo, ctx.Err()
+		}
+	}
+	b := NewBroker(BrokerOptions{Level: core.ShellOnly, Host: host, After: neverAfter})
+	res := allowAsync(context.Background(), mustGate(t, b, "p1", &recLog{}), shellTool, goTest)
+	select {
+	case <-asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host not asked")
+	}
+	b.Stop()
+	noResult(t, res)
+	answer <- AnswerYes
+	assert.Eq(t, waitResult(t, res).d, core.Granted)
+}

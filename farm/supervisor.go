@@ -341,11 +341,14 @@ func (s *Supervisor) setStatus(st *sched, ids []string, from, to string) {
 }
 
 // stop ends scheduling and makes running workers stop after their current
-// request.
+// request; approvals held for nobody at the terminal are refused.
 func (s *Supervisor) stop(st *sched) {
 	st.stopping = true
 	s.stopFlag.Store(true)
 	s.ctl.stop()
+	if s.Broker != nil {
+		s.Broker.Stop()
+	}
 }
 
 func (s *Supervisor) budgetStop(st *sched, reason, detail string) {

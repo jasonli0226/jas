@@ -73,7 +73,7 @@ func (h *Handle) Done() <-chan struct{} { return h.done }
 // FarmID names the farm (its directory under <home>/farms).
 func (h *Handle) FarmID() string { return h.r.s.FarmID }
 
-// Broker is the run's approval broker; nil when the run has none.
+// Broker is the run's approval broker; StartFarm always sets one.
 func (h *Handle) Broker() *Broker { return h.r.s.Broker }
 
 // Snapshot is a copy of the current manifest.

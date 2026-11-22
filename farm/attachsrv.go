@@ -378,9 +378,6 @@ func (s *attachServer) steer(c *attachConn, part, text string) error {
 
 func (s *attachServer) approve(c *attachConn, id, answer string) error {
 	b := s.h.Broker()
-	if b == nil {
-		return errors.New("approvals not available")
-	}
 	a, ok := ParseAnswer(answer)
 	if !ok || answer == "" {
 		return fmt.Errorf("bad answer %q (yes, no, always, farm)", answer)
