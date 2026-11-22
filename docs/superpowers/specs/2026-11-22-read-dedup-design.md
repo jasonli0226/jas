@@ -1,6 +1,6 @@
 # Read dedup: skip re-sending a file still in context (#217)
 
-Status: draft, awaiting owner approval. Short design. Revised after a review (2026-11-22).
+Status: approved (owner, 2026-11-22). Short design, revised after a review.
 
 ## Intent
 
