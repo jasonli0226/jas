@@ -69,8 +69,24 @@ EOF
 cat >"$bin/jas" <<EOF
 #!/usr/bin/env bash
 [[ \$1 == profile ]] && exit 0
+printf '%s\n' "\$@" >>"$tmp/jas-calls"
+if [[ "\$*" == *"Rewrite this code review"* ]]; then
+	printf '%s\n' "\$@" >"$tmp/jas-reformat-args"
+	if [[ -e $tmp/jas-reformat-bad ]]; then
+		printf 'Still no format.\n'
+		exit 0
+	fi
+	printf '## Findings\n\n1. [medium] a/a.go:3 — x.\n\n## Checked\n\n1. read a.go\n\nVERDICT: CHANGES\n'
+	exit 0
+fi
 printf '%s\n' "\$@" >"$tmp/jas-args"
 cat "\$JAS_HOME/profiles/reviewer/AGENTS.md" >"$tmp/jas-agents"
+if [[ -e $tmp/jas-unformatted ]]; then
+	# jas run streams every turn; the answer comes last, after 200 KB of turns.
+	head -c 200000 /dev/zero | tr '\\0' 'x' | fold -w 100
+	printf '\n### Findings\n\n1. **[Moderate]** a/a.go:3 — x.\n\n**Verdict: request changes.**\n'
+	exit 0
+fi
 printf '## Findings\n\nNone.\n\nVERDICT: PASS\n'
 EOF
 chmod +x "$bin/gh" "$bin/jas"
@@ -187,6 +203,40 @@ grep -q '^(left out: the prompt would pass the argument limit' "$tmp/jas-args" 2
 	fail "a prompt past the Git Bash limit kept its diff"
 rm "$bin/uname"
 : >"$tmp/body"
+
+# A finished review without the required format is rewritten once, with
+# tools off, and the rewrite's verdict counts.
+touch "$tmp/jas-unformatted"
+rm -f "$tmp/jas-calls"
+review reformat 'printf "package a\n\nfunc A() int { return 3 }\n" >a/a.go'
+rm -f "$tmp/jas-unformatted"
+[[ $code == 1 ]] || fail "a reformatted CHANGES review exited $code, want 1: $out"
+grep -q 'jas review: CHANGES' <<<"$out" || fail "the reformatted verdict was not posted: $out"
+[[ $(grep -c -- '--profile' "$tmp/jas-calls") == 2 ]] || fail "want two jas runs (review, reformat): $(cat "$tmp/jas-calls")"
+grep -qx -- '--max-turns' "$tmp/jas-reformat-args" && grep -qx -- '1' "$tmp/jas-reformat-args" ||
+	fail "the reformat run is not limited to one turn: $(cat "$tmp/jas-reformat-args")"
+grep -qx -- '--wrap-up' "$tmp/jas-reformat-args" || fail "the reformat run does not have tools off (--wrap-up)"
+grep -q 'Moderate' "$tmp/jas-reformat-args" || fail "the reformat run did not get the first answer"
+[[ $(wc -c <"$tmp/jas-reformat-args") -lt 110000 ]] || fail "the rewrite prompt is not capped"
+
+# On Git Bash the rewrite prompt fits its command-line cap too.
+printf '#!/usr/bin/env bash\necho MINGW64_NT-10.0\n' >"$bin/uname"
+chmod +x "$bin/uname"
+touch "$tmp/jas-unformatted"
+review reformatwin 'printf "package a\n\nfunc A() int { return 4 }\n" >a/a.go'
+rm -f "$tmp/jas-unformatted" "$bin/uname"
+[[ $code == 1 ]] || fail "a reformatted review on Git Bash exited $code, want 1: $(tail -3 <<<"$out")"
+[[ $(wc -c <"$tmp/jas-reformat-args") -lt 30000 ]] ||
+	fail "the rewrite prompt on Git Bash is $(wc -c <"$tmp/jas-reformat-args") bytes, past its cap"
+
+# A rewrite that is still unformatted gives up: exit 3, nothing posted, and
+# the message says the review itself finished.
+touch "$tmp/jas-unformatted" "$tmp/jas-reformat-bad"
+review reformatbad 'printf "package a\n\nfunc A() int { return 5 }\n" >a/a.go'
+rm -f "$tmp/jas-unformatted" "$tmp/jas-reformat-bad"
+[[ $code == 3 ]] || fail "an unformatted rewrite exited $code, want 3: $(tail -3 <<<"$out")"
+! grep -q 'jas review:' <<<"$out" || fail "an unformatted rewrite posted a review: $out"
+grep -q 'format rewrite' <<<"$out" || fail "the give-up message does not say the rewrite failed: $(tail -3 <<<"$out")"
 
 # main now ships an installer that fails; the installer is read from main's
 # tip, so the PR branch can stay as it is.

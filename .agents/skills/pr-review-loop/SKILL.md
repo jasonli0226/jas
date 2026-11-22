@@ -45,16 +45,20 @@ No profile needs creating: the first review installs it.
 
 1. Push the branch and open the PR. Docs only: go to step 5.
 2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
-   command timeout of at least 55 minutes (tests take a few, capped at 20;
-   the review 5–30). It first runs the base branch's `make test` recipe on
+   command timeout of at least 60 minutes (tests take a few, capped at 20;
+   the review 5–30; a format rewrite up to 5). It first runs the base branch's `make test` recipe on
    the PR head, then the reviewer, and posts the result as a PR comment.
    - Exit 0, `VERDICT: PASS`: go to step 5. Its findings are all low; the
      script logs them in the "Low findings from jas reviews" issue.
    - Exit 1, `VERDICT: CHANGES`: go to step 3. When `make test` failed,
      the comment lists the failing tests and the reviewer did not run;
      the full output is on the script's stderr.
+   - A review that finished but ignored the format (no `## Findings` or
+     `VERDICT:` line, common when it answers at the turn cap) gets one
+     tools-off turn to rewrite itself; only then does the script give up.
    - Exit 3, the review did not finish: rerun once; if it fails again, tell
-     the user and stop.
+     the user and stop. When the message says the format rewrite failed,
+     the review itself finished: do not rerun, tell the user.
 3. Check each high and medium finding against the code it cites before
    acting on it (in Claude Code, with superpowers:receiving-code-review).
    Then fix it, or reply on the PR with why it is wrong. Fix a low finding

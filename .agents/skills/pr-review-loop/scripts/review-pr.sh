@@ -28,6 +28,10 @@ set -euo pipefail
 
 readonly MAX_TOKENS=1500000
 readonly MAX_TURNS=40 # the pr-review skill budgets against this
+readonly REFORMAT_TIMEOUT=5m # the one-turn rewrite of an unformatted review
+# bytes from the end of the reviewer output (its answer comes last) passed
+# to the rewrite; Git Bash caps the whole command line near 32 KB.
+readonly REFORMAT_MAX=100000 WINDOWS_REFORMAT_MAX=28000
 readonly TIMEOUT=30m # GLM reviews of script-heavy PRs can take over 15 minutes
 readonly PROFILE=reviewer
 readonly MARKER=jas-review
@@ -279,7 +283,8 @@ $diff_text
 PROMPT
 }
 prompt_max=$PROMPT_MAX_BYTES
-case $(uname -s) in MINGW* | MSYS* | CYGWIN*) prompt_max=$WINDOWS_PROMPT_MAX_BYTES ;; esac
+reformat_max=$REFORMAT_MAX
+case $(uname -s) in MINGW* | MSYS* | CYGWIN*) prompt_max=$WINDOWS_PROMPT_MAX_BYTES reformat_max=$WINDOWS_REFORMAT_MAX ;; esac
 prompt=$(build_prompt)
 if (($(printf '%s' "$prompt" | wc -c) > prompt_max)); then
 	diff_text="(left out: the prompt would pass the argument limit; read it with git diff $base...HEAD, a file at a time)"
@@ -299,8 +304,50 @@ set +e
 code=$?
 set -e
 
-review=$(awk '/^## Findings/{buf=""; keep=1} keep{buf=buf $0 "\n"} END{printf "%s", buf}' "$work/out" | no_markers)
-verdict=$(grep -oE '^VERDICT: (PASS|CHANGES)$' <<<"$review" | tail -1 | cut -d' ' -f2 || true)
+# review_of prints the review in $1 from its "## Findings" heading on,
+# without markers; verdict_of prints the VERDICT of the review in $1.
+review_of() { awk '/^## Findings/{buf=""; keep=1} keep{buf=buf $0 "\n"} END{printf "%s", buf}' "$1" | no_markers; }
+verdict_of() { grep -oE '^VERDICT: (PASS|CHANGES)$' <<<"$1" | tail -1 | cut -d' ' -f2 || true; }
+
+review=$(review_of "$work/out")
+verdict=$(verdict_of "$review")
+
+# A reviewer that finished (often at the turn cap, answering with tools off)
+# but ignored the required format gets one tools-off turn to rewrite its own
+# answer. Only its own words are rewritten; the parser stays strict.
+if [[ $code -eq 0 && -z $verdict && -s $work/out ]]; then
+	reformat="Rewrite this code review in the required format. Keep its findings and checks; do not add, drop or re-judge any. Use exactly:
+
+## Findings
+
+1. [high|medium|low] path/to/file.go:123 — what is wrong, why, and the fix.
+(or None.)
+
+## Checked
+
+One line per check that was made, and the result.
+
+VERDICT: PASS
+
+The last line is exactly VERDICT: CHANGES when any finding is high or medium, otherwise VERDICT: PASS.
+
+The review:
+
+$(tail -c "$reformat_max" "$work/out" | no_markers)"
+	set +e
+	(cd "$work/tree" && "${sandbox[@]}" \
+		jas run --profile "$PROFILE" --max-turns 1 --wrap-up --timeout "$REFORMAT_TIMEOUT" \
+		--name "review PR #$pr (format)" "$reformat") >"$work/out2" 2>"$work/err2"
+	code=$?
+	set -e
+	review=$(review_of "$work/out2")
+	verdict=$(verdict_of "$review")
+	if [[ $code -ne 0 || -z $verdict ]]; then
+		echo "review-pr: the review finished but its format rewrite failed (jas exit $code, verdict '${verdict:-none}'); a rerun will likely end the same way" >&2
+		tail -20 "$work/err2" >&2
+		exit 3
+	fi
+fi
 if [[ $code -ne 0 || -z $verdict ]]; then
 	echo "review-pr: the review did not finish (jas exit $code, verdict '${verdict:-none}')" >&2
 	tail -20 "$work/err" >&2
