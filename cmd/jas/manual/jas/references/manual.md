@@ -72,7 +72,7 @@ and `ps`. Use `jas auth add` or `JAS_API_KEY`.
 | `--max-tokens N` | stop with exit 7 before a request that would cross N total tokens |
 | `--timeout D` | stop with exit 7 after wall-clock duration D (e.g. `30m`) |
 | `--compact` | summarize older history when the context fills, as the chat does |
-| `--wrap-up` | at the turn cap (`max_turns`) or `--max-tokens`, send one last request with tools off asking for the final answer, instead of stopping without one; an answer exits 0. Tool calls in that reply are not run, and the run exits 4 or 7 at the cap as it would have. The token-cap wrap-up needs room for 1000 output tokens, else exit 7 as usual |
+| `--wrap-up` | at the turn cap (`max_turns`) or `--max-tokens`, send one last request with tools off asking for the final answer, instead of stopping without one; an answer exits 0. Tool calls in that reply are not run, and the run exits 4 or 7 at the cap as it would have. The token wrap-up starts early, when the room left after the next request would drop below one output cap (`max_output_tokens`, or 32000 when none is set), so the answer gets a full output cap; it needs room for 1000 output tokens, else exit 7 as usual. A token wrap-up reply cut off at its output cap exits 7 (reason `tokens`), not 9 |
 
 `jas run` prints diffs only on a terminal.
 
@@ -865,7 +865,7 @@ one bumps `v`.
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
 | `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |
-| `wrap_up` | reason (`turn_cap` \| `tokens`), max_tokens: `--wrap-up` asked for the final answer at that cap |
+| `wrap_up` | reason (`turn_cap` \| `tokens`), max_tokens: `--wrap-up` asked for the final answer at the turn cap, or before the token cap leaves less than one output cap; a cut-off `tokens` reply ends at the token cap (exit 7) |
 | `check_ran` | cmd, dir, exit_code, duration_ms, timed_out, output tail |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens; reason on non-zero exits |
 
