@@ -22,9 +22,9 @@ description: Use when asked to review a pull request, a branch, or a diff before
 
 ## Budget
 
-The run has 40 model turns. At the last one, or when the token budget runs
+The run has 60 model turns. At the last one, or when the token budget runs
 low, jas asks you for the review with tools off: anything you have not
-checked by then goes unchecked. Spend at most 25 turns gathering, then write
+checked by then goes unchecked. Spend at most 40 turns gathering, then write
 the review:
 
 - Batch independent reads and commands into one turn (several tool calls
@@ -95,5 +95,7 @@ VERDICT: PASS
 
 - No findings: write `None.` under Findings.
 - The last line is `VERDICT: CHANGES` when any finding is high or medium,
-  otherwise `VERDICT: PASS`.
+  otherwise `VERDICT: PASS`. This holds when jas asks for your final answer
+  early (tools off, at the turn or token cap): still end with that exact
+  line. A review without it does not count, whatever else it says.
 - Every finding cites a file and line in the diff or in code the diff breaks.
