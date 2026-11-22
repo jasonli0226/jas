@@ -257,6 +257,8 @@ type farmRun struct {
 	log   core.EventLog
 	board *Board
 	start time.Time
+	// unlock releases the liveness lock (LockFarm) when the farm closes.
+	unlock func() error
 
 	branch      string      // the integrate branch, once integration ran
 	hardStopped atomic.Bool // Handle.Stop(true): farm_ended carries hard
@@ -273,9 +275,27 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 	now := time.Now()
 	id := NewFarmID(now)
 	dir := filepath.Join(o.Home, farmsDirName, id)
+	// Lock before the farm dir exists, so attach never sees the dir of a
+	// starting farm without its lock and calls it dead.
+	unlock, err := LockFarm(o.Home, id)
+	if err != nil {
+		return nil, fmt.Errorf("farm lock: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		_ = unlock()
 		return nil, err
 	}
+	r, err := openFarm(git, o, pre, gen, id, dir, now)
+	if err != nil {
+		_ = unlock()
+		return nil, err
+	}
+	r.unlock = unlock
+	return r, nil
+}
+
+// openFarm is startFarm after the farm dir exists and its lock is held.
+func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id, dir string, now time.Time) (*farmRun, error) {
 	if err := os.WriteFile(filepath.Join(dir, planCopyFile), pre.raw, 0o600); err != nil {
 		return nil, fmt.Errorf("copy plan: %w", err)
 	}
@@ -323,6 +343,9 @@ func startFarm(git GitRunner, o RunOptions, pre preflighted) (*farmRun, error) {
 func (r *farmRun) close() {
 	_ = r.board.Close()
 	_ = r.log.Close()
+	if r.unlock != nil {
+		_ = r.unlock()
+	}
 }
 
 // run drives parts, integration, verdict and the final choice.

@@ -340,6 +340,7 @@ jas farm "migrate logging to slog"          # plan → approve → run, one term
 jas farm status [<farm-id>]                 # parts, tokens and the check verdict (offline)
 jas farm clean [<farm-id>] [--branches]      # drop the farm's worktrees (and branches)
 jas farm vars [--trust-project]             # each farm variable's value and source
+jas attach [<farm-id> [<part>]]             # watch a running farm from another terminal
 ```
 
 Farm splits one big task into parts that run in parallel worktrees, then

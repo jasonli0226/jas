@@ -31,6 +31,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas dream [flags]` | consolidate the profile's memory into a reviewed proposal ([Dreams](#dreams)) |
 | `jas dream list\|diff\|apply\|discard\|undo` | review, apply, drop or revert a dream ([Dreams](#dreams)) |
 | `jas farm …` | experimental parallel worktree runner |
+| `jas attach [<farm-id> [<part>]]` | watch a running farm from another terminal ([`jas attach`](#jas-attach)) |
 | `jas --version` | print the version |
 
 ### Settings flags (chat, `jas run`, `jas farm plan|run`)
@@ -173,6 +174,33 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 | `--trust-project` | load the project's context and `.jas/farm.yaml` without asking |
 
 Configuration: [Farm](#farm).
+
+### `jas attach`
+
+```
+jas attach                        # the one running farm
+jas attach <farm-id>              # a farm by id or unique id prefix
+jas attach <farm-id> <part>       # also that part's (or integrate's) replies and tool results
+```
+
+Watch a farm from another terminal: started by `jas farm run` or by the
+chat's `/farm`. Attach prints the `jas farm status` table, the last 3 tool
+calls of each part, then one line per event as the farm runs (the same lines
+`jas farm run` prints). It only reads the farm's files under
+`~/.jas/farms/<farm-id>/`; it never changes the farm. A farm is running while
+its process holds `~/.jas/run/<farm-id>.lock`.
+
+- Ctrl-C detaches; the farm keeps running.
+- When the farm ends, attach prints its end line and exits. If the farm
+  process dies, attach prints `farm process ended` and exits.
+- A farm that is not running shows its table and how it ended
+  (`farm ended: <reason>`, or `farm process ended without finishing`).
+- With no argument and no running farm, attach says so and exits 0; with
+  several running it lists them and exits 2. An unknown or ambiguous id, an
+  unknown part or extra arguments exit 2.
+
+Watching only, for now: steering, pause and approvals from an attached
+terminal come later.
 
 ## Chat
 
@@ -880,6 +908,7 @@ Field-level detail, reader rules and the resume rules: [event-log.md](event-log.
 | `~/.jas/trust.json` | project trust decisions |
 | `~/.jas/farm.yaml` | user farm config |
 | `~/.jas/sessions/<id>/events.jsonl` | session event logs |
+| `~/.jas/run/<farm-id>.lock`, `.pid` | held by a running farm (`jas attach` checks it); the pid file is advisory, for finding the process |
 | `<root>/.jas/config.json`, `config.local.json` | project / local settings |
 | `<root>/.jas/farm.yaml` | project farm config |
 | `<root>/.jas/sessions/<id>.json` | live session records (`jas sessions`) |
