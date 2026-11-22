@@ -95,5 +95,7 @@ VERDICT: PASS
 
 - No findings: write `None.` under Findings.
 - The last line is `VERDICT: CHANGES` when any finding is high or medium,
-  otherwise `VERDICT: PASS`.
+  otherwise `VERDICT: PASS`. This holds when jas asks for your final answer
+  early (tools off, at the turn or token cap): still end with that exact
+  line. A review without it does not count, whatever else it says.
 - Every finding cites a file and line in the diff or in code the diff breaks.
