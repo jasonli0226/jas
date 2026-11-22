@@ -94,8 +94,8 @@ type sched struct {
 	retry    map[string]string // part -> why its last attempt failed
 	running  int
 	stopping bool
-	dropping map[string]bool // running parts the owner dropped
-	asking   int             // failure questions waiting for the owner
+	dropping map[string]string // running parts the owner dropped -> the decision's source
+	asking   int               // failure questions waiting for the owner
 	out      Outcome
 }
 
@@ -243,11 +243,11 @@ func (s *Supervisor) depsDone(st *sched, p Part) bool {
 // handle records one attempt's end and applies the failure policy.
 func (s *Supervisor) handle(st *sched, e attemptEnd, abort context.CancelFunc) {
 	s.ctl.setCancel(e.id, nil)
-	if st.dropping[e.id] {
+	if source, ok := st.dropping[e.id]; ok {
 		delete(st.dropping, e.id)
 		st.status[e.id] = StatusPaused // no longer running; dropped below
 		s.event(EvPartEnded, map[string]any{"part": e.id, "exit_code": e.exitCode, "status": StatusDropped})
-		s.dropped(st, e.id)
+		s.dropped(st, e.id, source)
 		return
 	}
 	ended := map[string]any{"part": e.id, "exit_code": e.exitCode}

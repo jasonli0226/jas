@@ -124,6 +124,17 @@ func RunFarm(ctx context.Context, opts RunOptions) (exitCode int, reason string,
 	return res.Code, res.Reason, res.Err
 }
 
+// hostWatcher is the host's watcher: RunOptions.Watch, else (without
+// --json) progress lines on stdout, else nil.
+func hostWatcher(o RunOptions) Watcher {
+	if o.Watch != nil || o.JSON {
+		return o.Watch
+	}
+	prog := NewProgress(o.Stdout, o.Redact)
+	prog.Width = o.Width
+	return prog
+}
+
 func withDefaults(o RunOptions) RunOptions {
 	if o.Stdout == nil {
 		o.Stdout = io.Discard
@@ -311,11 +322,6 @@ func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id,
 		return nil, err
 	}
 	watch := o.Watch
-	if watch == nil && !o.JSON {
-		prog := NewProgress(o.Stdout, o.Redact)
-		prog.Width = o.Width
-		watch = prog
-	}
 	log := watchFarmLog(watch, idLog{EventLog: flog, id: id})
 	board, err := OpenBoard(filepath.Join(dir, boardFile), o.Redact, o.Cfg.Board)
 	if err != nil {

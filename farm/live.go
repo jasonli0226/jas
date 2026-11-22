@@ -25,6 +25,7 @@ const (
 
 func lockPath(home, id string) string { return filepath.Join(home, runDirName, id+".lock") }
 func pidPath(home, id string) string  { return filepath.Join(home, runDirName, id+".pid") }
+func sockPath(home, id string) string { return filepath.Join(home, runDirName, id+".sock") }
 
 // LockFarm takes the farm's liveness lock and writes its pid beside it (the
 // lock file stays empty: on Windows its byte-range lock blocks writes from
