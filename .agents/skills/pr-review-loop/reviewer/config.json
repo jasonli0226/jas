@@ -5,6 +5,6 @@
   "elide_at": 0.25,
   "keep_tool_results": 8,
   "models": {
-    "openrouter/z-ai/glm-5.3": {"context_window": 128000}
+    "z-ai/glm-5.3": {"context_window": 128000}
   }
 }
