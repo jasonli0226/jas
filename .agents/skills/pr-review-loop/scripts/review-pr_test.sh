@@ -69,8 +69,18 @@ EOF
 cat >"$bin/jas" <<EOF
 #!/usr/bin/env bash
 [[ \$1 == profile ]] && exit 0
+printf '%s\n' "\$@" >>"$tmp/jas-calls"
+if [[ "\$*" == *"Rewrite this code review"* ]]; then
+	printf '%s\n' "\$@" >"$tmp/jas-reformat-args"
+	printf '## Findings\n\n1. [medium] a/a.go:3 — x.\n\n## Checked\n\n1. read a.go\n\nVERDICT: CHANGES\n'
+	exit 0
+fi
 printf '%s\n' "\$@" >"$tmp/jas-args"
 cat "\$JAS_HOME/profiles/reviewer/AGENTS.md" >"$tmp/jas-agents"
+if [[ -e $tmp/jas-unformatted ]]; then
+	printf '### Findings\n\n1. **[Moderate]** a/a.go:3 — x.\n\n**Verdict: request changes.**\n'
+	exit 0
+fi
 printf '## Findings\n\nNone.\n\nVERDICT: PASS\n'
 EOF
 chmod +x "$bin/gh" "$bin/jas"
@@ -187,6 +197,20 @@ grep -q '^(left out: the prompt would pass the argument limit' "$tmp/jas-args" 2
 	fail "a prompt past the Git Bash limit kept its diff"
 rm "$bin/uname"
 : >"$tmp/body"
+
+# A finished review without the required format is rewritten once, with
+# tools off, and the rewrite's verdict counts.
+touch "$tmp/jas-unformatted"
+rm -f "$tmp/jas-calls"
+review reformat 'printf "package a\n\nfunc A() int { return 3 }\n" >a/a.go'
+rm -f "$tmp/jas-unformatted"
+[[ $code == 1 ]] || fail "a reformatted CHANGES review exited $code, want 1: $out"
+grep -q 'jas review: CHANGES' <<<"$out" || fail "the reformatted verdict was not posted: $out"
+[[ $(grep -c -- '--profile' "$tmp/jas-calls") == 2 ]] || fail "want two jas runs (review, reformat): $(cat "$tmp/jas-calls")"
+grep -qx -- '--max-turns' "$tmp/jas-reformat-args" && grep -qx -- '1' "$tmp/jas-reformat-args" ||
+	fail "the reformat run is not limited to one turn: $(cat "$tmp/jas-reformat-args")"
+grep -qx -- '--wrap-up' "$tmp/jas-reformat-args" || fail "the reformat run does not have tools off (--wrap-up)"
+grep -q 'Moderate' "$tmp/jas-reformat-args" || fail "the reformat run did not get the first answer"
 
 # main now ships an installer that fails; the installer is read from main's
 # tip, so the PR branch can stay as it is.

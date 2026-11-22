@@ -53,6 +53,9 @@ No profile needs creating: the first review installs it.
    - Exit 1, `VERDICT: CHANGES`: go to step 3. When `make test` failed,
      the comment lists the failing tests and the reviewer did not run;
      the full output is on the script's stderr.
+   - A review that finished but ignored the format (no `## Findings` or
+     `VERDICT:` line, common when it answers at the turn cap) gets one
+     tools-off turn to rewrite itself; only then does the script give up.
    - Exit 3, the review did not finish: rerun once; if it fails again, tell
      the user and stop.
 3. Check each high and medium finding against the code it cites before
