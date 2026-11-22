@@ -66,6 +66,7 @@ type slot struct {
 
 type run struct {
 	e       *Executor
+	history []providers.Message // the session's messages, for dedupRead
 	slots   []*slot
 	stopErr error // Unavailable
 	logErr  error // first event-log failure
@@ -75,7 +76,14 @@ type run struct {
 // The error is non-nil only for ctx cancellation or an Unavailable gate; every
 // call still gets a result.
 func (e *Executor) Run(ctx context.Context, calls []providers.ContentBlock) ([]providers.ContentBlock, error) {
-	r := &run{e: e}
+	return e.RunWithHistory(ctx, nil, calls)
+}
+
+// RunWithHistory is Run for a session whose current messages are history:
+// a read whose output is still intact there gets a note instead (dedupRead).
+// history is only read, possibly from several goroutines.
+func (e *Executor) RunWithHistory(ctx context.Context, history []providers.Message, calls []providers.ContentBlock) ([]providers.ContentBlock, error) {
+	r := &run{e: e, history: history}
 	var batch []*slot
 	flush := func() {
 		r.runBatch(ctx, batch)
@@ -424,9 +432,16 @@ func (r *run) emitResult(s *slot) {
 	if s.status != statusCancelled && s.status != statusDenied && r.e.Filter != nil {
 		s.res = r.e.Filter(s.res)
 	}
+	unchanged := false
+	if s.status == statusOK {
+		s.res, unchanged = r.e.Policy.dedupRead(r.history, s.call, s.res)
+	}
 	logged := map[string]any{
 		"call_id": s.call.ToolUseID, "tool": s.call.Name,
 		"status": s.status, "output": s.res.Output,
+	}
+	if unchanged {
+		logged["unchanged"] = true
 	}
 	shown := r.withDiff(s, logged)
 	sa, split := r.e.Log.(screenAppender)
