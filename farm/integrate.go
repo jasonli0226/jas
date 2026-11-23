@@ -226,6 +226,11 @@ func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.Chec
 // over a clean merge whose check failed, and commits whatever it left staged
 // or resolved.
 func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []string, conflicts []conflict, failing *core.CheckResult, regenFailed []regenFailure) error {
+	return s.runIntegratorMsg(ctx, path, s.integratorMessage(leaves, conflicts, failing, regenFailed))
+}
+
+// runIntegratorMsg runs the integrator session from a given message and commits whatever it left staged or resolved.
+func (s *Supervisor) runIntegratorMsg(ctx context.Context, path, msg string) error {
 	role, owns, err := s.integratorRoleFor()
 	if err != nil {
 		return err
@@ -271,7 +276,7 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	s.ctl.setWorker(integratePart, iw) // the owner can steer the integrator too
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
 	defer cancel()
-	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts, failing, regenFailed))
+	res, sendErr := sess.Send(pctx, msg)
 	end := classifyTurn(integratePart, res, map[string]bool{poolFarm: true}, ctx.Err() != nil)
 	if sendErr != nil && end.kind == endDone {
 		end = failed(integratePart, ReasonError, core.ExitFailure, sendErr.Error())
