@@ -162,8 +162,8 @@ merges them behind a supervisor-run `check`:
 jas farm plan "<task>"    # draft a split plan; approve it on a TTY
 jas farm run plan.yaml    # run the parts in parallel worktrees
 jas farm "<task>"         # plan → approve → run, one terminal
-jas farm status           # parts, tokens, check verdict (offline)
-jas farm clean [--branches]
+jas farm status [<farm-id>]   # parts, tokens, check verdict (offline); id or unique prefix
+jas farm clean [<farm-id>] [--branches]
 jas farm vars
 ```
 
