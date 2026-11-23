@@ -198,7 +198,8 @@ The spec describes the full farm. The **first shippable version** is:
 session-awareness step 1.
 
 **After MVP**, once the validation pass is done, in this order (re-ranked
-from the benchmark results): the post-integrate `reviewer` step,
+from the benchmark results): the post-integrate `reviewer` step
+(**shipped**, 2026-11-24; see `2026-11-24-farm-reviewer-design.md`),
 the `researcher` role and `jas farm init`; resume (`jas farm resume`) and
 take-over; interactive mode (`/farm`); **blast-radius tags** (policy +
 log/manifest fields) and the post-integrate **`fuzz` step** (alongside, not
@@ -419,7 +420,7 @@ whole-role replacement **(author's call)**).
 | `coder` | read, grep, write, edit, shell | the part's `owns` | default role |
 | `tester` | read, grep, write, edit, shell | paths matching **both** `${test_globs}` and `owns` | "Write and fix tests only; if non-test code must change, post `blocked`." Unavailable if `test_globs` unset. |
 | `researcher` | read, grep (+ web tools once shipped, design §12.1) | none | output: `interface`/`note` posts and its final answer |
-| `reviewer` | read, grep | none | **Post-integrate only** (not a DAG part). LLM, clean context, may use a different/cheaper model; output: findings in its final answer, sent to the integrator for one fix round. After MVP. |
+| `reviewer` | read, grep, ls | none | **Post-integrate only** (not a DAG part). LLM, clean context, may use a different/cheaper model (`models.reviewer`); findings are `finding` / `review_done` board posts, not its final answer, and go to the integrator for one fix round. Shipped 2026-11-24 (`2026-11-24-farm-reviewer-design.md`). |
 | `fuzz` | read, grep, ls, shell | none | **Post-integrate only** (not a parallel DAG part). Runs `${fuzz_command}` (or the role prompt's script) against the integrated tree; reports via final answer + board `note`. Unavailable if `fuzz_command` unset. Distinct from supervisor `check` and from LLM `reviewer`. After MVP. |
 
 Rust and similar: when a tester cannot be limited by `test_globs`, the planner
@@ -839,8 +840,9 @@ validation error — both are scheduled here, not in the DAG.
 3. If `check` passed and `post_integrate` lists `fuzz` and the `fuzz` role is
    available (`fuzz_command` set): run the **fuzz** step on the same integrate
    worktree.
-4. If `post_integrate` lists `reviewer`: run the **reviewer** step on the
-   integrated diff. Findings go to the integrator for **one** fix round;
+4. If the reviewer is enabled (`--review` or the config key `review: true`,
+   not `post_integrate`; shipped, see `2026-11-24-farm-reviewer-design.md`)
+   and `check` passed: run the **reviewer** step on the integrated diff. Findings go to the integrator for **one** fix round;
    the supervisor then re-runs `check` (and fuzz, if listed). A failure
    there ends the farm with exit 6 as usual. No findings → no fix round.
 5. Apply blast-radius gate (if tags present), then owner / policy final choice.
@@ -866,8 +868,9 @@ fuzz is code-driven. A plan may request both (`post_integrate: [fuzz,
 reviewer]`); the order is always integrate → check → fuzz → reviewer,
 whatever the list order. **(owner-approved, 2026-11-04)**
 
-Until this ships, `post_integrate` is not implemented: a plan that includes
-it should be rejected at validation (fail closed). Examples in this doc show
+The reviewer is built and is turned on by the run option, never by the plan.
+`post_integrate` (for fuzz) is not implemented: a plan that includes
+it is rejected at validation (fail closed). Examples in this doc show
 the after-MVP shape.
 
 ## Budgets
@@ -932,17 +935,18 @@ never reuse 3/4/5 (those stay per-part, in the manifest).
 | 0 | every required part done and the supervisor's `check` passed | plan written (and approved with a TTY) |
 | 1 | internal, provider-after-retries, or git failure | same |
 | 2 | usage/config error: bad flags, no `check`, invalid or unapproved plan or spec, hash mismatch, dirty tree without `--allow-dirty` | same |
-| 6 | **farm unmet**: `check`/`contract_check`/fuzz failed, or a part failed/was dropped (also `jas run --spec` scaffold/section when jas's `check` fails) | — |
+| 6 | **farm unmet**: `check`/`contract_check`/fuzz failed, a part failed/was dropped, or the reviewer's findings stay unresolved (`review_unmet`) (also `jas run --spec` scaffold/section when jas's `check` fails) | — |
 | 7 | **budget exceeded**: farm token pool + reserve or `farm_timeout` exhausted (also used by `jas run --max-tokens/--timeout`) | planner hit its budget |
 | 8 | — | **planner refused** to split (suggests `jas run`), with or without a TTY; also `jas farm "<task>"` when the planner refuses (no workers start) |
 | 130 | interrupted | interrupted |
 
 The same code appears in `farm_ended`, always with a `reason`, because one
 code covers several causes: 6 → `check_failed` | `contract_check_failed` |
-`fuzz_failed` | `part_failed` | `part_dropped` | `criteria_unmet`; 7 →
+`fuzz_failed` | `part_failed` | `part_dropped` | `criteria_unmet` |
+`review_unmet`; 7 →
 `tokens` | `timeout`; 8 → the refusal reason (`small_change`, …).
 `manifest.json` repeats it. design §3's table gains rows 6, 7, 8.
-`fuzz_failed` is after MVP; until then the reason set is unchanged.
+`fuzz_failed` is after MVP; `review_unmet` shipped with the reviewer.
 
 ### `--json`
 
@@ -1138,7 +1142,7 @@ are recorded the same way with `by: "policy:…"`.
 
 ## Next version
 
-- **Reviewer step** (replaces discussion mode): an optional post-integrate
+- **Reviewer step** (shipped 2026-11-24; replaces discussion mode): an optional post-integrate
   read-only step with a clean context and optionally a different model,
   reviewing the integrated diff against the plan; its findings go to the
   integrator for one fix round, then `check` re-runs (see Post-integrate
