@@ -340,7 +340,7 @@ jas farm "migrate logging to slog"          # plan → approve → run, one term
 jas farm status [<farm-id>]                 # parts, tokens and the check verdict (offline)
 jas farm clean [<farm-id>] [--branches]      # drop the farm's worktrees (and branches)
 jas farm vars [--trust-project]             # each farm variable's value and source
-jas attach [<farm-id> [<part>]]             # watch a running farm from another terminal
+jas attach [<farm-id> [<part>]]             # watch and control a running farm from another terminal
 ```
 
 Farm splits one big task into parts that run in parallel worktrees, then
@@ -356,8 +356,7 @@ Worktrees live in the repo under `.jas/worktrees/<farm-id>/part-<part>`
 absolute path to put them elsewhere. Without `--json`, the run prints a line per part event and
 worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental.**
 Not yet: `farm resume`,
-`researcher`/`reviewer` roles, `--spec` planning, `farm init`, attach from
-another terminal ([#156](https://github.com/jasonli0226/jas/issues/156)).
+`researcher`/`reviewer` roles, `--spec` planning, `farm init`.
 Full design:
 [docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
 
