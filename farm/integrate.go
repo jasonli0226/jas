@@ -248,9 +248,17 @@ func (s *Supervisor) runIntegratorFinal(ctx context.Context, path, msg string) (
 		return "", err
 	}
 	pool := s.Pools.Integrator(role.Budget)
+	// A later run (the review fix round) uses a new pool: count on from the
+	// tokens the integrator already used.
+	var prior int
+	s.Manifest.Update(func(m *Manifest) {
+		if m.Integrator != nil {
+			prior = m.Integrator.Tokens
+		}
+	})
 	log, ui := s.workerLog(integratePart, flog)
 	log = usageLog(log, func() {
-		used := pool.Used()
+		used := prior + pool.Used()
 		s.setIntegrator(func(ps *PartState) { ps.Tokens = used })
 	})
 	defer func() {
@@ -278,7 +286,11 @@ func (s *Supervisor) runIntegratorFinal(ctx context.Context, path, msg string) (
 	if err != nil {
 		return "", fmt.Errorf("start integrator session: %w", err)
 	}
-	s.setIntegrator(func(ps *PartState) { ps.SessionID, ps.Log = sid, logPath })
+	s.setIntegrator(func(ps *PartState) {
+		if ps.SessionID == "" { // a fix round keeps the first run's entry
+			ps.SessionID, ps.Log = sid, logPath
+		}
+	})
 	iw := &worker{part: part, sess: sess}
 	s.ctl.setWorker(integratePart, iw) // the owner can steer the integrator too
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
@@ -290,7 +302,7 @@ func (s *Supervisor) runIntegratorFinal(ctx context.Context, path, msg string) (
 	}
 	s.takeSteering(iw)
 	_ = sess.Close(res.Status, res.Code)
-	s.setIntegrator(func(ps *PartState) { ps.Tokens, ps.ExitCode = pool.Used(), res.Code })
+	s.setIntegrator(func(ps *PartState) { ps.Tokens, ps.ExitCode = prior+pool.Used(), res.Code })
 	if end.kind == endFarmStop {
 		s.event(EvBudgetStop, map[string]any{"reason": stopTokens, "detail": "farm token budget (integrator)"})
 		return "", &IntegrationError{Reason: stopTokens, Detail: "farm token budget", BudgetStop: true}

@@ -195,11 +195,15 @@ func writeFindings(b *strings.Builder, fs []Finding) {
 		}
 		ref := f.PlanRef
 		if f.Where != "" {
-			ref += " " + f.Where
+			ref += " " + oneLine(f.Where)
 		}
-		fmt.Fprintf(b, "- %s [%s] %s: %s\n", f.ID, f.Kind, ref, f.Text)
+		fmt.Fprintf(b, "- %s [%s] %s: %s\n", f.ID, f.Kind, ref, oneLine(f.Text))
 	}
 }
+
+// oneLine turns line breaks into spaces so agent text cannot start a new
+// finding line.
+var oneLine = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace
 
 // diffBlock fences a diff for a reviewer message, or says it is empty.
 func diffBlock(diff string) string {

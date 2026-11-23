@@ -419,25 +419,32 @@ func (s *attachServer) FarmEvent(typ string, m map[string]any) {
 	switch typ {
 	case EvIntegrateEnded:
 		part = integratePart
-		fallthrough
 	case EvReviewEnded:
 		part = reviewPart // round 2 reuses the id, so round 1's leftovers must go
-		fallthrough
 	case EvPartEnded:
-		s.mu.Lock()
-		kept := s.steers[:0]
-		for _, r := range s.steers {
-			if r.part != part {
-				kept = append(kept, r)
-			}
-		}
-		clear(s.steers[len(kept):])
-		s.steers = kept
-		s.mu.Unlock()
+	default:
+		part = ""
+	}
+	if part != "" {
+		s.dropSteers(part)
 	}
 	if s.inner != nil {
 		s.inner.FarmEvent(typ, m)
 	}
+}
+
+// dropSteers forgets the steer records addressed to part.
+func (s *attachServer) dropSteers(part string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.steers[:0]
+	for _, r := range s.steers {
+		if r.part != part {
+			kept = append(kept, r)
+		}
+	}
+	clear(s.steers[len(kept):])
+	s.steers = kept
 }
 
 // WorkerEvent passes the event on.

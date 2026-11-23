@@ -219,6 +219,9 @@ func PlannerPrompt(in PlannerInput) string {
 	fmt.Fprintf(&b, plannerRules, in.Cfg.Split.MinParts, disjoint)
 	names := make([]string, 0, len(in.Roles))
 	for n := range in.Roles {
+		if n == reviewerRole { // never a plan part role
+			continue
+		}
 		names = append(names, n)
 	}
 	sort.Strings(names)

@@ -126,7 +126,7 @@ func (s *Supervisor) reviewUnfinished(open []string, end roundEnd) reviewResult 
 func gatingIDs(fs []Finding) []string {
 	out := []string{}
 	for _, f := range fs {
-		if gates(f) {
+		if gates(f) && !slices.Contains(out, f.ID) {
 			out = append(out, f.ID)
 		}
 	}
@@ -137,7 +137,12 @@ func gates(f Finding) bool { return f.Kind == FindingMissed || f.Kind == Finding
 
 func countKinds(fs []Finding) map[string]int {
 	out := map[string]int{FindingMissed: 0, FindingDrift: 0, FindingUnsure: 0}
+	seen := map[string]bool{}
 	for _, f := range fs {
+		if seen[f.ID] { // a re-reported id counts once
+			continue
+		}
+		seen[f.ID] = true
 		out[f.Kind]++
 	}
 	return out

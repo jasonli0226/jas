@@ -44,8 +44,8 @@ type planArgs struct {
 
 const farmUsage = `usage:
   jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
-  jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project]
-  jas farm "<task>"          (needs a terminal; otherwise use plan + run)
+  jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project] [--review]
+  jas farm "<task>" [--review]  (needs a terminal; otherwise use plan + run)
   jas farm status [<farm-id>]
   jas farm clean [<farm-id>] [--branches]
   jas farm vars [--trust-project]`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -160,6 +161,10 @@ func (t ReviewPostTool) Call(_ context.Context, _ core.ExecPolicy, args json.Raw
 		}
 		fields["id"] = f.ID
 	case TopicReviewDone:
+		// Board fields are strings: take a whole JSON number as its string.
+		if n, ok := fields["round"].(float64); ok && n == math.Trunc(n) {
+			fields["round"] = strconv.Itoa(int(n))
+		}
 		if got, _ := fields["round"].(string); got != strconv.Itoa(r.round) {
 			return rejected(fmt.Errorf("round must be %q", strconv.Itoa(r.round))), nil
 		}

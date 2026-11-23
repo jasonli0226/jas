@@ -285,7 +285,11 @@ func printReviewStatus(w io.Writer, r *farm.ReviewState) {
 	if r == nil {
 		return
 	}
-	fmt.Fprintf(w, "review: %s  open %d\n", r.Status, len(r.Open))
+	status := r.Status
+	if status == "" {
+		status = "running"
+	}
+	fmt.Fprintf(w, "review: %s  open %d\n", status, len(r.Open))
 	byID := map[string]farm.Finding{}
 	for _, rd := range r.Rounds {
 		for _, f := range rd.Findings {
