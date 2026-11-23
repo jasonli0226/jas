@@ -38,7 +38,10 @@ type reviewRound struct {
 	round    int
 	priorIDs []string
 
-	mu     sync.Mutex
+	// postMu serializes whole posts so ids follow post order. It is never
+	// taken by findings()/finished(), so a board hook may call them.
+	postMu sync.Mutex
+	mu     sync.Mutex // guards found and isDone
 	found  []Finding
 	isDone bool
 }
@@ -82,8 +85,10 @@ func (r *reviewRound) planRefOK(ref string) bool {
 }
 
 // assignID validates a supplied id (round 2) or picks the next free one.
-// The caller holds r.mu.
+// The caller holds r.postMu (found only changes under it).
 func (r *reviewRound) assignID(given string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.round == 1 {
 		if given != "" {
 			return "", fmt.Errorf("id is assigned by the supervisor; omit it")
@@ -138,9 +143,13 @@ func (t ReviewPostTool) Call(_ context.Context, _ core.ExecPolicy, args json.Raw
 	if err := json.Unmarshal(args, &a); err != nil {
 		return core.Result{Output: fmt.Sprintf("invalid arguments: %v", err), IsError: true}, nil
 	}
+	if a.Topic != TopicFinding && a.Topic != TopicReviewDone {
+		return rejected(fmt.Errorf("topic must be finding or review_done")), nil
+	}
 	r := t.Round
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// postMu, not mu, spans PostFrom: its onPost hook may read the round.
+	r.postMu.Lock()
+	defer r.postMu.Unlock()
 	fields := maps2(a.Fields)
 	var f Finding
 	switch a.Topic {
@@ -158,6 +167,8 @@ func (t ReviewPostTool) Call(_ context.Context, _ core.ExecPolicy, args json.Raw
 	if _, err := t.Board.PostFrom(t.Part, reviewerRole, a.Topic, fields, t.SessionID, ""); err != nil {
 		return rejected(err), nil
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if a.Topic == TopicReviewDone {
 		r.isDone = true
 		return core.Result{Output: "posted review_done"}, nil
@@ -167,7 +178,7 @@ func (t ReviewPostTool) Call(_ context.Context, _ core.ExecPolicy, args json.Raw
 }
 
 // checkFinding runs the plan-aware checks and assigns the id. The caller
-// holds r.mu.
+// holds r.postMu.
 func (r *reviewRound) checkFinding(fields map[string]any) (Finding, error) {
 	s := func(k string) string { v, _ := fields[k].(string); return v }
 	kind, ref, where := s("kind"), s("plan_ref"), s("where")

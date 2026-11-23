@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
@@ -128,4 +129,25 @@ func TestReviewPost_DoneFinishesRound(t *testing.T) {
 	res := callReview(t, tool, TopicReviewDone, map[string]any{"summary": "ok", "round": "1"})
 	assert.Eq(t, res.Output, "posted review_done")
 	assert.Eq(t, tool.Round.finished(), true)
+}
+
+func TestReviewPost_OtherTopicRejected(t *testing.T) {
+	tool, b := newReviewTool(t, reviewPlan(""), 1, nil)
+	res := callReview(t, tool, TopicNote, map[string]any{"text": "hi"})
+	assert.Eq(t, res.IsError, true)
+	assert.Eq(t, len(b.All()), 0)
+	assert.Eq(t, len(tool.Round.findings()), 0)
+}
+
+func TestReviewPost_HookMayReadRound(t *testing.T) {
+	tool, b := newReviewTool(t, reviewPlan(""), 1, nil)
+	b.SetOnPost(func(Post) { tool.Round.findings(); tool.Round.finished() })
+	done := make(chan core.Result, 1)
+	go func() { done <- callReview(t, tool, TopicFinding, finding("drift", "task", "a.go")) }()
+	select {
+	case res := <-done:
+		assert.Eq(t, res.IsError, false)
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: hook reading the round blocked the post")
+	}
 }
