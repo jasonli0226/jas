@@ -584,6 +584,24 @@ func TestFarmClean_RemovesLockFileByPrefix(t *testing.T) {
 	}
 }
 
+func TestFarmClean_RunningFarmKeepsLockAndSaysSo(t *testing.T) {
+	repo, home := farmRepo(t), farmHome(t, "true")
+	id := "20260106T000000-clean00004"
+	cleanFarm(t, repo, home, id)
+	release, err := farm.LockFarm(home, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	url, _ := testutil.FakeOpenAI(t, nil)
+	_, errOut, code := runJasIn(t, repo, farmEnv(url, home), "farm", "clean", id)
+	assert.Eq(t, code, 0)
+	assert.Contains(t, errOut, "farm still running; lock file kept")
+	if !farm.FarmRunning(home, id) {
+		t.Fatal("clean dropped a running farm's lock")
+	}
+}
+
 func TestFarmClean_BranchesFlag(t *testing.T) {
 	repo, home := farmRepo(t), farmHome(t, "true")
 	id := "20260104T000000-clean00002"

@@ -123,7 +123,10 @@ func farmCleanCmd(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	if err := farm.RemoveFarmLock(home, m.FarmID); err != nil && !errors.Is(err, core.ErrLocked) {
+	switch err := farm.RemoveFarmLock(home, m.FarmID); {
+	case errors.Is(err, core.ErrLocked):
+		fmt.Fprintln(os.Stderr, "jas: farm still running; lock file kept")
+	case err != nil:
 		fmt.Fprintf(os.Stderr, "jas: could not remove the farm's lock file: %v\n", err)
 	}
 	return nil

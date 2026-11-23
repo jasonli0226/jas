@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -19,6 +20,30 @@ func TestLockPath_SecondHolderFails(t *testing.T) {
 	assert.Eq(t, err.Error(), "locked by another jas process")
 	assert.NoErr(t, release())
 	release2, err := LockPath(p)
+	assert.NoErr(t, err)
+	assert.NoErr(t, release2())
+}
+
+func TestLockExisting_MissingFileNotCreated(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".lock")
+	_, err := LockExisting(p)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("err = %v, want ErrNotExist", err)
+	}
+	if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lock file created: %v", err)
+	}
+}
+
+func TestLockExisting_SecondHolderFails(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".lock")
+	release, err := LockPath(p)
+	assert.NoErr(t, err)
+	if _, err := LockExisting(p); !errors.Is(err, ErrLocked) {
+		t.Fatalf("err = %v, want ErrLocked", err)
+	}
+	assert.NoErr(t, release())
+	release2, err := LockExisting(p)
 	assert.NoErr(t, err)
 	assert.NoErr(t, release2())
 }
