@@ -65,3 +65,10 @@ func TestParsePlan_Valid(t *testing.T) {
 	assert.Eq(t, p.Interfaces[0].Owner, "core")
 	assert.Eq(t, p.Shared[0], "go.mod")
 }
+
+func TestParsePlan_PostIntegrateRejected(t *testing.T) {
+	_, err := ParsePlan([]byte(plan(part("a", "coder", `"a/**"`, "")) + "post_integrate: [reviewer]\n"))
+	if err == nil {
+		t.Fatal("want error")
+	}
+}

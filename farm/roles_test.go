@@ -132,3 +132,10 @@ func TestRoles_BuiltinToolsMatchManual(t *testing.T) {
 	sort.Strings(names)
 	assert.Eq(t, strings.Join(names, ","), "edit,grep,ls,read,shell,write")
 }
+
+func TestBuiltinRoles_Reviewer(t *testing.T) {
+	r, ok := BuiltinRoles()[reviewerRole]
+	assert.Eq(t, ok, true)
+	assert.Eq(t, strings.Join(r.Tools, ","), "read,grep,ls")
+	assert.Eq(t, len(r.Writes), 0)
+}

@@ -53,6 +53,10 @@ func validateStructure(p Plan, cfg Config) (probs []Problem, cyclic bool) {
 		ids[pt.ID] = true
 	}
 	for _, pt := range p.Parts {
+		if pt.Role == reviewerRole {
+			add(pt.ID, "role reviewer runs after integration; it cannot be a plan part")
+			continue
+		}
 		if _, ok := avail[pt.Role]; !ok {
 			if why, un := bad[pt.Role]; un {
 				add(pt.ID, fmt.Sprintf("role %s unavailable: %s", pt.Role, why))

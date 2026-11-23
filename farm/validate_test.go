@@ -114,3 +114,10 @@ func TestCodeRefusal(t *testing.T) {
 	r := CodeRefusal(mustPlan(t, "task: t\nrefuse: {reason: small_change, detail: d}\n"), cfg, nil)
 	assert.Eq(t, r.Reason, "small_change")
 }
+
+func TestValidate_ReviewerRoleInPartsRejected(t *testing.T) {
+	cfg := planCfg(t)
+	probs := Validate(mustPlan(t, plan(part("a", "reviewer", `"a/**"`, ""))), cfg, baseFiles)
+	assert.Eq(t, len(probs), 1)
+	assert.Eq(t, probs[0].Message, "role reviewer runs after integration; it cannot be a plan part")
+}
