@@ -823,10 +823,11 @@ branches stay unless discarded.
 
 Parallel `parts:` run **before** the integrator. Anything that must see the
 merged tree is a **post-integrate step**, not a DAG part. Declared on the
-plan as:
+plan as (future, for fuzz; the reviewer is not a valid entry, it is turned
+on by `--review` / `review: true`):
 
 ```yaml
-post_integrate: [fuzz, reviewer]    # optional list; unknown names are a validation error
+post_integrate: [fuzz]    # optional list; unknown names are a validation error
 ```
 
 A plan part with `role: fuzz` or `role: reviewer` inside `parts:` is a
@@ -842,8 +843,8 @@ validation error — both are scheduled here, not in the DAG.
    worktree.
 4. If the reviewer is enabled (`--review` or the config key `review: true`,
    not `post_integrate`; shipped, see `2026-11-24-farm-reviewer-design.md`)
-   and `check` passed: run the **reviewer** step on the integrated diff. Findings go to the integrator for **one** fix round;
-   the supervisor then re-runs `check` (and fuzz, if listed). A failure
+   and `check` passed: run the **reviewer** step on the integrated diff.
+   Findings go to the integrator for **one** fix round; the supervisor then re-runs `check` (and fuzz, if listed). A failure
    there ends the farm with exit 6 as usual. No findings → no fix round.
 5. Apply blast-radius gate (if tags present), then owner / policy final choice.
 
@@ -864,9 +865,8 @@ final choice.
 (tests/lint/build) and is always run. Fuzz is optional, agent-or-script
 exploration of edge cases (Playwright, property tests, a project fuzz
 target). **Distinct from `reviewer`.** Reviewer is an LLM read of the diff;
-fuzz is code-driven. A plan may request both (`post_integrate: [fuzz,
-reviewer]`); the order is always integrate → check → fuzz → reviewer,
-whatever the list order. **(owner-approved, 2026-11-04)**
+fuzz is code-driven. A farm may use both (`post_integrate: [fuzz]`
+plus `--review`); the order is always integrate → check → fuzz → reviewer. **(owner-approved, 2026-11-04)**
 
 The reviewer is built and is turned on by the run option, never by the plan.
 `post_integrate` (for fuzz) is not implemented: a plan that includes
