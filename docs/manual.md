@@ -193,7 +193,7 @@ Configuration: [Farm](#farm).
 ```
 jas attach                        # the one running farm
 jas attach <farm-id>              # a farm by id or unique id prefix
-jas attach <farm-id> <part>       # also that part's (or integrate's) replies and tool results
+jas attach <farm-id> <part>       # also that part's (or integrate's, review's) replies and tool results
 ```
 
 Watch and steer a farm from another terminal: started by `jas farm run` or by

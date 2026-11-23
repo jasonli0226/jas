@@ -164,7 +164,7 @@ func (h *Handle) drop(part, source string) error {
 // known checks part names a part of the plan or the integrator: an error
 // that says so, not "not running".
 func (h *Handle) known(part string) error {
-	if part == integratePart {
+	if part == integratePart || part == reviewPart {
 		return nil
 	}
 	for _, p := range h.r.s.Plan.Parts {

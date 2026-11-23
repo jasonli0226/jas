@@ -420,6 +420,9 @@ func (s *attachServer) FarmEvent(typ string, m map[string]any) {
 	case EvIntegrateEnded:
 		part = integratePart
 		fallthrough
+	case EvReviewEnded:
+		part = reviewPart // round 2 reuses the id, so round 1's leftovers must go
+		fallthrough
 	case EvPartEnded:
 		s.mu.Lock()
 		kept := s.steers[:0]

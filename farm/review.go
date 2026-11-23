@@ -8,7 +8,10 @@ import (
 
 // reviewPart is the reviewer's agent id and Part.ID in both rounds; its logs
 // are <farm dir>/review/round<N>.jsonl.
-const reviewPart = "review"
+const reviewPart = ReviewPart
+
+// ReviewPart names the reviewer in progress lines, attach and its log dir.
+const ReviewPart = "review"
 
 // review_ended statuses of one round.
 const (

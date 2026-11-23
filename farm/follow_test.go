@@ -309,6 +309,13 @@ func TestFollow_FarmLogTornAtStart(t *testing.T) {
 
 // The integrator logs under integrate/, outside parts/, and is followed as
 // part "integrate".
+func TestFollow_Reviewer(t *testing.T) {
+	r := newFollowRig(t)
+	r.start(t, 0)
+	appendTo(t, filepath.Join(r.dir, reviewPart, "round1.jsonl"), line("tool_started", "tool", "read"))
+	r.w.waitFor(t, hasEvent(reviewPart, "tool_started"))
+}
+
 func TestFollow_Integrator(t *testing.T) {
 	r := newFollowRig(t)
 	r.start(t, 0)
