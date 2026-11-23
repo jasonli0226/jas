@@ -34,7 +34,7 @@ go.work.sum
 # Local reference checkouts
 _pi-mono/
 
-# Claude Code: local only (make claude-setup links the skill and adds the hook)
+# Claude Code: local only (make claude-setup links the skill)
 .claude/
 .superpowers/
 

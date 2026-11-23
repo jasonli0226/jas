@@ -1,6 +1,6 @@
 ---
 name: pr-review-loop
-description: Use in the jas repo after opening or updating a pull request and before merging it, or when `gh pr merge` is blocked with "merge blocked".
+description: Use in the jas repo after opening or updating a pull request, to ask the owner whether to run a jas review, merge, or leave it open, and to run the review when they choose it.
 ---
 
 # PR review loop
@@ -9,10 +9,17 @@ This skill is for the agent that opens and merges PRs. If you are the
 reviewer (jas's `reviewer` profile, asked to review a PR), ignore it and
 use `pr-review`.
 
-Every jas PR gets a jas review of its head commit before it merges, unless
-it changes docs only: every changed file is a `.md` that is not agent
-instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
-`.agents/`). Paths below are relative to the repo root.
+A jas review is the owner's call, not a gate. After opening or updating a
+PR, ask the owner which of these they want, and wait for the answer:
+
+- run a jas review (the loop below), then merge on PASS;
+- merge now, without a review;
+- leave the PR open.
+
+Suggest a review when the PR changes code, scripts or agent instructions
+(`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under `.agents/`); say it
+can be skipped when it changes other docs only. Paths below are relative
+to the repo root.
 
 - Any agent can follow this skill once Setup below is done.
 - The reviewer profile (its `AGENTS.md`, `config.json` and the `pr-review`
@@ -22,11 +29,6 @@ instructions (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, anything under
   applies once it merges. Edit it there, not
   in the jas home: `AGENTS.md`, `skills/` and `config.json` are replaced
   each time, except the `model` in an existing `config.json`.
-- In Claude Code, a hook
-  (`.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh`, added by
-  `make claude-setup`) also blocks `gh pr merge` until a PASS review for the
-  current head is posted. Other agents have no such hook: the rule below is
-  the only gate, so follow it exactly.
 
 ## Setup, once per machine
 
@@ -43,7 +45,8 @@ No profile needs creating: the first review installs it.
 
 ## Loop
 
-1. Push the branch and open the PR. Docs only: go to step 5.
+1. Push the branch and open the PR, then ask the owner as above. Merge
+   now: go to step 5. Leave it open: stop.
 2. Run `bash .agents/skills/pr-review-loop/scripts/review-pr.sh <pr>` with a
    command timeout of at least 60 minutes (tests take a few, capped at 20;
    the review 5–30; a format rewrite up to 5). It first runs the base branch's `make test` recipe on
@@ -65,14 +68,14 @@ No profile needs creating: the first review installs it.
    only while you are pushing a high or medium fix anyway.
 4. Run the tests, push, and go back to step 2. After the second CHANGES
    verdict, stop and ask the user instead of reviewing a third time.
-5. Squash-merge only after a PASS for the current head (or for a docs-only
-   PR):
+5. Squash-merge after a PASS for the current head, or when the owner said
+   to merge without a review:
    `gh pr merge <pr> --squash --delete-branch`.
 
 ## Rules
 
 - A push after the review changes the head commit; the old PASS no longer
-  counts, so review again. Never push a low fix onto a passed PR, and never
+  counts, so ask the owner again. Never push a low fix onto a passed PR, and never
   open a PR for one review's low findings: they wait in the issue.
 - The one PR that may fix only low findings is a batch fix of the open
   issue. Its body says `Closes #<issue>` and names each finding it leaves

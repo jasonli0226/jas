@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # review-pr.sh runs jas's reviewer profile on a pull request and posts the
 # review as a PR comment. The comment carries a marker with the reviewed
-# head SHA and verdict, which check-pr-reviewed.sh reads before a
-# merge.
+# head SHA and verdict, so a later reader can tell which commit passed.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/review-pr.sh [--dry-run] <pr-number>
 #   --dry-run  print the review instead of posting it
@@ -10,7 +9,7 @@
 # Before each review the reviewer profile (this skill's reviewer/ folder) is
 # installed from the base branch by the base branch's install-reviewer.sh, so
 # the PR under review cannot change its own reviewer's instructions. This
-# script and the merge hook are the copies in the checkout that runs them:
+# script is the copy in the checkout that runs it:
 # run the loop from a checkout you trust, not from a PR you have not read.
 #
 # Before the reviewer starts, the script runs the base branch's `make test`
@@ -71,7 +70,7 @@ pr_json=$(gh pr view "$pr" --json title,body,headRefName,baseRefName,state)
 base_ref=$(jq -r .baseRefName <<<"$pr_json")
 
 # The branch tip on the remote is the head; GitHub's headRefOid lags a fresh
-# push, and the merge hook reads headRefOid, so wait until the two agree.
+# push, so wait until the two agree before reviewing.
 head=$(git ls-remote origin "refs/heads/$(jq -r .headRefName <<<"$pr_json")" | cut -f1)
 [[ -n $head ]] || { echo "review-pr: PR #$pr has no branch on origin" >&2; exit 3; }
 for ((i = 0; i < HEAD_SYNC_TRIES; i++)); do
