@@ -21,6 +21,10 @@ const (
 	TopicBlocked   = "blocked"
 	TopicDone      = "done"
 	TopicNote      = "note"
+
+	// Reviewer-only topics.
+	TopicFinding    = "finding"
+	TopicReviewDone = "review_done"
 )
 
 // EvBoardPost is the board.jsonl event type.
@@ -37,6 +41,9 @@ var topicFields = map[string][]string{
 	TopicBlocked:   {"on", "need"},
 	TopicDone:      {"summary", "diffstat"},
 	TopicNote:      {"text"},
+
+	TopicFinding:    {"kind", "plan_ref", "where", "text", "id"},
+	TopicReviewDone: {"summary", "round"},
 }
 
 var topicRequired = map[string][]string{
@@ -44,12 +51,18 @@ var topicRequired = map[string][]string{
 	TopicInterface: {"name"},
 	TopicBlocked:   {"on", "need"},
 	TopicNote:      {"text"},
+
+	TopicFinding:    {"kind", "plan_ref", "text"},
+	TopicReviewDone: {"summary"},
 }
 
 // topicRoles restricts who may post a topic; absent means any worker role.
 var topicRoles = map[string][]string{
 	TopicDone: {"supervisor"},
 	TopicNote: {"researcher", "reviewer"},
+
+	TopicFinding:    {reviewerRole},
+	TopicReviewDone: {reviewerRole},
 }
 
 // Post is one board entry. Fields are redacted and normalized (paths is a
@@ -165,7 +178,7 @@ func (b *Board) store(part, topic string, norm map[string]any, sessionID, eventI
 func (b *Board) validate(role, topic string, fields map[string]any) (map[string]any, error) {
 	allowed, ok := topicFields[topic]
 	if !ok {
-		return nil, fmt.Errorf("unknown topic %q (topics: owns, interface, blocked)", topic)
+		return nil, fmt.Errorf("unknown topic %q (topics: owns, interface, blocked, note, finding, review_done)", topic)
 	}
 	if roles, restricted := topicRoles[topic]; restricted && !slices.Contains(roles, role) {
 		return nil, fmt.Errorf("role %q may not post topic %q", role, topic)
