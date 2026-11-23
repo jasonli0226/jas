@@ -24,6 +24,9 @@ type reviewResult struct {
 	Open   []string
 	FixErr error
 	Detail string // unfinished: why the round ended (redacted)
+	// CheckFailed: the check failed on the tree after the fix round, so there
+	// was no round 2 (Manifest.Check holds the run).
+	CheckFailed bool
 }
 
 // roundEnd is how one reviewer round ended.
@@ -55,7 +58,9 @@ func (s *Supervisor) Review(ctx context.Context, path string) reviewResult {
 		return s.reviewEnd(ReviewUnmet, open, err)
 	}
 	if chk := Verdict(ctx, s, path); chk.ExitCode != 0 || chk.TimedOut {
-		return s.reviewEnd(ReviewUnmet, open, nil) // the caller sees the failing check
+		res := s.reviewEnd(ReviewUnmet, open, nil)
+		res.CheckFailed = true
+		return res
 	}
 	r2 := s.reviewRound(ctx, path, 2, r1.findings, r1.head, func(diff string) string {
 		return s.round2Message(r1.findings, answer, diff)

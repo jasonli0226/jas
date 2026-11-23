@@ -218,6 +218,7 @@ func TestReview_CheckFailsAfterFixNoRound2(t *testing.T) {
 	res := r.sup.Review(context.Background(), path)
 	assert.Eq(t, res.Status, ReviewUnmet)
 	assert.NoErr(t, res.FixErr)
+	assert.Eq(t, res.CheckFailed, true)
 	assert.Eq(t, strings.Join(res.Open, ","), "R1")
 	assert.Eq(t, r.attempts[reviewPart], 1)
 	if m := r.sup.Manifest; m.Check == nil || m.Check.ExitCode == 0 {
