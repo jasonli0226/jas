@@ -176,7 +176,8 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 
 `status` and `clean` take a farm id or a unique id prefix; without one they
 use the latest farm. `clean` also removes the farm's lock file
-(`~/.jas/run/<farm-id>.lock`) unless the farm is still running.
+(`~/.jas/run/<farm-id>.lock`) unless the farm is still running; then it
+keeps the file and says so on stderr.
 
 `status` reads `manifest.json`, which the farm keeps current while it runs:
 a part's (and the integrator's) tokens update after each model request, a part paused from `/farm`

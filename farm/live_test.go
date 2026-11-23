@@ -150,4 +150,10 @@ func TestRemoveFarmLock(t *testing.T) {
 	if _, err := os.Stat(lockPath(home, "f1")); !os.IsNotExist(err) {
 		t.Fatalf("lock file left: %v", err)
 	}
+	if FarmRunning(home, "f1") {
+		t.Fatal("removed farm reported running")
+	}
+	if _, err := os.Stat(lockPath(home, "f1")); !os.IsNotExist(err) {
+		t.Fatalf("FarmRunning recreated the lock file: %v", err)
+	}
 }

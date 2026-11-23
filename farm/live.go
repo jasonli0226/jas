@@ -53,12 +53,10 @@ func LockFarm(home, id string) (release func() error, err error) {
 }
 
 // FarmRunning reports whether a process holds the farm's lock. It probes by
-// taking the lock and releasing it at once.
+// taking the lock and releasing it at once; it never creates the lock file,
+// so polling (jas attach) can't recreate one farm clean removed.
 func FarmRunning(home, id string) bool {
-	if _, err := os.Stat(lockPath(home, id)); err != nil {
-		return false
-	}
-	unlock, err := core.LockPath(lockPath(home, id))
+	unlock, err := core.LockExisting(lockPath(home, id))
 	if err != nil {
 		return errors.Is(err, core.ErrLocked)
 	}
@@ -71,10 +69,10 @@ func FarmRunning(home, id string) bool {
 // locked file can't be removed on Windows); farm ids are never reused, so
 // no new owner can take the lock in between.
 func RemoveFarmLock(home, id string) error {
-	if _, err := os.Stat(lockPath(home, id)); errors.Is(err, os.ErrNotExist) {
+	unlock, err := core.LockExisting(lockPath(home, id))
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	unlock, err := core.LockPath(lockPath(home, id))
 	if err != nil {
 		return err
 	}
