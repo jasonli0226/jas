@@ -23,6 +23,7 @@ type reviewResult struct {
 	Status string
 	Open   []string
 	FixErr error
+	Detail string // unfinished: why the round ended (redacted)
 }
 
 // roundEnd is how one reviewer round ended.
@@ -43,7 +44,7 @@ func (s *Supervisor) Review(ctx context.Context, path string) reviewResult {
 	s.setReview(func(*ReviewState) {})
 	r1 := s.reviewRound(ctx, path, 1, nil, s.baseSHA, s.round1Message)
 	if !r1.done {
-		return s.reviewEnd(ReviewUnfinished, nil, r1.err)
+		return s.reviewUnfinished(nil, r1)
 	}
 	open := gatingIDs(r1.findings)
 	if len(open) == 0 {
@@ -60,7 +61,7 @@ func (s *Supervisor) Review(ctx context.Context, path string) reviewResult {
 		return s.round2Message(r1.findings, answer, diff)
 	})
 	if !r2.done {
-		return s.reviewEnd(ReviewUnfinished, open, r2.err)
+		return s.reviewUnfinished(open, r2)
 	}
 	if open2 := gatingIDs(r2.findings); len(open2) > 0 {
 		return s.reviewEnd(ReviewUnmet, open2, nil)
@@ -102,6 +103,15 @@ func (s *Supervisor) reviewEnd(status string, open []string, err error) reviewRe
 	}
 	s.setReview(func(st *ReviewState) { st.Status, st.Open = status, slices.Clone(open) })
 	return reviewResult{Status: status, Open: open, FixErr: err}
+}
+
+// reviewUnfinished ends the review as unfinished, recording why the round
+// ended (redacted) in the result and the manifest.
+func (s *Supervisor) reviewUnfinished(open []string, end roundEnd) reviewResult {
+	res := s.reviewEnd(ReviewUnfinished, open, end.err)
+	res.Detail = s.redact(end.detail)
+	s.setReview(func(st *ReviewState) { st.Detail = res.Detail })
+	return res
 }
 
 // gatingIDs is the ids of the missed and drift findings, in order; never nil.

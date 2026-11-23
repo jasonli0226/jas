@@ -425,3 +425,38 @@ func TestReview_Round1WorkPoolStopsFarm(t *testing.T) {
 		t.Fatal("no budget_stop event")
 	}
 }
+
+// An unfinished round 1 clears nothing and opens nothing: its findings are
+// recorded, but Open stays empty; the end reason is the result's detail.
+func TestReview_Round1UnfinishedWithFindingOpenEmpty(t *testing.T) {
+	r, path := newReviewRig(t, testCfg(), true, func(string, int) []fake.Turn {
+		return []fake.Turn{findingCall(FindingMissed, "task", "", "gone", ""), final("looks good")}
+	})
+	res := r.sup.Review(context.Background(), path)
+	assert.Eq(t, res.Status, ReviewUnfinished)
+	assert.Eq(t, len(res.Open), 0)
+	assert.Eq(t, res.Detail, "ended without review_done")
+	st := reviewState(r)
+	assert.Eq(t, len(st.Open), 0)
+	assert.Eq(t, st.Detail, "ended without review_done")
+	assert.Eq(t, len(st.Rounds[0].Findings), 1)
+	assert.Eq(t, st.Rounds[0].Findings[0].ID, "R1")
+}
+
+func TestReview_Round2UnfinishedDetail(t *testing.T) {
+	r, path := newReviewRig(t, testCfg(), true, fixScript(
+		[]fake.Turn{final("meh")}, []fake.Turn{final("left it")}))
+	res := r.sup.Review(context.Background(), path)
+	assert.Eq(t, res.Status, ReviewUnfinished)
+	assert.Eq(t, res.Detail, "ended without review_done")
+	assert.Eq(t, reviewState(r).Detail, "ended without review_done")
+}
+
+func TestReview_MetHasNoDetail(t *testing.T) {
+	r, path := newReviewRig(t, testCfg(), true, func(string, int) []fake.Turn {
+		return []fake.Turn{reviewDoneCall(1), final("ok")}
+	})
+	res := r.sup.Review(context.Background(), path)
+	assert.Eq(t, res.Detail, "")
+	assert.Eq(t, reviewState(r).Detail, "")
+}

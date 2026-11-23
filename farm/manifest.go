@@ -72,6 +72,8 @@ type ReviewState struct {
 	Status      string             `json:"status"`
 	Rounds      []ReviewRoundState `json:"rounds"`
 	Open        []string           `json:"open"`
+	// Detail is why an unfinished review's last round ended (redacted).
+	Detail string `json:"detail,omitempty"`
 }
 
 // ReviewRoundState is one reviewer session.
