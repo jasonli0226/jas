@@ -38,6 +38,9 @@ const (
 	// Config.ReviewFrom values.
 	reviewFromConfig = "config"
 	reviewFromFlag   = "flag"
+
+	// ReviewFromFlag is Config.ReviewFrom when --review set the review.
+	ReviewFromFlag = reviewFromFlag
 )
 
 // Var is one resolved variable.

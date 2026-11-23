@@ -162,6 +162,7 @@ merges them behind a supervisor-run `check`:
 jas farm plan "<task>"    # draft a split plan; approve it on a TTY
 jas farm run plan.yaml    # run the parts in parallel worktrees
 jas farm "<task>"         # plan → approve → run, one terminal
+                          # run and "<task>" take --review: read-only reviewer after the integrator (or review: true in farm.yaml)
 jas farm status [<farm-id>]   # parts, tokens, check verdict (offline); id or unique prefix
 jas farm clean [<farm-id>] [--branches]
 jas farm vars
@@ -185,7 +186,8 @@ since the check. Part worktrees live in
 `.jas/worktrees/<farm-id>/part-<part>` (git-excluded; file tools in the main
 checkout are denied there); `worktree.dir` moves them. Without `--json`, progress prints
 one line per part event and worker tool call (`[part] → shell go test …`). Budgets cover each part
-and the whole farm; exit 7 when exhausted, 6 when a part or the check fails.
+and the whole farm; exit 7 when exhausted, 6 when a part or the check fails or the optional reviewer
+(`--review`, read-only; reason `review_unmet`) leaves a finding open.
 
 In the chat: never run `jas farm` through the `shell` tool (it has no
 terminal for the plan picker and approvals). Call `suggest_farm`: it shows the task

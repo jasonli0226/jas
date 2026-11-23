@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 )
 
 // farmRunOnlyFlags are jas farm run flags that are not stored settings.
-var farmRunOnlyFlags = map[string]bool{"json": true, "allow-dirty": true, "trust-project": true, "approval-wait": true}
+var farmRunOnlyFlags = map[string]bool{"json": true, "allow-dirty": true, "trust-project": true, "approval-wait": true, "review": true}
 
 type farmRunArgs struct {
 	plan         string
@@ -26,6 +27,7 @@ type farmRunArgs struct {
 	allowDirty   bool
 	trust        bool
 	approvalWait *time.Duration // nil: budget.approval_wait
+	review       *bool          // nil: --review not given, farm.yaml decides
 	flags        map[string]string
 }
 
@@ -38,6 +40,8 @@ func parseFarmRunArgs(args []string) (farmRunArgs, error) {
 	fs.BoolVar(&ra.json, "json", false, "stream farm.jsonl events (only) to stdout")
 	fs.BoolVar(&ra.allowDirty, "allow-dirty", false, "run on a dirty tree; uncommitted changes are not part of the farm")
 	fs.BoolVar(&ra.trust, "trust-project", false, "load the project context file without asking")
+	var rv reviewFlag
+	fs.Var(&rv, "review", "run the read-only reviewer after integration (--review=false overrides farm.yaml)")
 	wait := fs.Duration("approval-wait", 0, "unattended: hold gated calls this long for an attached client (overrides budget.approval_wait)")
 	for _, k := range settings.Keys {
 		if k.Flag {
@@ -64,6 +68,9 @@ func parseFarmRunArgs(args []string) (farmRunArgs, error) {
 		if f.Name == "approval-wait" {
 			ra.approvalWait = wait
 		}
+		if f.Name == "review" {
+			ra.review = rv.ptr()
+		}
 		if !farmRunOnlyFlags[f.Name] {
 			ra.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()
 		}
@@ -72,6 +79,32 @@ func parseFarmRunArgs(args []string) (farmRunArgs, error) {
 		return ra, usageErr("--approval-wait: %s is negative", *ra.approvalWait)
 	}
 	return ra, nil
+}
+
+// reviewFlag is a tri-state bool flag: --review is true, --review=false is
+// false, and absent is unset (the farm.yaml value stands).
+type reviewFlag struct {
+	set, val bool
+}
+
+func (r *reviewFlag) String() string   { return strconv.FormatBool(r.val) }
+func (r *reviewFlag) IsBoolFlag() bool { return true }
+func (r *reviewFlag) Set(s string) error {
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		return err
+	}
+	r.set, r.val = true, v
+	return nil
+}
+
+// ptr is nil when the flag was not given.
+func (r *reviewFlag) ptr() *bool {
+	if !r.set {
+		return nil
+	}
+	v := r.val
+	return &v
 }
 
 // farmRunCmd runs `jas farm run <plan.yaml>`.
@@ -84,7 +117,7 @@ func farmRunCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return runPlan(ctx, e, ra.plan, ra.json, ra.allowDirty, ra.approvalWait)
+	return runPlan(ctx, e, ra.plan, ra.json, ra.allowDirty, ra.approvalWait, ra.review)
 }
 
 // runPlan runs an approved plan with farm.RunFarm. ctx is the soft stop
@@ -92,10 +125,16 @@ func farmRunCmd(ctx context.Context, args []string) error {
 // line reader on stdin serves every farm question and is the approval
 // broker's host; without one the broker is unattended (approvalWait, nil
 // for budget.approval_wait, holds gated calls for an attached client).
-func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty bool, approvalWait *time.Duration) error {
+func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty bool, approvalWait *time.Duration, review *bool) error {
 	cfg, notices, err := farm.LoadConfig(e.root, e.home, e.pc.trusted)
 	if err != nil {
 		return usageErr("farm config: %v", err)
+	}
+	if review != nil { // --review[=false] beats farm.yaml
+		cfg.Review, cfg.ReviewFrom = *review, ""
+		if *review {
+			cfg.ReviewFrom = farm.ReviewFromFlag
+		}
 	}
 	for _, n := range notices {
 		fmt.Fprintln(os.Stderr, core.Sanitize(e.red.Redact("jas: "+n)))
