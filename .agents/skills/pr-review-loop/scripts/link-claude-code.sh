@@ -5,15 +5,15 @@
 #
 # - links .claude/skills/pr-review-loop to this skill, because Claude Code
 #   reads skills only from .claude/skills, not .agents/skills;
-# - adds the merge-gate hook (check-pr-reviewed.sh) to
-#   .claude/settings.local.json, keeping the file's other settings.
+# - removes the merge-gate hook older versions added to
+#   .claude/settings.local.json (the review is now the owner's call),
+#   keeping the file's other settings.
 #
 # Running it again changes nothing.
 set -euo pipefail
 
 readonly SKILL=pr-review-loop
-readonly HOOK='"$CLAUDE_PROJECT_DIR"/.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh'
-readonly HOOK_TIMEOUT=30
+readonly OLD_HOOK='"$CLAUDE_PROJECT_DIR"/.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh'
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
@@ -38,13 +38,15 @@ if ! [[ -L $dest ]]; then
 fi
 
 settings=.claude/settings.local.json
-[[ -f $settings ]] || echo '{}' >"$settings"
-tmp=$(mktemp)
-jq --arg cmd "$HOOK" --argjson timeout "$HOOK_TIMEOUT" '
-	.hooks.PreToolUse //= []
-	| if any(.hooks.PreToolUse[]; any(.hooks[]?; .command == $cmd)) then .
-	  else .hooks.PreToolUse += [{matcher: "Bash", hooks: [{type: "command", command: $cmd, timeout: $timeout}]}]
-	  end' "$settings" >"$tmp"
-mv "$tmp" "$settings"
+if [[ -f $settings ]] && jq -e --arg cmd "$OLD_HOOK" \
+	'any(.hooks.PreToolUse[]?; any(.hooks[]?; .command == $cmd))' "$settings" >/dev/null; then
+	tmp=$(mktemp)
+	jq --arg cmd "$OLD_HOOK" '
+		.hooks.PreToolUse |= map(.hooks |= map(select(.command != $cmd)) | select(.hooks | length > 0))
+		| if .hooks.PreToolUse == [] then del(.hooks.PreToolUse) else . end
+		| if .hooks == {} then del(.hooks) else . end' "$settings" >"$tmp"
+	mv "$tmp" "$settings"
+	echo "Claude Code: removed the old merge hook from $settings"
+fi
 
-echo "Claude Code: skill linked at .claude/skills/$SKILL, merge hook in $settings"
+echo "Claude Code: skill linked at .claude/skills/$SKILL"

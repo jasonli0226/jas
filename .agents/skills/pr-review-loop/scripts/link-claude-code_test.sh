@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # link-claude-code_test.sh runs link-claude-code.sh in throwaway repos: it
-# links the skill, merges the hook into existing settings, changes nothing
-# on a second run, refuses a destination that is not its symlink, and fails
+# links the skill, removes the old merge hook but keeps other settings and
+# hooks, changes nothing on a second run, refuses a destination that is not its symlink, and fails
 # cleanly when ln copies instead of linking.
 #
 # Usage: bash .agents/skills/pr-review-loop/scripts/link-claude-code_test.sh
@@ -42,9 +42,10 @@ LN
 	rm -rf "$bin"
 	return $code
 }
-hooks() { jq '[.hooks.PreToolUse[].hooks[]] | length' "$1/.claude/settings.local.json"; }
+old_hook='"$CLAUDE_PROJECT_DIR"/.agents/skills/pr-review-loop/scripts/check-pr-reviewed.sh'
 
-# Links the skill and keeps other settings; a second run changes nothing.
+# Links the skill and leaves settings without the old hook as they are; a
+# second run changes nothing.
 repo=$(new_repo)
 mkdir -p "$repo/.claude"
 echo '{"model":"opus"}' >"$repo/.claude/settings.local.json"
@@ -53,8 +54,34 @@ link "$repo" || fail "second run exited non-zero"
 dest=$repo/.claude/skills/pr-review-loop
 [[ -L $dest && $(readlink "$dest") == ../../.agents/skills/pr-review-loop ]] || fail "skill is not linked to the .agents copy"
 [[ -f $dest/SKILL.md ]] || fail "SKILL.md is not reachable through the link"
-[[ $(hooks "$repo") == 1 ]] || fail "want 1 hook after two runs, got $(hooks "$repo")"
+[[ $(jq -c . "$repo/.claude/settings.local.json") == '{"model":"opus"}' ]] || fail "settings changed: $(cat "$repo/.claude/settings.local.json")"
+rm -rf "$repo"
+
+# No settings file: none is created.
+repo=$(new_repo)
+link "$repo" || fail "run without settings exited non-zero"
+[[ ! -e $repo/.claude/settings.local.json ]] || fail "a settings file was created"
+rm -rf "$repo"
+
+# The old merge hook is removed; other settings and hooks stay.
+repo=$(new_repo)
+mkdir -p "$repo/.claude"
+jq -n --arg old "$old_hook" '{model: "opus", hooks: {PreToolUse: [
+	{matcher: "Bash", hooks: [{type: "command", command: $old, timeout: 30}]},
+	{matcher: "Bash", hooks: [{type: "command", command: "mine.sh"}]}]}}' >"$repo/.claude/settings.local.json"
+link "$repo" || fail "run with the old hook exited non-zero"
+got=$(jq -c '[.hooks.PreToolUse[].hooks[].command]' "$repo/.claude/settings.local.json")
+[[ $got == '["mine.sh"]' ]] || fail "want only mine.sh left, got $got"
 [[ $(jq -r .model "$repo/.claude/settings.local.json") == opus ]] || fail "existing settings were dropped"
+rm -rf "$repo"
+
+# The old hook alone: the empty hooks object goes too.
+repo=$(new_repo)
+mkdir -p "$repo/.claude"
+jq -n --arg old "$old_hook" '{hooks: {PreToolUse: [
+	{matcher: "Bash", hooks: [{type: "command", command: $old, timeout: 30}]}]}}' >"$repo/.claude/settings.local.json"
+link "$repo" || fail "run with only the old hook exited non-zero"
+[[ $(jq -c . "$repo/.claude/settings.local.json") == '{}' ]] || fail "want {}, got $(cat "$repo/.claude/settings.local.json")"
 rm -rf "$repo"
 
 # A real directory where the link belongs (an old checkout's copy) is

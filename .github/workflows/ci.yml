@@ -43,8 +43,7 @@ jobs:
             go test ./... -race -count=1
           fi
 
-      # The pr-review-loop scripts guard the review gate; run their tests as
-      # make test does.
+      # Run the pr-review-loop scripts' tests as make test does.
       - name: Shell tests
         if: runner.os != 'Windows'
         shell: bash

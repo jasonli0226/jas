@@ -42,10 +42,10 @@ blast-radius merge policy, `--spec` planning, `farm init`.
   inside `Update` — never reads. Log from a `tea.Cmd` instead (see
   `tui/commands.go` `setModel`).
 - Commits: `type: description`. Keep `go test -race ./...` green; `CGO_ENABLED=0`.
-- PRs: follow the `pr-review-loop` skill (`.agents/skills/`): a jas review
-  must PASS on the head commit before merge, unless the PR changes docs
-  only (see the skill). Claude Code: run
-  `make claude-setup` once per clone (links the skill, adds the merge hook).
+- PRs: a jas review is optional. After opening a PR, ask the owner whether
+  to run one (the `pr-review-loop` skill in `.agents/skills/`), merge, or
+  leave the PR open; do not review or merge without their answer. Claude
+  Code: run `make claude-setup` once per clone (links the skill).
 - Docs follow features: every user-visible change (CLI subcommand/flag, chat
   command/key, config key, auth, approval level, deny floor, exit code, farm
   behavior) updates `docs/manual.md` (the full reference; `make manual`

@@ -59,7 +59,7 @@ the review:
    - what runs or writes: the approval ladder, `shell`, `write`, `edit`,
      the profile skills write exception;
    - secrets: redaction, `auth.json`, keys in config, env or session logs;
-   - this review itself: `review-pr.sh`'s sandbox, the merge hook, and the
+   - this review itself: `review-pr.sh`'s sandbox and the
      reviewer profile.
 6. **User-facing behavior** (only when the diff touches a CLI, TUI, prompts,
    messages or docs): flag and command naming matches existing ones, error
