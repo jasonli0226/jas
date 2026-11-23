@@ -21,6 +21,10 @@ const (
 	TopicBlocked   = "blocked"
 	TopicDone      = "done"
 	TopicNote      = "note"
+
+	// Reviewer-only topics.
+	TopicFinding    = "finding"
+	TopicReviewDone = "review_done"
 )
 
 // EvBoardPost is the board.jsonl event type.
@@ -37,6 +41,9 @@ var topicFields = map[string][]string{
 	TopicBlocked:   {"on", "need"},
 	TopicDone:      {"summary", "diffstat"},
 	TopicNote:      {"text"},
+
+	TopicFinding:    {"kind", "plan_ref", "where", "text", "id"},
+	TopicReviewDone: {"summary", "round"},
 }
 
 var topicRequired = map[string][]string{
@@ -44,12 +51,18 @@ var topicRequired = map[string][]string{
 	TopicInterface: {"name"},
 	TopicBlocked:   {"on", "need"},
 	TopicNote:      {"text"},
+
+	TopicFinding:    {"kind", "plan_ref", "text"},
+	TopicReviewDone: {"summary"},
 }
 
 // topicRoles restricts who may post a topic; absent means any worker role.
 var topicRoles = map[string][]string{
 	TopicDone: {"supervisor"},
 	TopicNote: {"researcher", "reviewer"},
+
+	TopicFinding:    {reviewerRole},
+	TopicReviewDone: {reviewerRole},
 }
 
 // Post is one board entry. Fields are redacted and normalized (paths is a
@@ -165,7 +178,7 @@ func (b *Board) store(part, topic string, norm map[string]any, sessionID, eventI
 func (b *Board) validate(role, topic string, fields map[string]any) (map[string]any, error) {
 	allowed, ok := topicFields[topic]
 	if !ok {
-		return nil, fmt.Errorf("unknown topic %q (topics: owns, interface, blocked)", topic)
+		return nil, fmt.Errorf("unknown topic %q (topics: owns, interface, blocked, note, finding, review_done)", topic)
 	}
 	if roles, restricted := topicRoles[topic]; restricted && !slices.Contains(roles, role) {
 		return nil, fmt.Errorf("role %q may not post topic %q", role, topic)
@@ -340,6 +353,12 @@ func (b *Board) Deliver(part string, relevant func(Post) bool) (text string, seq
 // (shape and note omitted when empty); blocked "on <on>, needs <need>";
 // done "<summary> [<diffstat>]"; note "<text>". Newlines collapse to spaces.
 func formatPost(p Post) string {
+	body := strings.Join(strings.Fields(formatPostBody(p)), " ")
+	return fmt.Sprintf("[%d] %s %s: %s", p.Seq, p.Part, p.Topic, body)
+}
+
+// formatPostBody is the topic-specific text of a post.
+func formatPostBody(p Post) string {
 	f := func(k string) string { s, _ := p.Fields[k].(string); return s }
 	var body string
 	switch p.Topic {
@@ -363,9 +382,12 @@ func formatPost(p Post) string {
 		}
 	case TopicNote:
 		body = f("text")
+	case TopicFinding:
+		body = fmt.Sprintf("%s [%s] %s %s: %s", f("id"), f("kind"), f("plan_ref"), f("where"), f("text"))
+	case TopicReviewDone:
+		body = fmt.Sprintf("review done (round %v): %s", p.Fields["round"], f("summary"))
 	}
-	body = strings.Join(strings.Fields(body), " ")
-	return fmt.Sprintf("[%d] %s %s: %s", p.Seq, p.Part, p.Topic, body)
+	return body
 }
 
 // loadPosts reads posts from an existing board file; a missing file is empty.

@@ -24,11 +24,16 @@ running farm from another terminal over `~/.jas/run/<farm-id>.sock`. Design:
 `docs/superpowers/specs/2026-11-22-jas-attach-design.md` (non-goals there:
 failure questions from attach, crash-resume, non-farm sessions).
 
+**Shipped (2026-11-24):** farm `reviewer` step — read-only LLM review of the
+integrated diff, on by `--review` or config `review: true` (never by the plan;
+`post_integrate` stays unbuilt), one integrator fix round, `review_unmet`
+(exit 6). Design: `docs/superpowers/specs/2026-11-24-farm-reviewer-design.md`.
+
 **Other work (first-class together):** chat polish that stays inline; template /
 scenario / `jas bootstrap` / `jas spec` quality (design §8 +
 `docs/superpowers/specs/2026-11-02-spec-driven-flow.md`); memory and
 `jas dream` (design §5 Track C, §12.3); farm post-MVP in spec order —
-`farm resume` + take-over, `researcher`/`reviewer`/`fuzz` roles,
+`farm resume` + take-over, `researcher`/`fuzz` roles,
 blast-radius merge policy, `--spec` planning, `farm init`.
 
 ## Constraints

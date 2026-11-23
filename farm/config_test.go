@@ -215,3 +215,44 @@ func TestConfig_ApprovalWait(t *testing.T) {
 		t.Fatalf("err %v, want a negative budget.approval_wait error", err)
 	}
 }
+
+func TestLoadConfig_ReviewKey(t *testing.T) {
+	home := t.TempDir()
+	cfg, _, err := LoadConfig(t.TempDir(), home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.Review, false)
+	assert.Eq(t, cfg.ReviewFrom, "")
+
+	write(t, filepath.Join(home, "farm.yaml"), "review: true\n")
+	cfg, _, err = LoadConfig(t.TempDir(), home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.Review, true)
+	assert.Eq(t, cfg.ReviewFrom, "config")
+
+	root := t.TempDir()
+	write(t, filepath.Join(root, ".jas", "farm.yaml"), "review: false\n")
+	cfg, _, err = LoadConfig(root, home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.Review, false)
+	assert.Eq(t, cfg.ReviewFrom, "")
+}
+
+func TestLoadConfig_ModelsReviewer(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, "farm.yaml"), "models:\n  reviewer: x\n")
+	cfg, _, err := LoadConfig(t.TempDir(), home, true)
+	assert.NoErr(t, err)
+	assert.Eq(t, cfg.Models.Reviewer, "x")
+}
+
+func TestLoadConfig_ReviewerRoleWithWriteToolRejected(t *testing.T) {
+	for _, tool := range []string{"write", "edit", "shell"} {
+		home := t.TempDir()
+		write(t, filepath.Join(home, "farm.yaml"), "roles:\n  reviewer:\n    tools: [read, "+tool+"]\n")
+		_, _, err := LoadConfig(t.TempDir(), home, true)
+		if err == nil {
+			t.Fatalf("%s: want error", tool)
+		}
+		assert.Contains(t, err.Error(), "role reviewer: read-only")
+	}
+}

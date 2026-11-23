@@ -29,7 +29,7 @@ const (
 var trivialCheckHints = []string{"test", "pytest", "jest", "vitest", "cargo test", "go test", "npm test"}
 
 // farmOnlyFlags are jas farm plan flags that are not stored settings.
-var farmOnlyFlags = map[string]bool{"o": true, "allow-dirty": true, "trust-project": true}
+var farmOnlyFlags = map[string]bool{"o": true, "allow-dirty": true, "trust-project": true, "review": true}
 
 type planArgs struct {
 	task       string
@@ -38,13 +38,14 @@ type planArgs struct {
 	allowDirty bool
 	chat       bool // planned from the chat, which has no --allow-dirty
 	trust      bool
+	review     *bool // --review on jas farm "<task>"; nil: not given
 	flags      map[string]string
 }
 
 const farmUsage = `usage:
   jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
-  jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project]
-  jas farm "<task>"          (needs a terminal; otherwise use plan + run)
+  jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project] [--review]
+  jas farm "<task>" [--review]  (needs a terminal; otherwise use plan + run)
   jas farm status [<farm-id>]
   jas farm clean [<farm-id>] [--branches]
   jas farm vars [--trust-project]`
@@ -70,7 +71,7 @@ func farmCmd(ctx context.Context, args []string) error {
 	if !isTerminal(int(os.Stdin.Fd())) || !isTerminal(int(os.Stderr.Fd())) {
 		return usageErr(`jas farm "<task>" needs a terminal: use jas farm plan "<task>" then jas farm run <plan.yaml>`)
 	}
-	pa, err := parsePlanArgs(args)
+	pa, err := parseDirectArgs(args)
 	if err != nil {
 		return err
 	}
@@ -78,18 +79,28 @@ func farmCmd(ctx context.Context, args []string) error {
 	if err != nil || !approved {
 		return err
 	}
-	return runPlan(ctx, e, path, false, pa.allowDirty, nil)
+	return runPlan(ctx, e, path, false, pa.allowDirty, nil, pa.review)
 }
 
 // parsePlanArgs reads flags and the single task, accepting flags on either
 // side of the task.
-func parsePlanArgs(args []string) (planArgs, error) {
+func parsePlanArgs(args []string) (planArgs, error) { return parsePlanFlags(args, false) }
+
+// parseDirectArgs is parsePlanArgs for jas farm "<task>", which also takes
+// --review; jas farm plan does not run anything to review.
+func parseDirectArgs(args []string) (planArgs, error) { return parsePlanFlags(args, true) }
+
+func parsePlanFlags(args []string, withReview bool) (planArgs, error) {
 	fs := flag.NewFlagSet("farm plan", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var pa planArgs
 	fs.StringVar(&pa.out, "o", defaultPlanPath, "where to write the plan")
 	fs.BoolVar(&pa.allowDirty, "allow-dirty", false, "plan on a dirty tree; uncommitted changes are not part of the farm")
 	fs.BoolVar(&pa.trust, "trust-project", false, "load the project context file without asking")
+	var rv reviewFlag
+	if withReview {
+		fs.Var(&rv, "review", "run the read-only reviewer after integration (--review=false overrides farm.yaml)")
+	}
 	for _, k := range settings.Keys {
 		if k.Flag {
 			fs.String(strings.ReplaceAll(k.Name, "_", "-"), "", k.Name)
@@ -114,6 +125,9 @@ func parsePlanArgs(args []string) (planArgs, error) {
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "o" {
 			pa.outSet = true
+		}
+		if f.Name == "review" {
+			pa.review = rv.ptr()
 		}
 		if !farmOnlyFlags[f.Name] {
 			pa.flags[strings.ReplaceAll(f.Name, "-", "_")] = f.Value.String()

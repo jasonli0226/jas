@@ -13,6 +13,10 @@ import (
 
 const testerPrompt = "Write and fix tests only. If non-test code must change, post a blocked board entry instead of changing it."
 
+// reviewerRole is the built-in read-only role that reviews the integrated
+// result; it is not a plan part role.
+const reviewerRole = "reviewer"
+
 // Role is a RoleDef resolved for one part.
 type Role struct {
 	Name    string
@@ -32,8 +36,9 @@ func builtinTools() []string {
 // write the part's owns; the tester additionally requires ${test_globs}.
 func BuiltinRoles() map[string]RoleDef {
 	return map[string]RoleDef{
-		"coder":  {Tools: builtinTools()},
-		"tester": {Tools: builtinTools(), Writes: []string{"${test_globs}"}, Prompt: testerPrompt},
+		"coder":      {Tools: builtinTools()},
+		"tester":     {Tools: builtinTools(), Writes: []string{"${test_globs}"}, Prompt: testerPrompt},
+		reviewerRole: {Tools: []string{"read", "grep", "ls"}, Prompt: reviewerPrompt},
 	}
 }
 

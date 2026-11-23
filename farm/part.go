@@ -507,11 +507,15 @@ func (s *Supervisor) postDone(id, final, stat string) {
 }
 
 // boardPosted logs a stored post to farm.jsonl without repeating its text
-// (board.jsonl has it): part, topic, seq, plus the name of an interface.
+// (board.jsonl has it): part, topic, seq, plus the name of an interface and
+// the one-line text of a reviewer post.
 func (s *Supervisor) boardPosted(p Post) {
 	ev := map[string]any{"part": p.Part, "topic": p.Topic, "seq": p.Seq}
 	if name, ok := p.Fields["name"].(string); ok && p.Topic == TopicInterface {
 		ev["name"] = name
+	}
+	if p.Topic == TopicFinding || p.Topic == TopicReviewDone {
+		ev["text"] = formatPostBody(p) // the findings are the point of the review
 	}
 	s.event(EvBoardPosted, ev)
 }

@@ -271,6 +271,22 @@ func TestAttach_EndedJustBeforeAttach(t *testing.T) {
 	}
 }
 
+// The reviewer can be followed in detail too; its logs are review/round*.jsonl.
+func TestAttach_ReviewerDetail(t *testing.T) {
+	home := t.TempDir()
+	id := "20261122-aa1"
+	fixtureFarm(t, home, id, []string{"p1"})
+	lockFixture(t, home, id)
+	out, wait := attachAsync(t, home, id, "review")
+	waitOutput(t, out, "farm "+id)
+	writeAppend(t, filepath.Join(farmDir(home, id), "review", "round1.jsonl"), evLine("assistant_message", "text", "checking"))
+	waitOutput(t, out, "[review] says: checking")
+	writeAppend(t, filepath.Join(farmDir(home, id), "farm.jsonl"), evLine("farm_ended", "reason", "ok"))
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The integrator can be followed in detail although it is not in Parts.
 func TestAttach_IntegratorDetail(t *testing.T) {
 	home := t.TempDir()

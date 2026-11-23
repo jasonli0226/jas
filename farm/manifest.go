@@ -52,6 +52,37 @@ type Manifest struct {
 	Reason        string `json:"reason"`
 	ExitCode      int    `json:"exit_code"`
 	TotalTokens   int    `json:"total_tokens"`
+	// Review is the reviewer step; nil when no review was requested.
+	Review *ReviewState `json:"review,omitempty"`
+}
+
+// Review statuses. Skipped means the review never started (parts unmet, or
+// check failed before round 1).
+const (
+	ReviewMet        = "met"
+	ReviewUnmet      = "unmet"
+	ReviewUnfinished = "unfinished"
+	ReviewSkipped    = "skipped"
+)
+
+// ReviewState is the manifest's review entry. Open holds the missed/drift
+// finding ids the review has not cleared.
+type ReviewState struct {
+	RequestedBy string             `json:"requested_by"`
+	Status      string             `json:"status"`
+	Rounds      []ReviewRoundState `json:"rounds"`
+	Open        []string           `json:"open"`
+	// Detail is why an unfinished review's last round ended (redacted).
+	Detail string `json:"detail,omitempty"`
+}
+
+// ReviewRoundState is one reviewer session.
+type ReviewRoundState struct {
+	Round     int       `json:"round"`
+	SessionID string    `json:"session_id"`
+	Log       string    `json:"log"`
+	Tokens    int       `json:"tokens"`
+	Findings  []Finding `json:"findings"`
 }
 
 // manifestMu serializes Update and Save. It is package-level so Manifest stays

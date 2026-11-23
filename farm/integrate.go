@@ -226,19 +226,39 @@ func (s *Supervisor) integrateCheck(ctx context.Context, path string) (core.Chec
 // over a clean merge whose check failed, and commits whatever it left staged
 // or resolved.
 func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []string, conflicts []conflict, failing *core.CheckResult, regenFailed []regenFailure) error {
+	return s.runIntegratorMsg(ctx, path, s.integratorMessage(leaves, conflicts, failing, regenFailed))
+}
+
+// runIntegratorMsg runs the integrator session from a given message and commits whatever it left staged or resolved.
+func (s *Supervisor) runIntegratorMsg(ctx context.Context, path, msg string) error {
+	_, err := s.runIntegratorFinal(ctx, path, msg)
+	return err
+}
+
+// runIntegratorFinal is runIntegratorMsg that also returns the integrator's
+// final answer (empty unless its turn ended done).
+func (s *Supervisor) runIntegratorFinal(ctx context.Context, path, msg string) (string, error) {
 	role, owns, err := s.integratorRoleFor()
 	if err != nil {
-		return err
+		return "", err
 	}
 	logPath := filepath.Join(s.Dir, integratePart, eventsFile)
 	flog, err := core.OpenEventLog(logPath, nil, s.Redact)
 	if err != nil {
-		return err
+		return "", err
 	}
 	pool := s.Pools.Integrator(role.Budget)
+	// A later run (the review fix round) uses a new pool: count on from the
+	// tokens the integrator already used.
+	var prior int
+	s.Manifest.Update(func(m *Manifest) {
+		if m.Integrator != nil {
+			prior = m.Integrator.Tokens
+		}
+	})
 	log, ui := s.workerLog(integratePart, flog)
 	log = usageLog(log, func() {
-		used := pool.Used()
+		used := prior + pool.Used()
 		s.setIntegrator(func(ps *PartState) { ps.Tokens = used })
 	})
 	defer func() {
@@ -248,11 +268,11 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 	}()
 	toolset, err := roleTools(role)
 	if err != nil {
-		return err
+		return "", err
 	}
 	gate, err := s.gate(integratePart, role.Approve, log)
 	if err != nil {
-		return err
+		return "", err
 	}
 	pol := WorkerPolicy(s.Policy, role, path)
 	pol.Env = append(pol.Env, farmGitEnv()...)
@@ -264,33 +284,37 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 		Meta: WorkerMeta(s.FarmID, integratePart, s.baseSHA, s.Manifest.PlanSHA256), MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap, UI: ui,
 	})
 	if err != nil {
-		return fmt.Errorf("start integrator session: %w", err)
+		return "", fmt.Errorf("start integrator session: %w", err)
 	}
-	s.setIntegrator(func(ps *PartState) { ps.SessionID, ps.Log = sid, logPath })
+	s.setIntegrator(func(ps *PartState) {
+		if ps.SessionID == "" { // a fix round keeps the first run's entry
+			ps.SessionID, ps.Log = sid, logPath
+		}
+	})
 	iw := &worker{part: part, sess: sess}
 	s.ctl.setWorker(integratePart, iw) // the owner can steer the integrator too
 	pctx, cancel := withTimeout(ctx, s.Cfg.Budget.PerWorkerTimeout)
 	defer cancel()
-	res, sendErr := sess.Send(pctx, s.integratorMessage(leaves, conflicts, failing, regenFailed))
+	res, sendErr := sess.Send(pctx, msg)
 	end := classifyTurn(integratePart, res, map[string]bool{poolFarm: true}, ctx.Err() != nil)
 	if sendErr != nil && end.kind == endDone {
 		end = failed(integratePart, ReasonError, core.ExitFailure, sendErr.Error())
 	}
 	s.takeSteering(iw)
 	_ = sess.Close(res.Status, res.Code)
-	s.setIntegrator(func(ps *PartState) { ps.Tokens, ps.ExitCode = pool.Used(), res.Code })
+	s.setIntegrator(func(ps *PartState) { ps.Tokens, ps.ExitCode = prior+pool.Used(), res.Code })
 	if end.kind == endFarmStop {
 		s.event(EvBudgetStop, map[string]any{"reason": stopTokens, "detail": "farm token budget (integrator)"})
-		return &IntegrationError{Reason: stopTokens, Detail: "farm token budget", BudgetStop: true}
+		return "", &IntegrationError{Reason: stopTokens, Detail: "farm token budget", BudgetStop: true}
 	}
 	if end.kind != endDone {
 		reason := end.reason
 		if reason == "" {
 			reason = ReasonError
 		}
-		return &IntegrationError{Reason: reason, Detail: firstNonEmpty(end.detail, res.Reason)}
+		return "", &IntegrationError{Reason: reason, Detail: firstNonEmpty(end.detail, res.Reason)}
 	}
-	return s.finishIntegrator(path, pol.Writes)
+	return res.Final, s.finishIntegrator(path, pol.Writes)
 }
 
 // finishIntegrator concludes a merge the integrator resolved but did not

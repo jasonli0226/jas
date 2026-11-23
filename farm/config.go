@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"time"
 
+	"github.com/jasonli0226/jas/tools"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -32,6 +34,13 @@ const (
 	warnMaxWorkers = 4
 
 	farmFile = "farm.yaml"
+
+	// Config.ReviewFrom values.
+	reviewFromConfig = "config"
+	reviewFromFlag   = "flag"
+
+	// ReviewFromFlag is Config.ReviewFrom when --review set the review.
+	ReviewFromFlag = reviewFromFlag
 )
 
 // Var is one resolved variable.
@@ -83,6 +92,7 @@ type BoardCfg struct {
 type Models struct {
 	Planner    string
 	Integrator string
+	Reviewer   string
 }
 
 // RoleDef is the raw role definition from config; whole-role replacement
@@ -109,6 +119,10 @@ type Config struct {
 	Models    Models
 	Roles     map[string]RoleDef
 	Generated []Generated // see ResolveGenerated; unset = detected defaults
+	// Review runs the read-only reviewer after integration; ReviewFrom says
+	// who asked: "" (off), "config" or "flag".
+	Review     bool
+	ReviewFrom string
 
 	partCheckSet bool // some layer set part_check (possibly to "")
 	generatedSet bool // some layer set generated (possibly to [])
@@ -145,9 +159,11 @@ type fileCfg struct {
 		DeliverChars *int `yaml:"deliver_chars"`
 	} `yaml:"board"`
 	OnFailure *string `yaml:"on_failure"`
+	Review    *bool   `yaml:"review"`
 	Models    struct {
 		Planner    *string `yaml:"planner"`
 		Integrator *string `yaml:"integrator"`
+		Reviewer   *string `yaml:"reviewer"`
 	} `yaml:"models"`
 	Roles     map[string]RoleDef `yaml:"roles"`
 	Generated *[]Generated       `yaml:"generated"`
@@ -283,6 +299,13 @@ func apply(cfg *Config, f fileCfg, vars map[string][]string) error {
 	set(&cfg.OnFailure, f.OnFailure)
 	set(&cfg.Models.Planner, f.Models.Planner)
 	set(&cfg.Models.Integrator, f.Models.Integrator)
+	set(&cfg.Models.Reviewer, f.Models.Reviewer)
+	if f.Review != nil {
+		cfg.Review, cfg.ReviewFrom = *f.Review, ""
+		if cfg.Review {
+			cfg.ReviewFrom = reviewFromConfig
+		}
+	}
 	for name, r := range f.Roles {
 		cfg.Roles[name] = r // whole-role replacement
 	}
@@ -351,6 +374,13 @@ func validate(cfg Config) error {
 	sort.Strings(roles)
 	for _, name := range roles {
 		r := cfg.Roles[name]
+		if name == reviewerRole {
+			for _, t := range r.Tools {
+				if slices.Contains(mutatingNames(), t) {
+					return fmt.Errorf("role reviewer: read-only, tool %q not allowed", t)
+				}
+			}
+		}
 		// Only writes take ${var} expansion; prompts and tools are literal.
 		for _, s := range r.Writes {
 			for _, m := range varRef.FindAllStringSubmatch(s, -1) {
@@ -361,4 +391,13 @@ func validate(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+// mutatingNames lists the tool names that change files or run commands.
+func mutatingNames() []string {
+	var out []string
+	for _, t := range tools.Mutating() {
+		out = append(out, t.Name())
+	}
+	return out
 }

@@ -219,12 +219,15 @@ func decodeLine(ln []byte) (string, map[string]any, bool) {
 type partLog struct{ part, path string }
 
 // partLogs lists parts/<part>/events*.jsonl and the integrator's
-// integrate/events*.jsonl (as part "integrate"), by part and then by attempt
+// integrate/events*.jsonl (as part "integrate") and the reviewer's
+// review/round*.jsonl (as part "review"), by part and then by attempt
 // (events.jsonl is attempt 1, events-N.jsonl attempt N).
 func partLogs(dir string) []partLog {
 	matches, _ := filepath.Glob(filepath.Join(dir, partsDir, "*", "events*.jsonl"))
 	integ, _ := filepath.Glob(filepath.Join(dir, integratePart, "events*.jsonl"))
+	rev, _ := filepath.Glob(filepath.Join(dir, reviewPart, "round*.jsonl"))
 	matches = append(matches, integ...)
+	matches = append(matches, rev...)
 	out := make([]partLog, 0, len(matches))
 	for _, p := range matches {
 		out = append(out, partLog{part: filepath.Base(filepath.Dir(p)), path: p})
@@ -240,7 +243,9 @@ func partLogs(dir string) []partLog {
 
 // attemptOf is the attempt number in an events[-N].jsonl name.
 func attemptOf(path string) int {
-	n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "events-"), ".jsonl"))
+	name := strings.TrimPrefix(filepath.Base(path), "events-")
+	name = strings.TrimPrefix(name, "round") // the reviewer's round1.jsonl, round2.jsonl
+	n, err := strconv.Atoi(strings.TrimSuffix(name, ".jsonl"))
 	if err != nil {
 		return 1
 	}

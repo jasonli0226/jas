@@ -265,6 +265,7 @@ func printFarmStatus(w io.Writer, m farm.Manifest) {
 	default:
 		fmt.Fprintf(w, "check: exit %d in %s\n", m.Check.ExitCode, m.Check.Duration.Round(time.Millisecond))
 	}
+	printReviewStatus(w, m.Review)
 	choice, reason := m.FinalChoice, m.Reason
 	if reason == "" { // no outcome yet: end() writes Reason last, after any FinalChoice
 		fmt.Fprintf(w, "final: none yet  total tokens %d\n", m.TotalTokens)
@@ -277,6 +278,32 @@ func printFarmStatus(w io.Writer, m farm.Manifest) {
 		reason = "-"
 	}
 	fmt.Fprintf(w, "final: %s (%s) exit %d  total tokens %d\n", choice, reason, m.ExitCode, m.TotalTokens)
+}
+
+// printReviewStatus prints the review verdict and each open finding.
+func printReviewStatus(w io.Writer, r *farm.ReviewState) {
+	if r == nil {
+		return
+	}
+	status := r.Status
+	if status == "" {
+		status = "running"
+	}
+	fmt.Fprintf(w, "review: %s  open %d\n", status, len(r.Open))
+	byID := map[string]farm.Finding{}
+	for _, rd := range r.Rounds {
+		for _, f := range rd.Findings {
+			byID[f.ID] = f
+		}
+	}
+	for _, id := range r.Open {
+		f, ok := byID[id]
+		if !ok {
+			fmt.Fprintf(w, "    %s\n", id)
+			continue
+		}
+		fmt.Fprintf(w, "    %s [%s] %s %s: %s\n", f.ID, f.Kind, f.PlanRef, f.Where, f.Text)
+	}
 }
 
 // shortID trims a hash for display.

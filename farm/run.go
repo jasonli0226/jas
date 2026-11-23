@@ -27,6 +27,8 @@ const (
 	ReasonPartDropped = "part_dropped"
 	ReasonInterrupted = "interrupted"
 	ReasonUsage       = "usage"
+	// ReasonReviewUnmet: the review is unmet or unfinished (exit 6).
+	ReasonReviewUnmet = "review_unmet"
 )
 
 // Final choices.
@@ -337,7 +339,7 @@ func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id,
 	wt := &Worktrees{Git: git, Main: o.Main, Dir: pre.wtDir, FarmID: id, Copy: o.Cfg.Worktree.Copy, Setup: o.Cfg.Worktree.Setup, Deny: deny}
 	s := &Supervisor{
 		Plan: pre.plan, Cfg: o.Cfg, FarmID: id, Dir: dir, Main: o.Main, Git: git, WT: wt, Board: board, Log: log,
-		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA},
+		Manifest:   &Manifest{FarmID: id, PlanSHA256: pre.hash, Base: pre.baseSHA, Review: requestedReview(o.Cfg)},
 		NewSession: o.NewSession, Ask: o.Ask, Pools: NewPools(o.Cfg), Hard: o.Hard,
 		Policy: o.Policy, Redact: o.Redact, Watch: watch,
 		WorkerUI: o.WorkerUI, Broker: broker, Gen: gen,
@@ -349,6 +351,15 @@ func openFarm(git GitRunner, o RunOptions, pre preflighted, gen []Generated, id,
 		"farm_tokens": o.Cfg.Budget.FarmTokens,
 	})
 	return r, nil
+}
+
+// requestedReview is the manifest's review entry at farm start; nil when no
+// review was requested.
+func requestedReview(cfg Config) *ReviewState {
+	if !cfg.Review {
+		return nil
+	}
+	return &ReviewState{RequestedBy: cfg.ReviewFrom, Rounds: []ReviewRoundState{}, Open: []string{}}
 }
 
 func (r *farmRun) close() {
@@ -400,12 +411,44 @@ func (r *farmRun) run(ctx context.Context) (int, string, error) {
 			reason = ReasonCheckFailed
 		}
 	}
+	if r.o.Cfg.Review && reason == ReasonOK {
+		stop, rreason, rerr := r.review(ctx)
+		if stop != 0 {
+			return r.end(stop, rreason, rerr)
+		}
+		reason = rreason
+	}
 	code := core.ExitOK
 	if reason != ReasonOK {
 		code = core.ExitUnmet
 	}
 	r.finalChoice(branch, reason)
 	return r.end(code, reason, nil)
+}
+
+// review runs the reviewer on a farm that is otherwise met. A non-zero stop
+// ends the farm now with that exit code and reason (a stop or an internal
+// error); else reason is the farm's reason.
+func (r *farmRun) review(ctx context.Context) (stop int, reason string, err error) {
+	s := r.s
+	res := s.Review(ctx, s.WT.Path(integratePart))
+	if ctx.Err() != nil || s.hard().Err() != nil {
+		return core.ExitInterrupted, ReasonInterrupted, nil
+	}
+	var ie *IntegrationError
+	switch {
+	case errors.As(res.FixErr, &ie) && ie.BudgetStop:
+		return core.ExitBudget, stopTokens, nil
+	case ie != nil:
+		return 0, ReasonPartFailed, nil
+	case res.FixErr != nil:
+		return core.ExitFailure, ReasonError, res.FixErr
+	case res.CheckFailed:
+		return 0, ReasonCheckFailed, nil
+	case res.Status != ReviewMet:
+		return 0, ReasonReviewUnmet, nil
+	}
+	return 0, ReasonOK, nil
 }
 
 // unmetParts is part_failed, part_dropped or ok from the parts alone.
@@ -440,6 +483,15 @@ func (r *farmRun) end(code int, reason string, err error) (int, string, error) {
 		}
 		if m.FinalChoice != "" {
 			totals["final_choice"] = m.FinalChoice
+		}
+		if rv := m.Review; rv != nil {
+			if rv.Status == "" { // the farm ended before the review ran
+				rv.Status = ReviewSkipped
+			}
+			totals["review_status"], totals["review_open"] = rv.Status, append([]string{}, rv.Open...)
+			if rv.Detail != "" {
+				totals["review_detail"] = rv.Detail
+			}
 		}
 	})
 	s.save()

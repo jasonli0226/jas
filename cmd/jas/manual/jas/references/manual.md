@@ -158,8 +158,8 @@ would, counting the project as trusted only when you already trusted it.
 
 ```
 jas farm plan "<task>" [-o plan.yaml] [--allow-dirty] [--trust-project]
-jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project] [--approval-wait <duration>]
-jas farm "<task>"                 # plan, approve, run in one terminal
+jas farm run <plan.yaml> [--json] [--allow-dirty] [--trust-project] [--approval-wait <duration>] [--review]
+jas farm "<task>" [--review]      # plan, approve, run in one terminal
 jas farm status [<farm-id>]       # parts, tokens, check verdict (offline)
 jas farm clean [<farm-id>] [--branches]
 jas farm vars [--trust-project]   # each farm variable's value and source
@@ -171,6 +171,7 @@ jas farm vars [--trust-project]   # each farm variable's value and source
 | `--allow-dirty` | plan or run on a dirty tree; uncommitted changes are not part of the farm |
 | `--json` | (`run`) stream `farm.jsonl` events, only, on stdout |
 | `--approval-wait <duration>` | (`run`, no TTY) hold gated calls this long for a `jas attach` client to answer, even with none attached; overrides `budget.approval_wait` |
+| `--review` | (`run`, `jas farm "<task>"`) run the read-only reviewer after the integrator; `--review=false` turns a configured `review: true` off for this run. Never changes the plan, so its approval stands. `jas farm plan` does not take it |
 | `--branches` | (`clean`) also delete the `jas/farm/<id>/*` branches |
 | `--trust-project` | load the project's context and `.jas/farm.yaml` without asking |
 
@@ -182,7 +183,8 @@ keeps the file and says so on stderr.
 `status` reads `manifest.json`, which the farm keeps current while it runs:
 a part's (and the integrator's) tokens update after each model request, a part paused from `/farm`
 or attach shows `paused`, and the last line reads `final: none yet` until
-the farm has an outcome.
+the farm has an outcome. With a review it also prints `review: <status>  open <n>`
+and one line per open finding (`R1 [missed] <plan_ref> <where>: <text>`).
 
 Configuration: [Farm](#farm).
 
@@ -191,7 +193,7 @@ Configuration: [Farm](#farm).
 ```
 jas attach                        # the one running farm
 jas attach <farm-id>              # a farm by id or unique id prefix
-jas attach <farm-id> <part>       # also that part's (or integrate's) replies and tool results
+jas attach <farm-id> <part>       # also that part's (or integrate's, review's) replies and tool results
 ```
 
 Watch and steer a farm from another terminal: started by `jas farm run` or by
@@ -944,10 +946,56 @@ verdict. Merge the branch yourself and run the check.
 | `board.post_chars` / `board.deliver_chars` | 500 / 2000 | board message size caps |
 | `on_failure` | `drop` | `drop` a failed part or `abort` the farm |
 | `models.planner`, `models.integrator` | session model | models for those roles |
+| `models.reviewer` | `models.integrator`, then the session model | model for the reviewer |
+| `review` | false | run the reviewer after the integrator (all config layers; `--review` / `--review=false` overrides it per run). The chat's `/farm` gets its review from this key |
 | `roles.<name>` | — | custom roles: `tools`, `writes`, `prompt`, `approve`, `model`, `budget`. `tools` names built-in tools, only `read`, `grep`, `ls`, `write`, `edit` and `shell`; a role naming any other is unavailable (`unknown tool "<name>"`) and a plan using it is refused (exit 2) |
 
+### Reviewer
+
+An optional read-only check of the integrated tree against the approved plan,
+after `check` passes: `review: true` in `farm.yaml` or `--review` on a run.
+It costs tokens on every run, so it is off unless you ask, and the planner
+never turns it on. It changes no plan and no approval hash.
+
+The built-in role `reviewer` has `read`, `grep` and `ls` and no write or
+shell tool; a `roles.reviewer` override that adds `write`, `edit` or `shell`
+is a config error, and a plan part with `role: reviewer` is refused. Round 1
+reads the plan and the integrated diff from the base (the redacted diff up to
+64 KiB inline, past that a `git diff --stat`, itself capped at 64 KiB, and it
+reads the files itself). It reports with `board_post`; only the reviewer can
+post these two topics, and parts cannot:
+
+| topic | fields |
+|---|---|
+| `finding` | `kind` (`missed`, `drift` or `unsure`), `plan_ref` (`task`, a part id, `interface:<name>` or `contracts`), `where` (`path` or `path:line`; optional for `missed`), `text`, `id` (round 2 only) |
+| `review_done` | `summary`, `round`; closes the round |
+
+The supervisor numbers findings `R1`, `R2`, ... in post order. With no
+`missed` or `drift` finding the review is met (`unsure` findings are only
+recorded). Otherwise the integrator gets one fix round listing them, `check`
+runs again, and a fresh reviewer round 2 re-reports (with `id`) each finding
+still open and any new `drift`. A `missed` or `drift` finding left open means
+exit 6, `reason: review_unmet`; merging then needs the typed `merge anyway`
+phrase. A reviewer that ends without `review_done` is an unfinished review,
+also `review_unmet`. The review is skipped (`skipped`) when a part failed,
+was paused or was dropped, or `check` failed before round 1. A failed
+`check` after the fix round is `check_failed`. Round 1 draws on the work
+pool and round 2 may use what is left of `budget.integrator_reserve`; a
+drained pool is exit 7.
+
+In `farm.jsonl` (and `--json`): `review_started` (`round`, `base`, `head`);
+`review_ended` (`round`, `status` `done` or `unfinished`, `findings` with
+`missed`, `drift` and `unsure` counts, `open`, and `detail` when
+unfinished); `farm_ended` gains `review_status`, `review_open` and, when set,
+`review_detail`, only when a review was requested. `manifest.json` gains
+`review`: `requested_by` (`flag` or `config`), `status` (`met`, `unmet`,
+`unfinished` or `skipped`), `rounds` (`round`, `session_id`, `log`, `tokens`,
+`findings`), `open` (finding ids not cleared) and `detail`. The chat
+dashboard shows a `reviewer` row under the integrator.
+
 Full design:
-[farm spec](superpowers/specs/2026-11-02-farm-design.md).
+[farm spec](superpowers/specs/2026-11-02-farm-design.md),
+[reviewer](superpowers/specs/2026-11-24-farm-reviewer-design.md).
 
 ## Exit codes
 
@@ -959,7 +1007,7 @@ Full design:
 | 3 | context full (`jas dream` still writes its partial proposal) |
 | 4 | turn cap (`max_turns`) hit (`jas dream` still writes its partial proposal) |
 | 5 | approval needed but no terminal to ask |
-| 6 | a check run by jas failed, or required work is unmet (farm) |
+| 6 | a check run by jas failed, or required work is unmet (farm: `check_failed`, `part_failed`, `review_unmet`) |
 | 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`); `jas dream` still writes its partial proposal |
 | 8 | the farm planner refused to split the task |
 | 9 | the final reply was cut off at `max_output_tokens` (finish reason `length`); the cut-off text is still printed. Raise `max_output_tokens` (`jas dream` still writes its partial proposal) |
