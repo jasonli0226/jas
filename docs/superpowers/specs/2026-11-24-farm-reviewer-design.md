@@ -1,6 +1,6 @@
 # Farm reviewer step — design
 
-Status: draft, for owner approval (2026-11-24). Decisions marked
+Status: approved by the owner (2026-11-24). Decisions marked
 "owner" are the owner's. Those marked "author's call" are proposals to check.
 Parent spec: `docs/superpowers/specs/2026-11-02-farm-design.md`, "Post-integrate
 steps" and "Roles". This document refines the `reviewer` part of that spec,
@@ -66,8 +66,8 @@ anything still missed or drifting fails the farm. The farm must not report
 - Reviewer writes: none. Tools: read, grep, ls, plus `board_post`. No shell.
 - The approval ladder and redaction are unchanged. Board posts are redacted
   like every other post.
-- Docs follow the feature: `docs/manual.md` (plan field, reason, events,
-  manifest, config key), the manual skill summary, and the farm spec.
+- Docs follow the feature: `docs/manual.md` (`--review`, `review: true`,
+  reason, events, manifest, config keys), the manual skill summary, and the farm spec.
 
 ## Approaches considered
 
@@ -249,7 +249,14 @@ no shell, so it cannot run git.
 - Manifest field `review` (absent when not requested):
   `{status: met|unmet|unfinished|skipped, rounds: [{round, session_id, log,
   tokens, findings: [{id, kind, plan_ref, where, text}]}], open: [ids]}`.
-  `skipped` means `check` failed before the review.
+  `skipped` means the review never started, because the parts were already
+  unmet (step 0) or `check` failed before round 1 (step 1). A failed `check`
+  after the fix round (step 5) is reason `check_failed`, with
+  `review.status: unmet`. `open` holds the ids of the `missed`/`drift`
+  findings that a completed round 2 has not cleared. That means every
+  round-1 `missed`/`drift` id when round 1 finished and round 2 did not
+  finish or never ran, the round-2 open ids after round 2, and empty when the
+  review is met or round 1 itself was unfinished.
 - `farm status` prints one review line (status, open count) and lists the
   open findings.
 - `--json` `farm_ended` carries `review_status` and `review_open`. Both are
@@ -274,8 +281,10 @@ no shell, so it cannot run git.
   it shares session setup with `runIntegrator`.
 - Test layout. Expected: fake-provider farm tests for met, fix-then-met,
   still-open → `review_unmet`, unfinished → `review_unmet`, `check` fails →
-  `skipped`, and validation tests for the plan field, topics and role
-  override.
+  `skipped`, parts unmet → `skipped`. Validation tests: `--review` flag
+  parsing, `review: true` config resolution, the `--review=false` override,
+  `post_integrate` staying a parse error (`KnownFields`), the reviewer topics
+  and ids, and the role override.
 - Dashboard row layout, following the integrator row.
 
 ## Doc changes in the same change
