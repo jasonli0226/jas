@@ -21,6 +21,7 @@ const (
 	agentPaused  = "paused"
 
 	integrateAgent = "integrate" // the integrator's agent id
+	reviewAgent    = "review"    // the reviewer's agent id (farm's reviewPart)
 	maxFlipKeys    = 9           // Ctrl/Alt+1..9
 	farmKeysHint   = "ctrl+1..9 flip · ctrl+0 back"
 	rowsChrome     = 4 // rules, status line and blank line around the input
@@ -176,6 +177,20 @@ func (f *farmState) apply(typ string, m map[string]any) {
 		if a := f.agent(integrateAgent); a != nil {
 			a.status = agentStatus(fmt.Sprint(m["status"]))
 		}
+	case farm.EvReviewStarted:
+		if a := f.agent(reviewAgent); a != nil {
+			a.status = agentRunning // round 2 reuses the row
+		} else {
+			f.agents = append(f.agents, &farmAgent{id: reviewAgent, role: "reviewer", status: agentRunning, hue: len(f.agents),
+				num: f.nextNum(), tr: Transcript{Width: f.width}})
+		}
+	case farm.EvReviewEnded:
+		if a := f.agent(reviewAgent); a != nil {
+			a.status = agentDone
+			if m["status"] != "done" {
+				a.status = agentFailed
+			}
+		}
 	case farm.EvCheckRan:
 		f.check = "failed"
 		if num(m["exit_code"]) == 0 && m["timed_out"] != true {
@@ -197,6 +212,12 @@ func (f *farmState) refresh(man farm.Manifest) {
 	}
 	if a := f.agent(integrateAgent); a != nil && man.Integrator != nil {
 		a.tokens = man.Integrator.Tokens
+	}
+	if a := f.agent(reviewAgent); a != nil && man.Review != nil {
+		a.tokens = 0
+		for _, r := range man.Review.Rounds {
+			a.tokens += r.Tokens
+		}
 	}
 	if man.TotalTokens > 0 {
 		f.used = man.TotalTokens
@@ -320,12 +341,14 @@ func (m *Model) onFarmEvent(msg farmEventMsg) tea.Cmd {
 		}
 	case farm.EvIntegrateEnded:
 		cmds = append(cmds, m.dropFarmPrompts(integrateAgent))
+	case farm.EvReviewEnded:
+		cmds = append(cmds, m.dropFarmPrompts(reviewAgent))
 	}
 	show := msg.typ == farm.EvOwnerDecision && msg.m["note"] != nil
 	switch msg.typ {
 	case farm.EvPartCheck, farm.EvPartCheckDeferred, farm.EvPartEnded, farm.EvBoardPosted, farm.EvIntegrateCheck,
 		farm.EvGeneratedRestored, farm.EvGeneratedRegenerated,
-		farm.EvIntegrateEnded, farm.EvCheckRan, farm.EvBudgetStop:
+		farm.EvIntegrateEnded, farm.EvCheckRan, farm.EvBudgetStop, farm.EvReviewStarted, farm.EvReviewEnded:
 		show = true
 	}
 	if line := farm.ProgressLine(msg.typ, msg.m); show && line != "" {
@@ -362,7 +385,7 @@ func (m *Model) onFarmDone(msg farmDoneMsg) tea.Cmd {
 	f.refresh(man)
 	order := make([]string, 0, len(f.agents))
 	for _, a := range f.agents {
-		if a.id != integrateAgent {
+		if a.id != integrateAgent && a.id != reviewAgent {
 			order = append(order, a.id)
 		}
 	}

@@ -353,6 +353,12 @@ func (b *Board) Deliver(part string, relevant func(Post) bool) (text string, seq
 // (shape and note omitted when empty); blocked "on <on>, needs <need>";
 // done "<summary> [<diffstat>]"; note "<text>". Newlines collapse to spaces.
 func formatPost(p Post) string {
+	body := strings.Join(strings.Fields(formatPostBody(p)), " ")
+	return fmt.Sprintf("[%d] %s %s: %s", p.Seq, p.Part, p.Topic, body)
+}
+
+// formatPostBody is the topic-specific text of a post.
+func formatPostBody(p Post) string {
 	f := func(k string) string { s, _ := p.Fields[k].(string); return s }
 	var body string
 	switch p.Topic {
@@ -376,9 +382,12 @@ func formatPost(p Post) string {
 		}
 	case TopicNote:
 		body = f("text")
+	case TopicFinding:
+		body = fmt.Sprintf("%s [%s] %s %s: %s", f("id"), f("kind"), f("plan_ref"), f("where"), f("text"))
+	case TopicReviewDone:
+		body = fmt.Sprintf("review done (round %v): %s", p.Fields["round"], f("summary"))
 	}
-	body = strings.Join(strings.Fields(body), " ")
-	return fmt.Sprintf("[%d] %s %s: %s", p.Seq, p.Part, p.Topic, body)
+	return body
 }
 
 // loadPosts reads posts from an existing board file; a missing file is empty.

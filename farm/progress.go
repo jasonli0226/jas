@@ -102,7 +102,11 @@ func farmLine(typ string, m map[string]any) string {
 		if m["topic"] == TopicDone {
 			return "" // the part_ended line says it
 		}
-		return fmt.Sprintf("[%s] board: %v %s", part, m["topic"], orEmpty(m["name"]))
+		detail := orEmpty(m["name"])
+		if detail == "" {
+			detail = orEmpty(m["text"])
+		}
+		return strings.TrimSpace(fmt.Sprintf("[%s] board: %v %s", part, m["topic"], detail))
 	case EvOwnerDecision:
 		line := fmt.Sprintf("decision: %v", m["choice"])
 		if p, ok := m["part"]; ok {
@@ -124,6 +128,14 @@ func farmLine(typ string, m map[string]any) string {
 			return fmt.Sprintf("integrate: failed: %v", m["reason"])
 		}
 		return strings.TrimSpace("integrate: done " + orEmpty(m["diffstat"]))
+	case EvReviewStarted:
+		return fmt.Sprintf("review: round %d started", num(m["round"]))
+	case EvReviewEnded:
+		if m["status"] == "done" {
+			return fmt.Sprintf("review: round %d done (missed %d, drift %d, unsure %d)", num(m["round"]),
+				kindCount(m["findings"], FindingMissed), kindCount(m["findings"], FindingDrift), kindCount(m["findings"], FindingUnsure))
+		}
+		return fmt.Sprintf("review: round %d %v (%s)", num(m["round"]), m["status"], clipRunes(firstLine(orEmpty(m["detail"])), progressDetailRunes))
 	case EvCheckRan:
 		if passed(m) {
 			return fmt.Sprintf("check: passed (%s)", dur(m))
@@ -173,6 +185,18 @@ func num(v any) int64 {
 		return n
 	case float64:
 		return int64(n)
+	}
+	return 0
+}
+
+// kindCount reads one finding kind from a review_ended "findings" map, which
+// is map[string]int in process and map[string]any after a JSON round trip.
+func kindCount(v any, kind string) int64 {
+	switch m := v.(type) {
+	case map[string]int:
+		return int64(m[kind])
+	case map[string]any:
+		return num(m[kind])
 	}
 	return 0
 }
