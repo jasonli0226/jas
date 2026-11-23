@@ -151,3 +151,16 @@ func TestReviewPost_HookMayReadRound(t *testing.T) {
 		t.Fatal("deadlock: hook reading the round blocked the post")
 	}
 }
+
+func TestReviewPost_FindingKeepsRedactedText(t *testing.T) {
+	const secret = "hunter2-very-secret"
+	r := &core.Redactor{Exact: []string{secret}}
+	b, _ := openTestBoard(t, r.Redact, testBoardCfg)
+	tool := ReviewPostTool{Board: b, Part: "review", Round: newReviewRound(reviewPlan(""), 1, nil)}
+	callReview(t, tool, TopicFinding, map[string]any{"kind": "drift", "plan_ref": "p1",
+		"where": "a.go:" + secret, "text": "key " + secret})
+	f := tool.Round.findings()[0]
+	assert.NotContains(t, f.Text, secret)
+	assert.NotContains(t, f.Where, secret)
+	assert.Contains(t, f.Text, "key ")
+}

@@ -164,9 +164,14 @@ func (t ReviewPostTool) Call(_ context.Context, _ core.ExecPolicy, args json.Raw
 			return rejected(fmt.Errorf("round must be %q", strconv.Itoa(r.round))), nil
 		}
 	}
-	if _, err := t.Board.PostFrom(t.Part, reviewerRole, a.Topic, fields, t.SessionID, ""); err != nil {
+	p, err := t.Board.PostFrom(t.Part, reviewerRole, a.Topic, fields, t.SessionID, "")
+	if err != nil {
 		return rejected(err), nil
 	}
+	// Keep the board's redacted (and rune-capped) text: findings go on to
+	// the integrator, round 2 and the manifest.
+	f.Where, _ = p.Fields["where"].(string)
+	f.Text, _ = p.Fields["text"].(string)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if a.Topic == TopicReviewDone {
