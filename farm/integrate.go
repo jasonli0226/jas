@@ -231,14 +231,21 @@ func (s *Supervisor) runIntegrator(ctx context.Context, path string, leaves []st
 
 // runIntegratorMsg runs the integrator session from a given message and commits whatever it left staged or resolved.
 func (s *Supervisor) runIntegratorMsg(ctx context.Context, path, msg string) error {
+	_, err := s.runIntegratorFinal(ctx, path, msg)
+	return err
+}
+
+// runIntegratorFinal is runIntegratorMsg that also returns the integrator's
+// final answer (empty unless its turn ended done).
+func (s *Supervisor) runIntegratorFinal(ctx context.Context, path, msg string) (string, error) {
 	role, owns, err := s.integratorRoleFor()
 	if err != nil {
-		return err
+		return "", err
 	}
 	logPath := filepath.Join(s.Dir, integratePart, eventsFile)
 	flog, err := core.OpenEventLog(logPath, nil, s.Redact)
 	if err != nil {
-		return err
+		return "", err
 	}
 	pool := s.Pools.Integrator(role.Budget)
 	log, ui := s.workerLog(integratePart, flog)
@@ -253,11 +260,11 @@ func (s *Supervisor) runIntegratorMsg(ctx context.Context, path, msg string) err
 	}()
 	toolset, err := roleTools(role)
 	if err != nil {
-		return err
+		return "", err
 	}
 	gate, err := s.gate(integratePart, role.Approve, log)
 	if err != nil {
-		return err
+		return "", err
 	}
 	pol := WorkerPolicy(s.Policy, role, path)
 	pol.Env = append(pol.Env, farmGitEnv()...)
@@ -269,7 +276,7 @@ func (s *Supervisor) runIntegratorMsg(ctx context.Context, path, msg string) err
 		Meta: WorkerMeta(s.FarmID, integratePart, s.baseSHA, s.Manifest.PlanSHA256), MaxOutput: s.Cfg.Budget.MaxOutputTokens, Wrap: s.wrap, UI: ui,
 	})
 	if err != nil {
-		return fmt.Errorf("start integrator session: %w", err)
+		return "", fmt.Errorf("start integrator session: %w", err)
 	}
 	s.setIntegrator(func(ps *PartState) { ps.SessionID, ps.Log = sid, logPath })
 	iw := &worker{part: part, sess: sess}
@@ -286,16 +293,16 @@ func (s *Supervisor) runIntegratorMsg(ctx context.Context, path, msg string) err
 	s.setIntegrator(func(ps *PartState) { ps.Tokens, ps.ExitCode = pool.Used(), res.Code })
 	if end.kind == endFarmStop {
 		s.event(EvBudgetStop, map[string]any{"reason": stopTokens, "detail": "farm token budget (integrator)"})
-		return &IntegrationError{Reason: stopTokens, Detail: "farm token budget", BudgetStop: true}
+		return "", &IntegrationError{Reason: stopTokens, Detail: "farm token budget", BudgetStop: true}
 	}
 	if end.kind != endDone {
 		reason := end.reason
 		if reason == "" {
 			reason = ReasonError
 		}
-		return &IntegrationError{Reason: reason, Detail: firstNonEmpty(end.detail, res.Reason)}
+		return "", &IntegrationError{Reason: reason, Detail: firstNonEmpty(end.detail, res.Reason)}
 	}
-	return s.finishIntegrator(path, pol.Writes)
+	return res.Final, s.finishIntegrator(path, pol.Writes)
 }
 
 // finishIntegrator concludes a merge the integrator resolved but did not

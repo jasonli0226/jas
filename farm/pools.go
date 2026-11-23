@@ -7,6 +7,7 @@ const (
 	poolFarm       = "farm"
 	poolWork       = "work"
 	poolIntegrator = "integrator"
+	poolReview     = "review"
 	poolPartPrefix = "part/"
 )
 
@@ -31,4 +32,15 @@ func (p Pools) Part(id string, limit int) *core.TokenPool {
 // including the reserve.
 func (p Pools) Integrator(limit int) *core.TokenPool {
 	return core.NewTokenPool(poolIntegrator, limit, p.Farm)
+}
+
+// Reviewer is a reviewer round's pool. Round 1 draws on the work pool, so
+// it never touches integrator_reserve, which the fix round needs; round 2
+// has no fix round after it and draws on the whole farm pool.
+func (p Pools) Reviewer(round, limit int) *core.TokenPool {
+	parent := p.Work
+	if round > 1 {
+		parent = p.Farm
+	}
+	return core.NewTokenPool(poolReview, limit, parent)
 }

@@ -19,6 +19,8 @@ const (
 	EvGeneratedRestored    = "generated_restored"    // generated files outside a part's owns undone in its worktree
 	EvGeneratedRegenerated = "generated_regenerated" // a generated file rebuilt on the merged tree
 	EvIntegrateCheck       = "integrate_check"       // check run after a clean merge, before the verdict
+	EvReviewStarted        = "review_started"        // a reviewer round started
+	EvReviewEnded          = "review_ended"          // a reviewer round ended (done or unfinished)
 	EvCheckRan             = core.EvCheckRan
 	EvBudgetStop           = core.EvBudgetStop
 	EvFarmEnded            = "farm_ended"
