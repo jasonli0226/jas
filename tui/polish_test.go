@@ -73,7 +73,7 @@ func TestChat_CommandAtApprovalPromptKeepsItOpen(t *testing.T) {
 func TestClassifyReply(t *testing.T) {
 	cases := map[string]reply{
 		"y": replyYes, " YES ": replyYes, "n": replyNo, "": replyNo, "no": replyNo,
-		"always": replyAlways, "farm": replyFarm, "no, use make": replyFree, "yep": replyFree,
+		"always": replyAlways, "a": replyAlways, " A ": replyAlways, "farm": replyFarm, "f": replyFree, "no, use make": replyFree, "yep": replyFree,
 	}
 	for text, want := range cases {
 		assert.Eq(t, classifyReply(text), want)

@@ -350,3 +350,12 @@ func TestAttach_ControlStopPrintsOK(t *testing.T) {
 		t.Fatalf("ok printed %d times (steer must stay silent):\n%s", n, out.String())
 	}
 }
+
+func TestAttach_ControlApproveShortAlways(t *testing.T) {
+	home, ff := ctlHome(t, ctlFarm, nil, nil)
+	ctlAttach(t, home, strings.NewReader("a a3\n"))
+	r := ff.next(t)
+	if r.Cmd != farm.AttachApprove || r.ApprovalID != "a3" || r.Answer != "a" {
+		t.Fatalf("got %+v", r)
+	}
+}

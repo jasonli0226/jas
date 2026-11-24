@@ -25,7 +25,7 @@ const (
 	attachMaxLine   = 1 << 20
 
 	attachNoControl = "control unavailable (watching only)"
-	attachHelp      = "commands: steer <part> <text> | pause <part> | resume <part> | drop <part> | stop [hard] | status | y|n|always|farm [<approval-id>]"
+	attachHelp      = "commands: steer <part> <text> | pause <part> | resume <part> | drop <part> | stop [hard] | status | y|n|a|always|farm [<approval-id>]"
 )
 
 // attachCtl is one attach client's control connection.
@@ -290,7 +290,7 @@ func (c *attachCtl) parse(line string) (*farm.AttachRequest, string) {
 		return nil, "usage: stop [hard]"
 	case "status":
 		return nil, ""
-	case "y", "yes", "n", "no", "always", "farm":
+	case "y", "yes", "n", "no", "a", "always", "farm":
 		return c.approve(strings.ToLower(word), rest)
 	}
 	return nil, attachHelp

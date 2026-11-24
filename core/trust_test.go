@@ -54,6 +54,7 @@ func TestDecide_Table(t *testing.T) {
 		{"flag", false, true, false, "", true, false, false},
 		{"yes once", false, false, true, "y", true, true, false},
 		{"always", false, false, true, "always", true, true, true},
+		{"a for always", false, false, true, "a", true, true, true},
 		{"no", false, false, true, "n", false, true, false},
 		{"empty", false, false, true, "", false, true, false},
 		{"no tty", false, false, false, "", false, false, false},
