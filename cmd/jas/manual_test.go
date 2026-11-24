@@ -128,7 +128,7 @@ func TestRun_ReadsManualSkillAtCatalogPath(t *testing.T) {
 	assert.Contains(t, systemPrompt(t, got[0]), "<location>"+loc+"</location>")
 	skill, err := manualSkills.ReadFile("manual/jas/SKILL.md")
 	assert.NoErr(t, err)
-	firstLine := strings.SplitN(string(skill), "\n", 2)[0]
+	firstLine := strings.TrimSuffix(strings.SplitN(string(skill), "\n", 2)[0], "\r") // CRLF in a Windows checkout
 	assert.Contains(t, string(got[1]), firstLine)
 	for i := 1; i < len(got); i++ {
 		assert.NotContains(t, string(got[i]), "path outside project root")

@@ -41,7 +41,8 @@ func eventTypes(t *testing.T) []string {
 func TestEventLogDoc_SectionPerEventType(t *testing.T) {
 	doc, err := os.ReadFile(eventLogDoc)
 	assert.NoErr(t, err)
-	_, section, ok := strings.Cut(string(doc), "\n## Event types\n")
+	// A Windows checkout may turn the doc's line endings into CRLF.
+	_, section, ok := strings.Cut(strings.ReplaceAll(string(doc), "\r\n", "\n"), "\n## Event types\n")
 	if !ok {
 		t.Fatal("docs/event-log.md has no \"## Event types\" section")
 	}

@@ -61,7 +61,7 @@ func TestRunFarm_CheckRewriteCommittedByIntegratorPasses(t *testing.T) {
 }
 
 func TestRunFarm_FailingCheckThatRewritesSaysSo(t *testing.T) {
-	r := checkRig(t, "echo formatted >> a/x.txt; exit 3", []fake.Turn{final("cannot fix")})
+	r := checkRig(t, "echo formatted >> a/x.txt && exit 3", []fake.Turn{final("cannot fix")})
 	if code, _ := r.run(context.Background()); code != core.ExitUnmet {
 		t.Fatalf("exit %d", code)
 	}
