@@ -748,7 +748,10 @@ applies on `/reload`, `/new`, `/resume`, a profile switch and the next
 session, not mid-turn. `--memory` is not a flag; use `jas config set memory …`
 or `JAS_MEMORY`.
 
-**Writes.** The agent changes memory with `write` and `edit`. Every memory
+**Writes.** The agent changes memory with `write` and `edit`. In a chat it
+offers a note in the turn you correct it, state a preference, confirm a
+decision or say where something lives outside the repo, and drops it if you
+decline. Every memory
 write asks you, at every `approve` level and whatever grants you hold; `always`
 allows that one write and adds no grant. Before the prompt, jas refuses (a tool
 error the agent sees; the turn goes on) a write that:
