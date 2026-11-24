@@ -328,12 +328,12 @@ the same model, are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Demo
 
-![jas chat: ask for a change, the agent edits main.go, git diff shows it](docs/demo.gif)
+![jas chat: ask for a multi-file refactor, watch it write code and tests, run !go test, then git diff --stat](docs/demo.gif)
 
 To re-record it, install [vhs](https://github.com/charmbracelet/vhs) (it also
-needs `ttyd` and `ffmpeg`), build `bin/jas`, export `OPENROUTER_API_KEY`, and
-run `vhs demo.tape` from the repo root. It makes real model calls on a
-throwaway copy of `bench/fixture`.
+needs `ttyd` and `ffmpeg`), build `bin/jas`, and run `vhs demo.tape` from the
+repo root. It makes real model calls on a throwaway copy of `bench/fixture`;
+the key comes from `jas auth add openrouter` (or `OPENROUTER_API_KEY`).
 
 ## Farm (experimental)
 
