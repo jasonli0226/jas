@@ -9,9 +9,20 @@ import (
 
 const goodNote = "---\nname: x\ndescription: a fact\ntype: user\n---\nbody\n"
 
+// realTempDir is t.TempDir with symlinks resolved. Guard takes resolved
+// paths, and on macOS the temp dir sits behind the /var -> /private/var link.
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func newGuard(t *testing.T) Guard {
 	t.Helper()
-	d, err := DirsFor(t.TempDir(), "/work/repo")
+	d, err := DirsFor(realTempDir(t), "/work/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +132,7 @@ func TestGuard_OutsideMemoryIgnored(t *testing.T) {
 }
 
 func TestGuard_SymlinkedDirs(t *testing.T) {
-	real := t.TempDir()
+	real := realTempDir(t)
 	link := filepath.Join(t.TempDir(), "home")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skip(err)

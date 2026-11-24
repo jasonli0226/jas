@@ -191,7 +191,10 @@ func TestApply_Locked(t *testing.T) {
 // symlinkSetup makes memory a relative link to ../elsewhere/mem.
 func symlinkSetup(t *testing.T) (applyFixture, string) {
 	t.Helper()
-	root := t.TempDir()
+	// apply resolves the link, so target must be resolved too (macOS puts
+	// the temp dir behind /var -> /private/var).
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	assert.NoErr(t, err)
 	profile := filepath.Join(root, "profile")
 	target := filepath.Join(root, "elsewhere", "mem")
 	writeTree(t, target, liveFiles)

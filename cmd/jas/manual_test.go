@@ -10,6 +10,7 @@ import (
 
 	"github.com/jasonli0226/jas/internal/assert"
 	"github.com/jasonli0226/jas/internal/testutil"
+	"github.com/jasonli0226/jas/memory"
 	"github.com/jasonli0226/jas/providers/fake"
 	"github.com/jasonli0226/jas/skills"
 )
@@ -104,11 +105,11 @@ func TestRun_ReadsManualSkillAtCatalogPath(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		cache = filepath.Join(userHome, "Library", "Caches")
 	}
-	dir := filepath.Join(cache, "jas", "manual", "jas")
-	if r, err := filepath.EvalSymlinks(filepath.Dir(cache)); err == nil {
-		dir = filepath.Join(r, filepath.Base(cache), "jas", "manual", "jas")
-	}
-	loc, ref := filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "references", "manual.md")
+	dir := memory.EvalDir(filepath.Join(cache, "jas", "manual", "jas"))
+	// The catalog writes a path under the home dir as ~/ (on macOS the cache
+	// is under it), and the model reads the path as the catalog gives it.
+	loc := skills.DisplayPath(filepath.Join(dir, "SKILL.md"), memory.EvalDir(userHome))
+	ref := filepath.Join(dir, "references", "manual.md")
 	paths := []string{loc, ref}
 	if runtime.GOOS == "windows" {
 		paths = append(paths, filepath.ToSlash(ref)) // the model may write C:/...
