@@ -92,7 +92,9 @@ global and project config (no endpoint keys, no `profile`), and its
 `AGENTS.md` goes into the prompt before the project's. An unknown name from
 the flag or env is a usage error; from config it warns and uses `default`.
 `/resume` stays on the chat's active profile (the notice names the recorded
-one when it differs); farm workers run on the active profile's `AGENTS.md`
+one when it differs); a profile may `extends` one parent through
+`profile.yaml` (chain of at most 3; settings child-wins, skills child first;
+see `jas profile show --resolved`); farm workers run on the active profile's `AGENTS.md`
 and skills (workers started after a mid-farm `/profile` get the new profile's,
 but the farm's `max_turns`, budget and approval level stay fixed).
 

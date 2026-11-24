@@ -19,23 +19,29 @@ const profileAgentsFile = "AGENTS.md"
 // envProfileSource is the source settings gives a profile chosen by JAS_PROFILE.
 const envProfileSource = settings.Source("env JAS_PROFILE")
 
-// profileState is what the active profile adds to a session.
+// profileState is what the active profile adds to a session. Its fields
+// describe the active profile itself; chain is that profile and its
+// parents, root first and the active profile last (one part when it extends
+// nothing).
 type profileState struct {
 	name       string
 	layer      settings.File
 	agents     []byte
 	agentsPath string // set when the profile AGENTS.md exists
 	skillsDir  string
+	chain      []profilePart
 }
 
-// loadProfile reads the named profile's config.json and AGENTS.md (each
-// missing = empty). A name with no profile directory is a usage error when
-// the owner asked for it on this run (flag or env), naming the profiles
-// there are; one from a config file warns and falls back to default, so a
-// repository that commits a profile still runs where it does not exist.
-// default never fails: a missing default/ is an empty profile.
+// loadProfile reads the named profile and its parent chain: each one's
+// config.json and AGENTS.md (each missing = empty). A name with no profile
+// directory is a usage error when the owner asked for it on this run (flag
+// or env), naming the profiles there are; one from a config file warns and
+// falls back to default, so a repository that commits a profile still runs
+// where it does not exist. default never fails: a missing default/ is an
+// empty profile. A chain that does not resolve (a missing parent, a loop,
+// too long, a bad profile.yaml) is a usage error whatever chose the profile.
 func loadProfile(home, name string, src settings.Source) (profileState, []string, error) {
-	var warnings []string
+	missing := ""
 	if name != settings.DefaultProfile && !profileExists(home, name) {
 		if src == settings.SourceFlag || src == envProfileSource {
 			have, err := settings.ListProfiles(home)
@@ -44,17 +50,21 @@ func loadProfile(home, name string, src settings.Source) (profileState, []string
 			}
 			return profileState{}, nil, usageErr("unknown profile %q (from %s): have %s", name, src, strings.Join(have, ", "))
 		}
-		warnings = append(warnings, fmt.Sprintf("profile %q (from %s) not found; using %s", name, src, settings.DefaultProfile))
-		name = settings.DefaultProfile
+		missing, name = name, settings.DefaultProfile
 	}
-	layer, err := settings.LoadFile(settings.ProfileConfigPath(home, name))
+	chain, warnings, err := loadChain(home, name)
 	if err != nil {
 		return profileState{}, nil, err
 	}
-	ps := profileState{name: name, layer: layer, skillsDir: filepath.Join(settings.ProfileDir(home, name), "skills")}
-	ps.agentsPath, ps.agents, err = readProfileAgents(home, name)
-	if err != nil {
-		warnings = append(warnings, err.Error())
+	active := chain[len(chain)-1]
+	ps := profileState{name: name, layer: active.layer, agents: active.agents, agentsPath: active.agentsPath,
+		skillsDir: active.skillsDir, chain: chain}
+	if missing != "" {
+		using := settings.DefaultProfile
+		if names := ps.names(); len(names) > 1 {
+			using += " (extends " + strings.Join(names[:len(names)-1], " → ") + ")"
+		}
+		warnings = append([]string{fmt.Sprintf("profile %q (from %s) not found; using %s", missing, src, using)}, warnings...)
 	}
 	return ps, warnings, nil
 }
@@ -157,12 +167,16 @@ func markSkillsNotice(home, profile string) {
 	_ = os.WriteFile(filepath.Join(dir, skillsNoticeMarker), nil, 0o600)
 }
 
-// countProfileSkills counts the discovered skills that live in the profile's
-// skills directory (not the built-in manual).
-func countProfileSkills(found []skills.Skill, profileSkillsDir string) int {
-	roots := []string{profileSkillsDir}
-	if r, err := filepath.EvalSymlinks(profileSkillsDir); err == nil {
-		roots = append(roots, r)
+// countProfileSkills counts the discovered skills that live in one of the
+// chain's skills directories (not the built-in manual), so a child with
+// only inherited skills has some.
+func countProfileSkills(found []skills.Skill, profileSkillsDirs []string) int {
+	var roots []string
+	for _, d := range profileSkillsDirs {
+		roots = append(roots, d)
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			roots = append(roots, r)
+		}
 	}
 	n := 0
 	for _, s := range found {

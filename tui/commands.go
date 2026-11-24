@@ -412,7 +412,7 @@ func (m *Model) cmdSettings(arg string) tea.Cmd {
 		if scope == "" {
 			scope = m.b.DefaultSettingsScope()
 		}
-		return m.notice(fmt.Sprintf("unset %s from %s config", rest[1], scope))
+		return m.notice(fmt.Sprintf("unset %s from %s config%s", rest[1], scope, m.b.SettingNote(scope, rest[1], true)))
 	}
 	if len(rest) == 1 {
 		line, err := m.b.GetSetting(rest[0])
@@ -485,7 +485,7 @@ func (m *Model) applySetting(scope, key, value string) tea.Cmd {
 	if scope == "" {
 		scope = m.b.DefaultSettingsScope()
 	}
-	written := m.notice(fmt.Sprintf("%s=%s (%s config)", key, m.clean(value), scope))
+	written := m.notice(fmt.Sprintf("%s=%s (%s config)%s", key, m.clean(value), scope, m.b.SettingNote(scope, key, false)))
 	if line, err := m.b.GetSetting(key); err == nil {
 		value = line.Value // a narrower scope or a flag may still win over the write
 	}

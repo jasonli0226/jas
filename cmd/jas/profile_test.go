@@ -20,6 +20,7 @@ func writeProfile(t *testing.T, jasHome, name string, files map[string]string) s
 	dir := filepath.Join(jasHome, "profiles", name)
 	assert.NoErr(t, os.MkdirAll(dir, 0o700))
 	for f, body := range files {
+		assert.NoErr(t, os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o700))
 		assert.NoErr(t, os.WriteFile(filepath.Join(dir, f), []byte(body), 0o600))
 	}
 	return dir

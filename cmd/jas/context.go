@@ -50,8 +50,9 @@ type projectContext struct {
 	userSystem string
 	skills     []skills.Skill // skills listed to the model
 	files      []contextFileMeta
-	// profileAgents is the path of the profile AGENTS.md in files, or "".
-	profileAgents string
+	// profileAgents are the paths of the profile AGENTS.md files in files,
+	// root first.
+	profileAgents []string
 	// trusted is the project trust decision: the context file and project
 	// skills were loaded (or --trust-project was given). farm config follows it.
 	trusted bool
@@ -200,12 +201,11 @@ func upgradeLegacyTrust(store core.TrustStore, root string, content, bundle []by
 // the prompt.
 func buildProjectContext(pt projectTrust, project, user []skills.Skill, prof profileState, redact func(string) string, warn func(string)) projectContext {
 	pc := projectContext{skills: user, files: []contextFileMeta{}, trusted: pt.trusted}
-	profileInstructions := ""
-	if prof.agentsPath != "" {
-		pc.profileAgents = prof.agentsPath
-		pc.files = append(pc.files, contextFileMeta{Path: prof.agentsPath, Loaded: true, SHA256: core.ContentHash(prof.agents)})
-		profileInstructions = "Profile instructions (" + profileAgentsFile + "):\n" + core.CapContext(redact(string(prof.agents)))
+	for _, p := range prof.agentParts() {
+		pc.profileAgents = append(pc.profileAgents, p.agentsPath)
+		pc.files = append(pc.files, contextFileMeta{Path: p.agentsPath, Loaded: true, SHA256: core.ContentHash(p.agents)})
 	}
+	profileInstructions := profileAgentsText(prof, redact)
 	instructions := ""
 	if pt.hasFile {
 		pc.files = append(pc.files, contextFileMeta{Path: pt.path, Loaded: pt.trusted, SHA256: core.ContentHash(pt.content)})

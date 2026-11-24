@@ -72,8 +72,42 @@ func AskAlways(t Tool) Tool { return mustAsk{t} }
 // MustAsk reports whether t is such a call. Gates must not let a standing
 // grant cover it, nor record one for it.
 func MustAsk(t Tool) bool {
-	_, ok := t.(mustAsk)
-	return ok
+	switch t.(type) {
+	case mustAsk, sharedAsk:
+		return true
+	}
+	return false
+}
+
+// sharedAsk is a must-ask call into the skills of an ancestor profile, whose
+// change every profile extending it sees.
+type sharedAsk struct {
+	mustAsk
+	owner string
+}
+
+// AskAlwaysShared returns t marked as a must-ask call into the skills of the
+// ancestor profile owner; its prompt says so (see SummarizeTool).
+func AskAlwaysShared(t Tool, owner string) Tool { return sharedAsk{mustAsk{t}, owner} }
+
+// MustAskShared names the ancestor profile whose skills a must-ask call t
+// writes into, or "" when t is not such a call.
+func MustAskShared(t Tool) string {
+	if s, ok := t.(sharedAsk); ok {
+		return s.owner
+	}
+	return ""
+}
+
+// SummarizeTool is SummarizeCall for a call to t, plus the note that a write
+// into a parent profile's skills is shared. Every prompt builds its summary
+// here, so the note shows once.
+func SummarizeTool(t Tool, args json.RawMessage) string {
+	s := SummarizeCall(t.Name(), args)
+	if owner := MustAskShared(t); owner != "" {
+		s += " (in profile " + Sanitize(owner) + "'s skills, shared with every profile that extends it)"
+	}
+	return s
 }
 
 // Gated reports whether a call to t needs approval at level.
@@ -98,7 +132,7 @@ func (a *Approver) Allow(ctx context.Context, t Tool, args json.RawMessage, prev
 	if !a.Interactive {
 		return Unavailable, nil
 	}
-	prompt := diffBlock(t.Name(), preview) + fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeCall(t.Name(), args))
+	prompt := diffBlock(t.Name(), preview) + fmt.Sprintf("approve %s: %s? [y/N] ", t.Name(), SummarizeTool(t, args))
 
 	type answer struct {
 		line string

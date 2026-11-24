@@ -62,6 +62,10 @@ type Backend interface {
 	SetSetting(scope, key, value string) error
 	// UnsetSetting removes key from scope.
 	UnsetSetting(scope, key string) error
+	// SettingNote is what the confirmation of a write (or, with unset, an
+	// unset) of key to scope adds, e.g. " (overrides profile base)" when a
+	// --in-profile write overrides a parent profile's value; "" for none.
+	SettingNote(scope, key string, unset bool) string
 	// Reload rediscovers skills and rebuilds AGENTS.md / project context into
 	// s under the trust rules. ask is called when trust must be re-confirmed
 	// (nil refuses like a non-interactive skip). Notices describe what loaded.

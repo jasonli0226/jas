@@ -310,3 +310,167 @@ func quietSession(t *testing.T, e *env) *core.Session {
 	assert.NoErr(t, err)
 	return s
 }
+
+// chainChatEnv is profileChatEnv plus profile p (AGENTS.md PARENT-7102,
+// skill psql) and its child c (AGENTS.md CHILD-7103). It returns the env
+// and psql's SKILL.md path.
+func chainChatEnv(t *testing.T) (e *env, parentSkill string) {
+	t.Helper()
+	e, _, _ = profileChatEnv(t)
+	writeProfile(t, e.home, "p", map[string]string{"AGENTS.md": "PARENT-7102"})
+	writeProfile(t, e.home, "c", map[string]string{"AGENTS.md": "CHILD-7103", settings.ProfileMetaFile: "extends: p\n"})
+	parentSkill = writeSkill(t, filepath.Join(e.home, "profiles", "p", "skills"), "psql", "Use for parent sql", "PSQL-BODY-7112\n")
+	return e, parentSkill
+}
+
+// eventsOf returns the events of type typ in the log at path.
+func eventsOf(t *testing.T, path, typ string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, ev := range testutil.ReadEvents(t, path) {
+		if ev["type"] == typ {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func TestChat_ReloadPicksUpParentEdit(t *testing.T) {
+	e, _ := chainChatEnv(t)
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "hi"}})
+	useURL(t, e, url)
+	b := &chatBackend{e: e}
+	_, err := b.SwitchProfile(quietSession(t, e), "c", nil)
+	assert.NoErr(t, err)
+	live, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+
+	writeProfile(t, e.home, "p", map[string]string{"AGENTS.md": "PARENT-EDIT-7111"})
+	_, err = b.Reload(live.Session, nil)
+	assert.NoErr(t, err)
+	_, err = live.Session.Send(t.Context(), "hello")
+	assert.NoErr(t, err)
+	assert.NoErr(t, live.Close("ok", 0))
+	sys := systemPrompt(t, bodies()[0])
+	assert.Contains(t, sys, "PARENT-EDIT-7111")
+	assert.NotContains(t, sys, "PARENT-7102")
+
+	started := eventsOf(t, live.Path, core.EvSessionStarted)[0]
+	reloaded := eventsOf(t, live.Path, core.EvContextReloaded)[0]
+	before, _ := started["profile_hash"].(string)
+	after, _ := reloaded["profile_hash"].(string)
+	assert.Eq(t, strings.HasPrefix(before, "sha256:"), true)
+	assert.Eq(t, strings.HasPrefix(after, "sha256:"), true)
+	if after == before {
+		t.Fatal("context_reloaded kept the old profile_hash after a parent edit")
+	}
+	chain, _ := json.Marshal(reloaded["profile_chain"])
+	assert.Eq(t, string(chain), `["p","c"]`)
+}
+
+func TestChat_ReloadBrokenChainKeepsProfile(t *testing.T) {
+	e, _ := chainChatEnv(t)
+	url, bodies := testutil.FakeOpenAI(t, []fake.Turn{{Text: "hi"}})
+	useURL(t, e, url)
+	b := &chatBackend{e: e}
+	_, err := b.SwitchProfile(quietSession(t, e), "c", nil)
+	assert.NoErr(t, err)
+	live, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	defer live.Close("ok", 0)
+	system, hash, policy := e.pc.system, e.profHash, e.policy
+
+	assert.NoErr(t, os.RemoveAll(filepath.Join(e.home, "profiles", "p")))
+	_, err = b.Reload(live.Session, nil)
+	if err == nil {
+		t.Fatal("reload of a broken chain succeeded")
+	}
+	assert.Contains(t, err.Error(), `extends "p", which does not exist`)
+	assert.Eq(t, b.Profile(), "c")
+	assert.Eq(t, e.pc.system, system)
+	assert.Eq(t, e.profHash, hash)
+	assert.Eq(t, strings.Join(e.policy.InheritedSkills, ","), strings.Join(policy.InheritedSkills, ","))
+	assert.Eq(t, strings.Join(e.policy.ReadRoots, ","), strings.Join(policy.ReadRoots, ","))
+	assert.Eq(t, strings.Join(e.prof.names(), ","), "p,c")
+
+	_, err = live.Session.Send(t.Context(), "hello")
+	assert.NoErr(t, err)
+	assert.Contains(t, systemPrompt(t, bodies()[0]), "PARENT-7102")
+}
+
+func TestChat_SwitchToChainedProfile(t *testing.T) {
+	e, _ := chainChatEnv(t)
+	b := &chatBackend{e: e}
+	live, err := b.NewSession("m", core.NewQuietUI(), core.AllowAll{})
+	assert.NoErr(t, err)
+	_, err = b.SwitchProfile(live.Session, "c", nil)
+	assert.NoErr(t, err)
+	assert.Contains(t, live.Session.System(), "psql")
+	assert.Contains(t, live.Session.System(), "PARENT-7102")
+	_, err = b.SwitchProfile(live.Session, "default", nil) // and back to a flat one
+	assert.NoErr(t, err)
+	assert.NoErr(t, live.Close("ok", 0))
+
+	evs := eventsOf(t, live.Path, core.EvProfileChanged)
+	assert.Eq(t, len(evs), 2)
+	chain, _ := json.Marshal(evs[0]["profile_chain"])
+	assert.Eq(t, string(chain), `["p","c"]`)
+	toChild, _ := evs[0]["profile_hash"].(string)
+	assert.Eq(t, strings.HasPrefix(toChild, "sha256:"), true)
+	if _, ok := evs[1]["profile_chain"]; ok {
+		t.Fatal("profile_changed to a flat profile has profile_chain")
+	}
+	toFlat, _ := evs[1]["profile_hash"].(string)
+	assert.Eq(t, strings.HasPrefix(toFlat, "sha256:"), true)
+	if toFlat == toChild {
+		t.Fatal("two different profiles logged the same profile_hash")
+	}
+}
+
+func TestFarm_WorkerGetsChainPolicy(t *testing.T) {
+	e, parentSkill := chainChatEnv(t)
+	b := &chatBackend{e: e}
+	read, _ := json.Marshal(map[string]string{"path": parentSkill})
+	// worker starts one worker over host (the env its farm started from)
+	// and has it read the parent's skill.
+	worker := func(host *env, newSession func(farm.WorkerSession) (*core.Session, error)) string {
+		host.provider = &fake.Provider{Turns: []fake.Turn{{Calls: []fake.Call{{Name: "read", Args: string(read)}}}, {Text: "done"}}}
+		base := host.policy
+		path := filepath.Join(t.TempDir(), "events.jsonl")
+		log, err := core.OpenEventLog(path, nil, nil)
+		assert.NoErr(t, err)
+		t.Cleanup(func() { log.Close() })
+		ws := farm.WorkerSession{Part: farm.Part{ID: "a"}, Root: e.root, Log: log, System: "FARM-PART",
+			Tools: tools.ReadOnly(), Policy: farm.WorkerPolicy(base, farm.Role{}, e.root), Gate: core.AllowAll{}}
+		s, err := newSession(ws)
+		assert.NoErr(t, err)
+		_, err = s.Send(t.Context(), "read the parent skill")
+		assert.NoErr(t, err)
+		assert.NoErr(t, s.Close("ok", 0))
+		return path
+	}
+	check := func(path string) {
+		t.Helper()
+		res := eventsOf(t, path, core.EvToolResult)
+		assert.Eq(t, len(res), 1)
+		assert.Eq(t, res[0]["status"], any("ok"))
+		started := eventsOf(t, path, core.EvSessionStarted)[0]
+		assert.Eq(t, started["profile_hash"], any(e.profHash))
+		chain, _ := json.Marshal(started["profile_chain"])
+		assert.Eq(t, string(chain), `["p","c"]`)
+	}
+
+	// The chat's farm: started on default, a worker started after the
+	// switch to c runs on c's snapshot.
+	started := *b.e
+	_, err := b.SwitchProfile(quietSession(t, e), "c", nil)
+	assert.NoErr(t, err)
+	parentDir := filepath.Join(e.home, "profiles", "p", "skills")
+	assert.Eq(t, strings.Join(b.workerProf.Load().inheritedSkills, ","), parentDir)
+	assert.Eq(t, strings.HasPrefix(e.profHash, "sha256:"), true)
+	check(worker(&started, b.workerSession(&started)))
+
+	// jas farm run: workers start from the host env.
+	assert.Eq(t, strings.Join(e.policy.InheritedSkills, ","), parentDir)
+	check(worker(e, farmSession(e)))
+}

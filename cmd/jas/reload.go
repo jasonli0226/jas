@@ -7,30 +7,51 @@ import (
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
+	"github.com/jasonli0226/jas/settings"
 	"github.com/jasonli0226/jas/skills"
 )
 
-// reloadContext rediscovers skills and rebuilds the project system prompt
-// under the same trust rules as prepare. ask is used when trust must be
-// re-confirmed (nil refuses like a non-interactive skip). On success env's
-// project context, skill list, memory and policy read roots (skill and
-// memory dirs, returned as roots) are replaced.
+// reloadContext re-resolves the active profile's chain (a changed
+// profile.yaml included), then reloads it like reloadProfile. A chain that
+// no longer resolves, or an active profile whose directory is gone, is the
+// error, with env left as it was: the session keeps its current profile.
 func (e *env) reloadContext(ask func(string) string) (notices []string, roots []string, err error) {
+	name := e.activeProfile()
+	prof, warnings, err := loadProfile(e.home, name, e.profileSrc)
+	if err != nil {
+		return nil, nil, err
+	}
+	if prof.name != name { // loadProfile fell back to default
+		return nil, nil, fmt.Errorf("profile %q no longer exists (%s)", name, settings.ProfileDir(e.home, name))
+	}
+	before := e.prof.names()
+	notices, roots, err = e.reloadProfile(prof, warnings, ask)
+	if err == nil && e.prof.name != "" && before[0] != "" && !slices.Equal(before, prof.names()) {
+		notices = append(notices, "jas: profile chain is now "+strings.Join(prof.names(), " → ")+
+			"; its settings apply on /profile "+prof.name+" or the next start")
+	}
+	return notices, roots, err
+}
+
+// reloadProfile rediscovers skills and rebuilds the project system prompt
+// for prof under the same trust rules as prepare; early are prof's load
+// warnings. ask is used when trust must be re-confirmed (nil refuses like a
+// non-interactive skip). On success env's profile state and hash, project
+// context, skill list, memory and policy (the profile read exceptions and
+// read roots: skill and memory dirs, returned as roots) are replaced; the
+// settings stay as loaded; changed ones apply on /profile <name> or the
+// next start. On error no env field changes.
+func (e *env) reloadProfile(prof profileState, early []string, ask func(string) string) (notices []string, roots []string, err error) {
 	var warnings []string
 	warn := func(w string) { warnings = append(warnings, w) }
 	if err := syncManualSkills(); err != nil {
 		warn("manual skills: " + err.Error())
 	}
-	name := e.activeProfile()
-	e.policy = profilePolicy(e.policy, e.home, name)
-	prof := e.prof
-	prof.name = name
-	if prof.agentsPath, prof.agents, err = readProfileAgents(e.home, name); err != nil {
-		warn(err.Error())
-	}
-	projectSkills, pw := skills.Discover(skills.ProjectSources(e.root), e.policy.Denied)
-	userSkills, uw := discoverUserSkills(e.policy, e.home)
-	for _, w := range append(pw, uw...) {
+	warnings = append(warnings, early...)
+	policy := profilePolicy(e.policy, e.home, prof)
+	projectSkills, pw := skills.Discover(skills.ProjectSources(e.root), policy.Denied)
+	userSkills, chainSkills, uw := discoverUserSkills(policy, e.home, prof)
+	for _, w := range slices.Concat(pw, uw) {
 		warn(w)
 	}
 	interactive := ask != nil
@@ -39,11 +60,11 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 		return nil, nil, err
 	}
 	skillList, skillDirs := listedSkills(pc.skills)
-	e.policy.ReadRoots = skillDirs
-	var mem memoryState
-	e.policy, mem = loadMemory(e.policy, e.home, name, e.root, e.layers, e.red.Redact, warn)
+	policy.ReadRoots = skillDirs
+	policy, mem := loadMemory(policy, e.home, prof.name, e.root, e.layers, e.red.Redact, warn)
 	pc = withMemory(pc, mem, !e.interactive)
-	e.pc, e.skillList, e.prof, e.mem = pc, skillList, prof, mem
+	e.policy, e.pc, e.skillList, e.prof, e.mem = policy, pc, skillList, prof, mem
+	e.profHash = hashProfile(prof, chainSkills, e.layers, e.red.Redact)
 	notices = append(notices, formatReloadNotice(pc))
 	if pc.trusted != e.settingsTrusted && len(readProjectSettings(e.root)) > 0 {
 		notices = append(notices, "jas: project trust changed; project settings apply at the next start")
@@ -76,8 +97,8 @@ func formatReloadNotice(pc projectContext) string {
 	parts := []string{"reloaded"}
 	sawCtx := false
 	for _, f := range pc.files {
-		if pc.profileAgents != "" && f.Path == pc.profileAgents {
-			continue // the profile's file: the notice describes the project's
+		if slices.Contains(pc.profileAgents, f.Path) {
+			continue // a profile's file: the notice describes the project's
 		}
 		base := filepath.Base(f.Path)
 		if base != "AGENTS.md" && base != "CLAUDE.md" {

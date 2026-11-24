@@ -462,19 +462,19 @@ func TestMemoryReport_PendingDream(t *testing.T) {
 	writeIndex(t, d.Profile, profileNote)
 	layers := settings.Layers{ProfileName: settings.DefaultProfile}
 
-	text, _, err := memoryReport(jasHome, settings.DefaultProfile, root, layers)
+	text, _, err := memoryReport(jasHome, profileState{name: settings.DefaultProfile}, root, layers)
 	assert.NoErr(t, err)
 	assert.Eq(t, strings.Contains(text, "dream"), false)
 
 	const id = "20261113T101500-ab12"
 	dreams := dream.Dir(settings.ProfileDir(jasHome, settings.DefaultProfile))
 	assert.NoErr(t, dream.Save(dreams, dream.Meta{ID: id, State: dream.Pending}))
-	text, _, err = memoryReport(jasHome, settings.DefaultProfile, root, layers)
+	text, _, err = memoryReport(jasHome, profileState{name: settings.DefaultProfile}, root, layers)
 	assert.NoErr(t, err)
 	assert.Contains(t, text, "dream "+id+" pending: jas dream diff")
 
 	assert.NoErr(t, dream.Save(dreams, dream.Meta{ID: id, State: dream.Applied}))
-	text, _, err = memoryReport(jasHome, settings.DefaultProfile, root, layers)
+	text, _, err = memoryReport(jasHome, profileState{name: settings.DefaultProfile}, root, layers)
 	assert.NoErr(t, err)
 	assert.Eq(t, strings.Contains(text, "pending"), false)
 }

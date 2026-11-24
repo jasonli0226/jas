@@ -562,6 +562,17 @@ func (b *chatBackend) UnsetSetting(scope, key string) error {
 	return b.unsetSetting(s, key)
 }
 
+// SettingNote is what the confirmation of a write of key to scope adds when
+// scope is the profile's and a parent profile also sets key (see
+// inheritedNote); "" otherwise.
+func (b *chatBackend) SettingNote(scope, key string, unset bool) string {
+	s, err := parseWriteScope(scope, b.DefaultSettingsScope())
+	if err != nil {
+		return ""
+	}
+	return inheritedNote(b.e.files, s, key, unset)
+}
+
 func parseWriteScope(scope, def string) (settings.Scope, error) {
 	if scope == "" {
 		scope = def
@@ -684,9 +695,11 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 	b.publishWorkerProfile()
 	b.publishMemoryGuard()
 	s.SetReadRoots(roots)
-	s.SetProfileMemory(b.e.policy.ProfileMemory) // memory may have turned on or off
+	s.SetProfileSkills(b.e.policy.ProfileSkills, b.e.policy.InheritedSkills) // the chain may have changed
+	s.SetProfileMemory(b.e.policy.ProfileMemory)                             // memory may have turned on or off
 	files := contextFilesMeta(b.e.pc.files)
-	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
+	meta := b.e.withProfileReceipt(map[string]any{"context_files": files, "skills": b.e.skillList})
+	if err := s.SetSystem(b.e.pc.system, meta); err != nil {
 		return notices, err
 	}
 	return notices, nil

@@ -26,14 +26,20 @@ func UserOnly(key string) bool {
 // files can still be written back as they are.
 func (l Layers) ForProject(trusted bool) (Layers, []string) {
 	profile, warnings := withoutProfileForbidden(l.Profile, l.ProfileName)
+	var parents []ProfileFile
+	for _, p := range l.ProfileParents {
+		f, w := withoutProfileForbidden(p.File, p.Name)
+		parents = append(parents, ProfileFile{p.Name, f})
+		warnings = append(warnings, w...)
+	}
 	if !trusted {
-		return Layers{Global: l.Global, Profile: profile, ProfileName: l.ProfileName}, warnings
+		return Layers{Global: l.Global, Profile: profile, ProfileName: l.ProfileName, ProfileParents: parents}, warnings
 	}
 	project, w := withoutUserOnly(l.Project, SourceProject)
 	warnings = append(warnings, w...)
 	local, w := withoutUserOnly(l.Local, SourceLocal)
 	warnings = append(warnings, w...)
-	return Layers{Global: l.Global, Profile: profile, ProfileName: l.ProfileName, Project: project, Local: local}, warnings
+	return Layers{Global: l.Global, Profile: profile, ProfileName: l.ProfileName, ProfileParents: parents, Project: project, Local: local}, warnings
 }
 
 // HasProject reports whether the project or local file sets anything.

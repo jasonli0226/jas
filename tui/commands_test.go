@@ -787,6 +787,16 @@ func TestCmdSettings_InProfile(t *testing.T) {
 	assert.Contains(t, c.printedText(), "unset approve from profile config")
 }
 
+func TestCmdSettings_InProfileNamesParent(t *testing.T) {
+	b := newTestBackend(t)
+	b.inheritedKey = "approve"
+	c := newTestChat(t, b)
+	c.submit("/settings --in-profile approve shell")
+	assert.Contains(t, c.printedText(), "approve=shell (profile config) (overrides profile base)")
+	c.submit("/settings unset --in-profile approve")
+	assert.Contains(t, c.printedText(), "unset approve from profile config (now inherited from profile base)")
+}
+
 func TestCmdSettings_RefusedWhileSwitching(t *testing.T) {
 	b := newTestBackend(t)
 	c := newTestChat(t, b)

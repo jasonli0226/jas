@@ -9,6 +9,7 @@ import (
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
+	"github.com/jasonli0226/jas/settings"
 )
 
 func profileEnv(t *testing.T, extra ...string) (env []string, jasHome string) {
@@ -146,4 +147,99 @@ func TestConfig_InProfileConfigNamedMissingProfile(t *testing.T) {
 	}
 	_, err := os.Stat(filepath.Join(home, "profiles", "default", "config.json"))
 	ok(t, os.IsNotExist(err))
+}
+
+func TestProfileList_ShowsExtends(t *testing.T) {
+	userHome, _ := chainHome(t, nil, nil)
+	env := jasEnv(userHome, "http://127.0.0.1:1")
+	out, _, code := runJas(t, env, "profile", "list")
+	assert.Eq[any](t, code, 0)
+	assert.Contains(t, out, "  c  0 skills  (extends p)\n")
+	out, _, code = runJas(t, env, "profile", "list", "--json")
+	assert.Eq[any](t, code, 0)
+	assert.Contains(t, out, `"name":"c","active":false,"skills":0,"extends":"p"`)
+	ok(t, !strings.Contains(out, `"error"`), out)
+}
+
+func TestProfileList_BadYamlDoesNotFail(t *testing.T) {
+	userHome, _ := chainHome(t, nil, map[string]string{settings.ProfileMetaFile: "bogus: 1\n"})
+	env := jasEnv(userHome, "http://127.0.0.1:1")
+	out, _, code := runJas(t, env, "profile", "list")
+	assert.Eq[any](t, code, 0)
+	assert.Contains(t, out, "(bad profile.yaml)")
+	out, _, _ = runJas(t, env, "profile", "list", "--json")
+	assert.Contains(t, out, `"error":"`)
+}
+
+func TestProfileShow_ExtendsLineWithMissingParent(t *testing.T) {
+	userHome, _ := chainHome(t, nil, map[string]string{settings.ProfileMetaFile: "extends: nope\nreplace_agents: true\n"})
+	out, _, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c")
+	assert.Eq[any](t, code, 0)
+	assert.Contains(t, out, "extends: nope\n")
+	assert.Contains(t, out, "replace_agents: true\n")
+}
+
+func TestProfileShow_BadYamlFails(t *testing.T) {
+	userHome, _ := chainHome(t, nil, map[string]string{settings.ProfileMetaFile: "bogus: 1\n"})
+	_, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c")
+	ok(t, code != 0)
+	assert.Contains(t, se, "profile.yaml")
+}
+
+func TestProfileShow_Resolved(t *testing.T) {
+	skill := func(n string) string { return "---\nname: " + n + "\ndescription: Use when " + n + "\n---\nbody\n" }
+	userHome, _ := chainHome(t, map[string]string{
+		"config.json": `{"max_turns":"7","model":"m1"}`, "AGENTS.md": "P-RULE",
+		"skills/sql/SKILL.md": skill("sql"), "skills/old/SKILL.md": skill("old"),
+	}, map[string]string{
+		settings.ProfileMetaFile: "extends: p\nexclude: [old]\n",
+		"config.json":            `{"model":"m2"}`, "AGENTS.md": "C-RULE", "skills/mine/SKILL.md": skill("mine"),
+	})
+	out, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c", "--resolved")
+	ok(t, code == 0, se)
+	assertBefore(t, out, "chain: p → c", "settings:", "max_turns  7  (p)", "AGENTS.md:",
+		"Profile instructions (p AGENTS.md):", "P-RULE", "Profile instructions (c AGENTS.md):", "C-RULE",
+		"skills (2):", "mine  (c)", "sql  (p)", "excluded:", "old  (by c)")
+	assert.Contains(t, out, "model  m2  (c)")
+}
+
+func TestProfileShow_ResolvedBrokenChain(t *testing.T) {
+	userHome, _ := chainHome(t, nil, map[string]string{settings.ProfileMetaFile: "extends: nope\n"})
+	_, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c", "--resolved")
+	assert.Eq[any](t, code, core.ExitUsage)
+	assert.Contains(t, se, "which does not exist")
+}
+
+func TestProfileNew_Extends(t *testing.T) {
+	env, home := profileEnv(t)
+	writeProfile(t, home, "p", nil)
+	_, se, code := runJas(t, env, "profile", "new", "c", "--extends", "p")
+	ok(t, code == 0, se)
+	path := filepath.Join(home, "profiles", "c", settings.ProfileMetaFile)
+	b, err := os.ReadFile(path)
+	assert.NoErr(t, err)
+	assert.Eq(t, string(b), "extends: p\n")
+	fi, err := os.Stat(path)
+	assert.NoErr(t, err)
+	assert.Perm(t, fi.Mode().Perm(), 0o600)
+	_, _, code = runJas(t, env, "profile", "new", "d", "--extends", "nope")
+	assert.Eq[any](t, code, core.ExitUsage)
+	_, err = os.Stat(filepath.Join(home, "profiles", "d"))
+	ok(t, err != nil)
+}
+
+func TestProfileShow_ResolvedRedactsStoredKey(t *testing.T) {
+	userHome, jasHome := chainHome(t, map[string]string{"AGENTS.md": "token is plainsecret-4471 ok"}, nil)
+	assert.NoErr(t, os.WriteFile(filepath.Join(jasHome, "auth.json"), []byte(`{"custom":{"key":"plainsecret-4471"}}`), 0o600))
+	out, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c", "--resolved")
+	ok(t, code == 0, se)
+	ok(t, !strings.Contains(out, "plainsecret-4471"), out)
+	assert.Contains(t, out, "token is ")
+}
+
+func TestProfileShow_ResolvedPrintsSkillWarnings(t *testing.T) {
+	userHome, _ := chainHome(t, nil, map[string]string{settings.ProfileMetaFile: "extends: p\nexclude: [ghost]\n"})
+	out, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c", "--resolved")
+	ok(t, code == 0, out)
+	assert.Contains(t, se, `exclude names "ghost"`)
 }

@@ -152,9 +152,19 @@ an existing file logs added lines only. An `edit` logs no diff.
   `context_files` (list of context file), `skills` (list of skill),
   `context_window` (int), `window_known` (bool), `web_tools`.
 - Optional: `title` (`jas run --name`), `record_path`, `memory` and `dream`
-  (below), and the farm additions below.
+  (below), the farm additions below, `profile_hash` and `profile_chain`
+  (below).
 - Logs from before profiles shipped lack `profile`. Readers treat it as
   missing, not as an error.
+
+*Profile* (optional, on `session_started`, `session_resumed`,
+`context_reloaded` and `profile_changed`): `profile_hash` is `sha256:<hex>`
+of the active profile's resolved content: instructions, settings and each
+skill's `SKILL.md` (content only, no paths or keys). `profile_chain` lists the profile
+names, root first, and is present only when the profile has a parent. After
+`/reload` the hash reflects the settings the session loaded, since settings
+are not re-read on `/reload`; they apply on `/profile <name>` or the next start. Readers that do not know these fields ignore them. `jas
+dream` logs `profile_chain` but no `profile_hash`.
 
 *Memory* (optional `memory` object, on `session_started` and
 `session_resumed` when the session has memory; absent when memory is off):
@@ -209,10 +219,12 @@ The latest wins over `session_started.title`.
 Never carries a key.
 
 **`profile_changed`** — `from`, `to`, `context_files`, `skills`, `deferred`
-(settings keys that wait for `/new`). Chat only.
+(settings keys that wait for `/new`); optional `profile_hash`,
+`profile_chain`. Chat only.
 
 **`context_reloaded`** — `bytes` (system prompt size), plus `context_files`
-and `skills` after `/reload` or a profile switch.
+and `skills` after `/reload` or a profile switch; optional `profile_hash`,
+`profile_chain`.
 
 ### Turns
 

@@ -107,7 +107,7 @@ type Value struct {
 // Effective is the resolved value of every key.
 type Effective map[string]Value
 
-// Resolve merges layers: flag > env > local > project > profile > global > default.
+// Resolve merges layers: flag > env > local > project > profile > parents > global > default.
 // The profile key skips the profile layer (a profile cannot choose itself).
 // An empty string counts as unset in every layer. Stored named providers are
 // exposed as "providers.<name>.base_url" keys for Build (local > project > global).
@@ -120,11 +120,11 @@ func Resolve(flags map[string]string, env func(string) string, layers Layers) Ef
 		case env(k.EnvName()) != "":
 			out[k.Name] = Value{env(k.EnvName()), envSource(k.EnvName())}
 		default:
-			profile := layers.Profile.Values[k.Name]
-			if k.Name == "profile" {
-				profile = ""
+			var profile []candidate
+			if k.Name != "profile" {
+				profile = layers.profileValues(k.Name)
 			}
-			raw, src := pick(layers.Local.Values[k.Name], layers.Project.Values[k.Name], profile, layers.Global.Values[k.Name], layers.ProfileName)
+			raw, src := pick(layers.Local.Values[k.Name], layers.Project.Values[k.Name], profile, layers.Global.Values[k.Name])
 			if raw == "" {
 				out[k.Name] = Value{k.Default, SourceDefault}
 			} else {

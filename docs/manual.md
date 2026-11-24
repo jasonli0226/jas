@@ -104,17 +104,29 @@ project/local settings need trust: [Settings](#settings). `init` asks for provid
 ```
 jas profile list [--json]
 jas profile use <name>
-jas profile new <name>
-jas profile show [name]
+jas profile new <name> [--extends <parent>]
+jas profile show [name] [--resolved]
 ```
 
 `list` prints one line per profile, the active one marked `*`
-(`* ds  4 skills`); `--json` prints `[{"name":"ds","active":true,"skills":4}]`.
-`use` sets `profile` in the global config (an unknown name is a usage error).
+(`* ds  4 skills`); a profile with a parent ends `(extends p)`, and one whose
+`profile.yaml` does not parse `(bad profile.yaml)`. `--json` prints
+`[{"name":"ds","active":true,"skills":4}]`, with `"extends":"p"` or
+`"error":"<message>"` added when they apply. `list` never resolves a chain, so
+one broken profile does not fail it. `use` sets `profile` in the global config
+(an unknown name is a usage error).
 `new` creates the empty `~/.jas/profiles/<name>/` (names: a-z, 0-9 and `-`,
-at most 64 characters). `show` prints a profile's path, the settings in its
-`config.json`, whether it has an `AGENTS.md`, and its skills; with no name it
-shows the active one. Details: [Profiles](#profiles).
+at most 64 characters); with `--extends <parent>` it also writes a
+`profile.yaml` of `extends: <parent>` (mode 0600), and the parent must exist
+(`default` always does). `show` prints a profile's path, its `extends` and
+`replace_agents` when `profile.yaml` sets them, the settings in its
+`config.json`, whether it has an `AGENTS.md`, and its own skills; with no name
+it shows the active one. `show --resolved` instead resolves the parent chain
+(a chain that does not resolve is a usage error, exit 2) and prints the chain,
+each merged setting (`models.<id>.context_window` included) and the profile it
+comes from, the exact instructions
+text the prompt gets, the effective skills with their profile, and the skills
+a profile excludes. Details: [Profiles](#profiles).
 
 ### `jas auth`
 
@@ -636,7 +648,9 @@ read-only jas home runs on an empty one). Manage them with
 project config > global config > `default`. A project's `profile` counts only
 once the project is trusted. An unknown name from the flag or env is a usage
 error (exit 2) naming the profiles there are; from a config file it warns
-(`profile "ds" (from …) not found; using default`) and runs on `default`.
+(`profile "ds" (from …) not found; using default`) and runs on `default`;
+when `default` extends a parent the warning names the chain, root first
+(`using default (extends p → q)`).
 
 **Settings.** The profile's `config.json` is one layer: flag > env > local >
 project > **profile** > global > defaults ([Settings](#settings)). A profile
@@ -663,6 +677,41 @@ profile's skills or a folder holding the jas home is ignored with a warning
 (`profile skills … ignored: …`), so `auth.json`, `trust.json`, configs and
 other profiles stay unreadable and unwritable. A link inside a skill that points into the
 jas home stays denied.
+
+**Inheritance.** A profile may extend one parent: `profile.yaml` in its folder
+takes `extends: <parent>`, `replace_agents: true` and `exclude: [<skill>, …]`
+(unknown keys are an error). The chain runs root first and holds at most 3
+profiles. `extends: default` works without a `default/` folder. A missing
+parent, a loop or a longer chain is an error (exit 2). The chain is read at
+start, `/profile` and `/reload`; a chain that no longer resolves fails and the
+chat keeps its current profile. Settings in the chain's `config.json` files are
+read at start and on `/profile <name>` (even for the active profile), not on
+`/reload` or `/new`. `jas profile new --extends`, `list` and
+`show --resolved` are under [`jas profile`](#jas-profile).
+
+- Instructions: each profile's `AGENTS.md` goes in, root first, then the
+  project's. `replace_agents: true` drops the parents' `AGENTS.md` text; it
+  affects instructions only.
+- Skills: project, then the profile, its parent, … the root, then the built-in
+  manual; the first skill of a name wins. `exclude` is cumulative along the
+  chain and hides a skill from the catalog only. It is not a security
+  boundary: it only hides the skill from the catalog and is no way to hide
+  its files. A `skills/` symlinked into another
+  profile is still ignored; to share skills, use `extends`. A `write` or
+  `edit` into a parent's skills is always asked, and the prompt names the
+  owner (`in profile base's skills, shared with every profile that extends it`).
+- Settings: the child wins key by key; `models.<id>` merges per model id. A
+  child cannot remove an inherited key; set the default explicitly.
+  `jas config set|unset --in-profile` and `/settings --in-profile` act on the
+  active profile's own file, as do scoped reads. When a parent also sets the
+  key they add `(overrides profile base)` on set or
+  `(now inherited from profile base)` on unset.
+- Memory is never inherited; the `memory` mode setting is.
+- `/reload` re-reads the chain's `AGENTS.md` and skills, not settings.
+  `/new` does not re-read config files either. Settings changed on disk (a
+  parent's `config.json`, or a new `extends` whose parent sets some) apply on
+  `/profile <name>` or the next start. When `/reload` finds the chain's names
+  changed, it says so with a notice.
 
 **In the chat.** `/profile [name]` (bare: a picker marking the active one)
 switches in place: the conversation is kept, the profile's `AGENTS.md` and
@@ -1010,7 +1059,7 @@ Full design:
 |---|---|
 | 0 | the model gave a final answer |
 | 1 | provider failure after retries, unreadable config/auth/trust file, or internal error |
-| 2 | usage error: bad flags, invalid setting, missing model or key |
+| 2 | usage error: bad flags, invalid setting, missing model or key, a profile chain that does not resolve (missing parent, loop, more than 3) |
 | 3 | context full (`jas dream` still writes its partial proposal) |
 | 4 | turn cap (`max_turns`) hit (`jas dream` still writes its partial proposal) |
 | 5 | approval needed but no terminal to ask |
@@ -1032,8 +1081,8 @@ one bumps `v`.
 
 | type | payload |
 |---|---|
-| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory, dream (`id`, `window_sessions`: the session `jas dream` runs) |
-| `session_resumed` | as `session_started`, on each reopen |
+| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory, dream (`id`, `window_sessions`: the session `jas dream` runs), `profile_hash`, `profile_chain` |
+| `session_resumed` | as `session_started`, on each reopen (with `profile_hash`, `profile_chain`) |
 | `user_message` | content; `steer: true` for steering text |
 | `turn_started` | — |
 | `assistant_message` | text, content, final, finish_reason |
@@ -1046,8 +1095,8 @@ one bumps `v`.
 | `model_changed` | model, provider, base_url |
 | `session_titled` | title |
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage |
-| `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`) |
-| `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat) |
+| `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`); `profile_hash`, `profile_chain` |
+| `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat); `profile_hash`, `profile_chain` |
 | `dream_proposed` | `jas dream` wrote a proposal: dream_id, counts, partial, report |
 | `dream_applied` | `jas dream apply` changed memory: dream_id, counts |
 | `dream_discarded` | `jas dream discard` dropped a proposal: dream_id |

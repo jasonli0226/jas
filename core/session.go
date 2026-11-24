@@ -343,14 +343,15 @@ func (s *Session) SetReadRoots(roots []string) {
 	s.c.Exec.Policy.ReadRoots = slices.Clone(roots)
 }
 
-// SetProfileSkills replaces the executor's profile read exception (the
-// active profile's skills directory) after a profile switch. A nil executor
-// is a no-op.
-func (s *Session) SetProfileSkills(dir string) {
+// SetProfileSkills replaces the executor's profile read exceptions (the
+// active profile's skills directory and its ancestors' inherited ones)
+// after a profile switch. A nil executor is a no-op.
+func (s *Session) SetProfileSkills(dir string, inherited []string) {
 	if s.c.Exec == nil {
 		return
 	}
 	s.c.Exec.Policy.ProfileSkills = dir
+	s.c.Exec.Policy.InheritedSkills = slices.Clone(inherited)
 }
 
 // SetProfileMemory replaces the executor's profile memory directory after a

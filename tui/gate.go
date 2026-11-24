@@ -125,7 +125,7 @@ func (g *Gate) Allow(ctx context.Context, t core.Tool, args json.RawMessage, pre
 	}
 	reply := make(chan string, 1)
 	g.send(approvalMsg{
-		prompt: fmt.Sprintf("approve %s: %s? [y/N/always]", core.Sanitize(g.redact(t.Name())), core.SummarizeCall(t.Name(), g.redactArgs(args))),
+		prompt: fmt.Sprintf("approve %s: %s? [y/N/always]", core.Sanitize(g.redact(t.Name())), core.SummarizeTool(t, g.redactArgs(args))),
 		header: header,
 		diff:   diff,
 		reply:  reply,
@@ -209,7 +209,7 @@ func (g *Gate) AskFarm(ctx context.Context, part string, t core.Tool, args json.
 		diff = preview()
 	}
 	return g.askFarm(ctx, farm.ApprovalRequest{Part: part, Tool: t.Name(),
-		Summary: core.SummarizeCall(t.Name(), g.redactArgs(args)), Diff: diff}, nil, nil)
+		Summary: core.SummarizeTool(t, g.redactArgs(args)), Diff: diff}, nil, nil)
 }
 
 // FarmHost is a farm broker's host asker on this chat: AskFarm's prompt for

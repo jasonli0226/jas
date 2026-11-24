@@ -42,9 +42,10 @@ func FindRoot(cwd string) string {
 // yet, the nearest existing ancestor is resolved and the rest re-appended.
 //
 // Resolve serves write and edit, so it applies the full deny floor, with
-// one exception: a path that resolves inside the active profile's skills or
-// memory directory is allowed outside Root and through the jas home floor
-// (see profileWrite). A leading ~/ is expanded first, as ResolveRead does.
+// one exception: a path that resolves inside the active profile's skills
+// (own or inherited) or memory directory is allowed outside Root and
+// through the jas home floor (see profileWrite). A leading ~/ is expanded
+// first, as ResolveRead does.
 func (p ExecPolicy) Resolve(path string) (string, error) {
 	p.liftHome = false
 	path = expandHome(path)
@@ -64,11 +65,11 @@ func (p ExecPolicy) Resolve(path string) (string, error) {
 	return "", err
 }
 
-// profileWrite resolves path for a write in the active profile's skills or
-// memory directory. ok reports that path resolves inside one; the deny
-// floor then applies there without JasHomeFloor and HomeDeny, rooted at
-// that directory (and at the project too when the project holds it), so a
-// skill's or note's .env or a link out to auth.json stays refused.
+// profileWrite resolves path for a write in the active profile's skills (own
+// or inherited) or memory directory. ok reports that path resolves inside
+// one; the deny floor then applies there without JasHomeFloor and HomeDeny,
+// rooted at that directory (and at the project too when the project holds
+// it), so a skill's or note's .env or a link out to auth.json stays refused.
 func (p ExecPolicy) profileWrite(path string) (_ string, ok bool, _ error) {
 	ls := p.lifts()
 	if len(ls) == 0 {
@@ -108,10 +109,29 @@ func (p ExecPolicy) liftedWrite(l lift, path, resolved string) (_ string, ok boo
 }
 
 // InProfileSkills reports whether the resolved path lies in the active
-// profile's skills directory, where writes are always put to the user.
+// profile's skills directory or an inherited one (InheritedSkills), where
+// writes are always put to the user.
 func (p ExecPolicy) InProfileSkills(resolved string) bool {
-	l, _ := p.skillsLift()
-	return l.resolved != "" && within(l.resolved, resolved)
+	for _, l := range p.skillsLifts() {
+		if within(l.resolved, resolved) {
+			return true
+		}
+	}
+	return false
+}
+
+// SharedSkillsOwner names the ancestor profile whose skills directory (an
+// InheritedSkills lift) holds the resolved path, so a write there can say
+// that every profile extending it shares the change; "" when no inherited
+// lift holds it (the own skills, or anywhere else).
+func (p ExecPolicy) SharedSkillsOwner(resolved string) string {
+	ls, _ := p.inheritedLifts()
+	for _, l := range ls {
+		if within(l.resolved, resolved) {
+			return filepath.Base(filepath.Dir(l.lexical))
+		}
+	}
+	return ""
 }
 
 // InProfileMemory reports whether the resolved path lies in the active
@@ -348,15 +368,17 @@ func MatchWriteRules(rules []WriteRule, rel string) bool {
 	return false
 }
 
-// ProfileScope is the read scope rooted at ProfileSkills, as readRoot
-// returns it for a read root there; skill discovery uses its Denied. With no
-// ProfileSkills lift it is p without the lift. Like any lifted scope it
-// also lifts the profile memory (see denyMatch).
+// ProfileScope is the read scope rooted at ProfileSkills, or at the first
+// InheritedSkills directory that is lifted when ProfileSkills is not, as
+// readRoot returns it for a read root there; skill discovery uses its
+// Denied. With no skills lift at all it is p without the lift. Like any
+// lifted scope it lifts every profile lift, own and inherited skills and
+// the profile memory (see denyMatch), and nothing else.
 func (p ExecPolicy) ProfileScope() ExecPolicy {
 	scope := p
 	scope.liftHome, scope.projectRoot = false, ""
-	if skills := p.profileSkillsDir(); skills != "" {
-		scope.Root, scope.ReadRoots, scope.liftHome = skills, nil, true
+	if ls := p.skillsLifts(); len(ls) > 0 {
+		scope.Root, scope.ReadRoots, scope.liftHome = ls[0].resolved, nil, true
 	}
 	return scope
 }
@@ -370,9 +392,19 @@ func (p ExecPolicy) profileSkillsDir() string {
 
 // ProfileSkillsIgnored explains why an existing ProfileSkills directory gets
 // no read exception (its skills are then not loaded), or returns "" when it
-// is lifted, missing or unset.
+// is lifted, missing or unset. It covers the own directory only; see
+// InheritedSkillsIgnored.
 func (p ExecPolicy) ProfileSkillsIgnored() string {
 	_, why := p.skillsLift()
+	return why
+}
+
+// InheritedSkillsIgnored gives one reason, worded as ProfileSkillsIgnored,
+// for each existing InheritedSkills directory that gets no read exception
+// (its skills are then not loaded), in InheritedSkills order; nil when all
+// are lifted, missing or unset.
+func (p ExecPolicy) InheritedSkillsIgnored() []string {
+	_, why := p.inheritedLifts()
 	return why
 }
 
@@ -400,8 +432,10 @@ const (
 )
 
 // lift is a profile read exception: the active profile's skills or memory
-// directory as spelled (<home>/profiles/<name>/<leaf>) and as it resolves
-// through symlinks. A path inside either is read without the jas home floor.
+// directory, or an inherited (ancestor's) skills directory, as spelled
+// (<home>/profiles/<name>/<leaf>) and as it resolves through symlinks. A
+// path inside either is read without the jas home floor. Throughout this
+// file "the active profile's skills" includes the inherited ones.
 type lift struct{ lexical, resolved string }
 
 func (l lift) holds(abs string) bool {
@@ -428,13 +462,39 @@ func (p ExecPolicy) memoryLift() (lift, string) {
 	return p.profileLift(memoryLeaf)
 }
 
-// lifts returns the profile lifts that are on: skills, then memory.
-func (p ExecPolicy) lifts() []lift {
-	var out []lift
-	for _, leaf := range []string{skillsLeaf, memoryLeaf} {
-		if l, _ := p.profileLift(leaf); l.resolved != "" {
-			out = append(out, l)
+// inheritedLifts resolves each InheritedSkills directory with liftDir alone,
+// exactly as the own skills: the lifts that are on, in order, and one
+// reason per refused directory.
+func (p ExecPolicy) inheritedLifts() (ls []lift, why []string) {
+	for _, dir := range p.InheritedSkills {
+		l, w := liftDir(dir, skillsLeaf)
+		if l.resolved != "" {
+			ls = append(ls, l)
 		}
+		if w != "" {
+			why = append(why, w)
+		}
+	}
+	return ls, why
+}
+
+// skillsLifts returns the skills lifts that are on: the own (ProfileSkills),
+// then the inherited ones in InheritedSkills order.
+func (p ExecPolicy) skillsLifts() []lift {
+	var out []lift
+	if l, _ := p.skillsLift(); l.resolved != "" {
+		out = append(out, l)
+	}
+	inherited, _ := p.inheritedLifts()
+	return append(out, inherited...)
+}
+
+// lifts returns the profile lifts that are on: own skills, inherited
+// skills, then memory.
+func (p ExecPolicy) lifts() []lift {
+	out := p.skillsLifts()
+	if l, _ := p.memoryLift(); l.resolved != "" {
+		out = append(out, l)
 	}
 	return out
 }
@@ -449,17 +509,19 @@ func (p ExecPolicy) spelled(leaf string) string {
 
 // profileLift resolves the lift for leaf (skills: ProfileSkills, memory:
 // ProfileMemory). The skills lift is liftDir alone. The memory lift is also
-// refused when it resolves to, inside or above the skills lift, so memory
-// cannot alias the skills (a memory link onto the skills tree, or both
-// linked into one folder); the skills lift is never affected by memory.
+// refused when it resolves to, inside or above any skills lift, own or
+// inherited, so memory cannot alias skills (a memory link onto a skills
+// tree, or both linked into one folder); no skills lift is ever affected
+// by memory.
 func (p ExecPolicy) profileLift(leaf string) (_ lift, why string) {
 	l, why := liftDir(p.spelled(leaf), leaf)
 	if leaf != memoryLeaf || l.resolved == "" {
 		return l, why
 	}
-	s, _ := liftDir(p.ProfileSkills, skillsLeaf)
-	if s.resolved != "" && (within(s.resolved, l.resolved) || within(l.resolved, s.resolved)) {
-		return lift{}, fmt.Sprintf("profile memory %s ignored: it resolves to %s, which is or overlaps the profile skills at %s; point it at a separate folder", l.lexical, l.resolved, s.resolved)
+	for _, s := range p.skillsLifts() {
+		if within(s.resolved, l.resolved) || within(l.resolved, s.resolved) {
+			return lift{}, fmt.Sprintf("profile memory %s ignored: it resolves to %s, which is or overlaps the profile skills at %s; point it at a separate folder", l.lexical, l.resolved, s.resolved)
+		}
 	}
 	return l, ""
 }

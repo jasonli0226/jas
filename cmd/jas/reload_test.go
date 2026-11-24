@@ -26,7 +26,7 @@ func TestFormatReloadNotice(t *testing.T) {
 
 func TestFormatReloadNotice_SkipsProfileAgents(t *testing.T) {
 	prof := "/h/profiles/default/AGENTS.md"
-	pc := projectContext{files: []contextFileMeta{{Path: prof, Loaded: true}}, profileAgents: prof}
+	pc := projectContext{files: []contextFileMeta{{Path: prof, Loaded: true}}, profileAgents: []string{prof}}
 	assert.Eq(t, formatReloadNotice(pc), "reloaded · no project context file · 0 skills")
 	pc.files = append(pc.files, contextFileMeta{Path: "/p/AGENTS.md", Loaded: false})
 	assert.Eq(t, formatReloadNotice(pc), "reloaded · AGENTS.md not loaded · 0 skills")
