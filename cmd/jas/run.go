@@ -109,7 +109,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
-		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(e.cfg.CachedTokenWeight),
+		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, ReasoningEffort: e.cfg.ReasoningEffort, Tokens: ra.tokenPool(e.cfg.CachedTokenWeight),
 		Compact: ra.compactConfig(e.cfg), WrapUp: ra.wrapUp,
 	})
 	if err == nil && !ra.json {

@@ -35,20 +35,21 @@ const (
 // RunConfig is everything Run needs. Log should be the same log the Executor
 // writes to (wrap it with NewUILog to show events in a UI).
 type RunConfig struct {
-	Provider    providers.Provider
-	Model       string
-	Prompt      string
-	System      string
-	Exec        *Executor
-	Log         EventLog
-	UI          UI
-	MaxTurns    int
-	Budget      *Budget        // nil = no context budget
-	SessionMeta map[string]any // merged into session_started
-	MaxOutput   int            // max_tokens per model request; 0 omits it
-	Tokens      *TokenPool     // nil = no token cap
-	Compact     *CompactConfig // nil = compaction off (the jas run default)
-	WrapUp      bool           // ask for a final answer at the turn or token cap
+	Provider        providers.Provider
+	Model           string
+	Prompt          string
+	System          string
+	Exec            *Executor
+	Log             EventLog
+	UI              UI
+	MaxTurns        int
+	Budget          *Budget        // nil = no context budget
+	SessionMeta     map[string]any // merged into session_started
+	MaxOutput       int            // max_tokens per model request; 0 omits it
+	ReasoningEffort string         // caps a reasoning model's thinking; "" omits it
+	Tokens          *TokenPool     // nil = no token cap
+	Compact         *CompactConfig // nil = compaction off (the jas run default)
+	WrapUp          bool           // ask for a final answer at the turn or token cap
 }
 
 // Summary describes a finished run.
@@ -65,7 +66,7 @@ type Summary struct {
 func Run(ctx context.Context, c RunConfig) (Summary, error) {
 	sess, err := NewSession(SessionConfig{
 		Provider: c.Provider, Model: c.Model, System: c.System, Exec: c.Exec,
-		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta, MaxOutput: c.MaxOutput, Tokens: c.Tokens, Compact: c.Compact, WrapUp: c.WrapUp,
+		Log: c.Log, UI: c.UI, MaxTurns: c.MaxTurns, Budget: c.Budget, Meta: c.SessionMeta, MaxOutput: c.MaxOutput, ReasoningEffort: c.ReasoningEffort, Tokens: c.Tokens, Compact: c.Compact, WrapUp: c.WrapUp,
 	})
 	if err != nil {
 		return Summary{}, err

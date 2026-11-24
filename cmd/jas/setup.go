@@ -450,6 +450,9 @@ func (e *env) sessionMeta(model string) map[string]any {
 		"profile": e.activeProfile(), "provider": e.cfg.Provider, "base_url": e.cfg.BaseURL, "approve": e.level.String(), "root": e.root, "context_files": e.pc.files, "skills": e.skillList,
 		"context_window": window, "window_known": known, "web_tools": e.cfg.WebTools,
 	}
+	if e.cfg.ReasoningEffort != "" {
+		meta["reasoning_effort"] = e.cfg.ReasoningEffort
+	}
 	if mem := e.mem.meta(); mem != nil {
 		meta["memory"] = mem
 	}

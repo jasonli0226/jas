@@ -344,7 +344,7 @@ func (b *chatBackend) configProv(prov providers.Provider, provName, baseURL, mod
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget: e.budget(model), Meta: meta,
 		Compact:   &core.CompactConfig{Reserve: e.cfg.CompactReserve, Keep: e.cfg.CompactKeep, Model: e.cfg.CompactModel},
-		MaxOutput: e.cfg.MaxOutputTokens,
+		MaxOutput: e.cfg.MaxOutputTokens, ReasoningEffort: e.cfg.ReasoningEffort,
 	}
 }
 

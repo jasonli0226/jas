@@ -69,7 +69,7 @@ func (o *OpenAI) run(ctx context.Context, req Request, out chan<- StreamEvent) e
 	// Cancelling on every return path releases the ReadSSE goroutines.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	body, err := json.Marshal(encodeRequest(req))
+	body, err := json.Marshal(encodeRequest(req, strings.Contains(o.BaseURL, "openrouter.ai")))
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
@@ -238,23 +238,49 @@ type oaiTool struct {
 }
 
 type oaiRequest struct {
-	Model         string       `json:"model"`
-	Messages      []oaiMessage `json:"messages"`
-	Tools         []oaiTool    `json:"tools,omitempty"`
-	MaxTokens     int          `json:"max_tokens,omitempty"`
-	ToolChoice    string       `json:"tool_choice,omitempty"`
-	Stream        bool         `json:"stream"`
-	StreamOptions struct {
+	Model           string        `json:"model"`
+	Messages        []oaiMessage  `json:"messages"`
+	Tools           []oaiTool     `json:"tools,omitempty"`
+	MaxTokens       int           `json:"max_tokens,omitempty"`
+	ToolChoice      string        `json:"tool_choice,omitempty"`
+	Reasoning       *oaiReasoning `json:"reasoning,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	Stream          bool          `json:"stream"`
+	StreamOptions   struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
 }
 
+// oaiReasoning is OpenRouter's reasoning-effort control.
+type oaiReasoning struct {
+	Effort string `json:"effort"`
+}
+
 func strPtr(s string) *string { return &s }
 
-func encodeRequest(req Request) oaiRequest {
+// encodeRequest maps the neutral request to the wire format. openRouter says
+// the endpoint takes OpenRouter's reasoning object instead of the standard
+// reasoning_effort field.
+func encodeRequest(req Request, openRouter bool) oaiRequest {
 	r := oaiRequest{Model: req.Model, MaxTokens: req.MaxTokens, Stream: true}
 	if len(req.Tools) > 0 {
 		r.ToolChoice = req.ToolChoice
+	}
+	switch req.ReasoningEffort {
+	case "":
+		// omitted: the model's own default
+	case "off":
+		if openRouter {
+			r.Reasoning = &oaiReasoning{Effort: "disable"}
+		} else {
+			r.ReasoningEffort = "none"
+		}
+	default:
+		if openRouter {
+			r.Reasoning = &oaiReasoning{Effort: req.ReasoningEffort}
+		} else {
+			r.ReasoningEffort = req.ReasoningEffort
+		}
 	}
 	r.StreamOptions.IncludeUsage = true
 	if req.System != "" {

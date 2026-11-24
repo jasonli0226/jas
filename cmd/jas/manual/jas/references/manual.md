@@ -489,6 +489,7 @@ or `--local` shows the file as written.
 | `compact_keep_tokens` | 20000 | recent tokens kept verbatim when compacting |
 | `compact_model` | session's model | model that writes the summary |
 | `max_output_tokens` | 16000 | sent as `max_tokens` on every request; 0 omits it |
+| `reasoning_effort` | _(unset)_ | caps a reasoning model's thinking: `off`, `low`, `medium`, or `high`; unset sends nothing and the model decides (e.g. glm burns tens of thousands of hidden thinking tokens per request unless capped). OpenRouter endpoints get `reasoning`/`effort`, others the standard `reasoning_effort` field |
 | `farm_bell` | true | ring the terminal bell when a chat farm needs you |
 | `web_tools` | false | offer `web_fetch` + `web_search`; when on and `approve` is still the default, the level rises to `shell` |
 | `search_base_url` | — | SearXNG root for `web_search`; otherwise DuckDuckGo lite |
