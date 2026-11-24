@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonli0226/jas/core"
 )
 
@@ -84,15 +85,17 @@ func (m *Model) clearView() tea.Cmd {
 }
 
 // newSession replaces the current session with a fresh one on m.model.
-// The screen clears and the start banner prints again: everything it
-// showed may have changed. Clear+banner are sequenced; the open runs
-// alongside that Batch item.
+// The screen and the terminal's scrollback clear and the start banner
+// prints again: everything it showed may have changed, and the old
+// transcript should not stay above it. Ctrl+L (clearView alone) keeps the
+// scrollback. Clear+banner are sequenced; the open runs alongside that
+// Batch item.
 func (m *Model) newSession() tea.Cmd {
 	m.backToMain()
 	b, gate, model := m.b, m.gate, m.model
 	// print queues into the outbox, so the banner precedes the new
 	// session's blocks even though the open runs concurrently.
-	return tea.Batch(m.clearView(), m.beginOpen(func(ui core.UI) sessionMsg {
+	return tea.Batch(tea.Sequence(tea.Raw(ansi.EraseEntireDisplay), m.clearView()), m.beginOpen(func(ui core.UI) sessionMsg {
 		live, err := b.NewSession(model, ui, gate)
 		return sessionMsg{live: live, notices: liveNotices(live), err: err}
 	}))

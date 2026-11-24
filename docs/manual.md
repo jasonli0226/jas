@@ -322,7 +322,7 @@ token counts and the number of queued messages.
 | Alt+Enter, Shift+Enter, Ctrl+J | newline |
 | Esc | stop the run (queued text comes back into the input); also closes an expanded tool output or a menu |
 | Up / Down | recall earlier input (from the first or last line of the input) |
-| Ctrl+L | clear the screen and reprint the banner; the session is kept |
+| Ctrl+L | clear the screen and reprint the banner; the session and the terminal scrollback are kept |
 | Ctrl+O | expand or collapse the latest tool output (Up/Down scroll it) |
 | Ctrl+C | clear the input; on an empty input, stop a running `!` command; otherwise twice quits |
 | Ctrl+1–9 / Alt+1–9 | show farm agent N |
@@ -350,7 +350,7 @@ in the transcript is the full text the model gets.
 | command | does |
 |---|---|
 | `/help` | list commands and keys |
-| `/new` | start a fresh conversation and clear the screen; model, thinking, approval level and always grants are kept |
+| `/new` | start a fresh conversation and clear the screen and the terminal scrollback; model, thinking, approval level and always grants are kept |
 | `/model [name]` | switch model; bare `/model` opens a picker. A model on another provider is refused: `/new` first |
 | `/name [title]` | name the session (shown in `/resume` and the status line); bare `/name` shows it |
 | `/resume` | continue a recent session in this project; always grants and level reset |
