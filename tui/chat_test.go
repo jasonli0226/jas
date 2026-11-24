@@ -918,6 +918,8 @@ func cmdHas(cmd tea.Cmd, match func(tea.Msg) bool) bool {
 func TestChat_CtrlLClearsScreenKeepsSession(t *testing.T) {
 	b := newTestBackend(t, fake.Turn{Text: "hello"})
 	c := newTestChatOpts(t, b, Options{Version: "1.0.0"})
+	var out strings.Builder
+	c.m.out = &out
 	c.submit("hi")
 	c.pump()
 	id, gen := c.m.live.ID, c.m.gen
@@ -927,7 +929,7 @@ func TestChat_CtrlLClearsScreenKeepsSession(t *testing.T) {
 	if !cmdHasType(cmd, "tea.clearScreenMsg") {
 		t.Fatal("Ctrl+L did not issue ClearScreen")
 	}
-	if cmdHasRaw(cmd, ansi.EraseEntireDisplay) {
+	if cmdHasRaw(cmd, ansi.EraseEntireDisplay) || out.Len() != 0 {
 		t.Fatal("Ctrl+L cleared the scrollback; only /new does")
 	}
 	// clearView prints the banner while building the cmd; session stays.
@@ -958,16 +960,19 @@ func TestChat_CtrlLDuringRunKeepsRun(t *testing.T) {
 
 func TestChat_NewClearsScreen(t *testing.T) {
 	c := newTestChatOpts(t, newTestBackend(t), Options{Version: "1.0.0"})
+	var out strings.Builder
+	c.m.out = &out
 	oldID := c.m.live.ID
 	c.typeText("/new")
 	_, cmd := c.m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !cmdHasType(cmd, "tea.clearScreenMsg") {
 		t.Fatal("/new did not issue ClearScreen")
 	}
-	if !cmdHasRaw(cmd, ansi.EraseEntireDisplay) {
-		t.Fatal("/new did not clear the scrollback")
-	}
+	out.Reset() // cmdHasType ran the cmd once already
 	c.run(cmd)
+	// Written directly, not via tea.Raw: Raw waits for the next frame and
+	// would land after the banner's Println.
+	assert.Eq(t, out.String(), clearTerminalSeq)
 	assert.Eq(t, c.m.live.ID != oldID, true)
 	assert.Eq(t, strings.Count(c.printedText(), "v1.0.0"), 2)
 }

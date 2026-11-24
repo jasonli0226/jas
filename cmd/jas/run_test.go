@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"debug/buildinfo"
 	"encoding/json"
 	"errors"
 	"io"
@@ -125,7 +126,13 @@ func TestCLI_SigintExits130(t *testing.T) {
 func TestCLI_Version(t *testing.T) {
 	out, _, code := runJas(t, nil, "--version")
 	assert.Eq(t, code, 0)
-	assert.Eq(t, strings.TrimSpace(out), "jas dev")
+	// The test binary is built without -ldflags, so the version is the one Go
+	// stamps from the checkout (or "dev" outside one).
+	info, err := buildinfo.ReadFile(testutil.JasBinary(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Eq(t, strings.TrimSpace(out), "jas "+buildVersion("dev", info))
 }
 
 func TestCLI_ApproveNoTTYExits5(t *testing.T) {
