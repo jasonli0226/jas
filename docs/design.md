@@ -6,7 +6,7 @@
 **Reference:** user-visible behavior (flags, keys, settings, exit codes, events) lives in [manual.md](manual.md); this document keeps the architecture, the contracts behind it, and the roadmap.
 **Design review:** findings filed as [#1](https://github.com/jasonli0226/jas/issues/1)–[#13](https://github.com/jasonli0226/jas/issues/13); decisions below encode the accepted comments.
 **Farm research (2026-11):** [research/farm-multi-agent-community-2026-11.md](research/farm-multi-agent-community-2026-11.md) — multi-agent coding evidence and community pain points.
-**Specs:** farm — [superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md) (session records and `jas sessions` shipped in #91; overlap warnings proposed) · spec-driven flow — [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (memory store #188 and a reviewed `jas dream` shipped; not a farm prerequisite) · event log — [event-log.md](event-log.md) (v1 contract).
+**Specs:** farm — [design/2026-11-02-farm-design.md](design/2026-11-02-farm-design.md) (MVP and chat `/farm` shipped; post-MVP order in its MVP cut) · session awareness — [design/2026-11-02-session-awareness.md](design/2026-11-02-session-awareness.md) (session records and `jas sessions` shipped in #91; overlap warnings proposed) · spec-driven flow — [design/2026-11-02-spec-driven-flow.md](design/2026-11-02-spec-driven-flow.md) (proposed; `jas spec` interview, scaffold phase, section runs; farm plans from it). · memory & dreaming — §12.3 (memory store #188 and a reviewed `jas dream` shipped; not a farm prerequisite) · event log — [event-log.md](event-log.md) (v1 contract).
 
 ---
 
@@ -370,7 +370,7 @@ after TUI dogfood):
    `skills/` — #173). Store durable
    lessons, not repo state the next session can see by reading the tree.
    `AGENTS.md` and skills stay owner-edited. Details: §12.3.
-2. `jas dream` (shipped, this branch; [spec](superpowers/specs/2026-11-13-jas-dream-design.md)):
+2. `jas dream` (shipped):
    a reviewed command, not a background daemon and not a wrapper
    around Anthropic's managed-agents Dreams API. It reads recent event logs
    plus the current memory store, writes a *proposed* cleanup (a new store or
@@ -382,7 +382,7 @@ after TUI dogfood):
    note into a skill or `AGENTS.md`.
 
 **Shipped from this list:** `jas farm plan` / `jas farm run` (#95; spec
-[superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md),
+[design/2026-11-02-farm-design.md](design/2026-11-02-farm-design.md),
 for tasks too big for one agent, not "better than one agent" —
 [research](research/farm-multi-agent-community-2026-11.md)); `/farm` in the
 chat (#116); auto-compaction; layered settings and `/settings` (§10);
@@ -394,22 +394,22 @@ resume (`jas --continue`, `/resume`); `web_fetch` / `web_search` (§12.1;
       `jas spec --check` / `jas run --spec` fail headless with open questions
       (exit 2); bounded `--phase scaffold`; single-agent `--section` runs that
       cite acceptance criteria. Spec:
-      [superpowers/specs/2026-11-02-spec-driven-flow.md](superpowers/specs/2026-11-02-spec-driven-flow.md)
+      [design/2026-11-02-spec-driven-flow.md](design/2026-11-02-spec-driven-flow.md)
 - [ ] **Session awareness** (core loop, not farm) — records in
       `<repo>/.jas/sessions/` (title, branch, touched files, heartbeat) and
       `jas sessions` shipped (#91). Still proposed: the read-only peers note
       and tool, and warn/ask before writing a file another active session
       touched. Spec:
-      [superpowers/specs/2026-11-02-session-awareness.md](superpowers/specs/2026-11-02-session-awareness.md)
+      [design/2026-11-02-session-awareness.md](design/2026-11-02-session-awareness.md)
 - [x] **Memory store** (shipped in #188; Track C.1) —
       `~/.jas/profiles/<name>/memory/` (per-project notes in
       `projects/<key>/`, never in the repo); capped `MEMORY.md` index plus
-      on-demand topic notes; write lift only there. Design:
-      [superpowers/specs/2026-11-12-memory-store-design.md](superpowers/specs/2026-11-12-memory-store-design.md).
+      on-demand topic notes; write lift only there. Behavior: `docs/manual.md`
+      (Memory).
 - [x] **`jas dream`** (shipped, this branch; Track C.2) — read
       recent event logs and the current store, write a proposed cleanup for
       owner approval, log the run, do not edit `AGENTS.md` or skills. §12.3.
-      Spec: [superpowers/specs/2026-11-13-jas-dream-design.md](superpowers/specs/2026-11-13-jas-dream-design.md).
+      Behavior: `docs/manual.md` (`jas dream`).
 - [ ] Farm `reviewer` part (replaces the earlier discussion mode): an
       optional read-only part with a clean context, possibly a different
       model, reviewing the integrated diff; after farm
@@ -419,7 +419,7 @@ resume (`jas --continue`, `/resume`); `web_fetch` / `web_search` (§12.1;
       pause, resume, drop, stop; answer approvals. The `jas resume` fallback
       for a dead supervisor was dropped (crash-resume is the separate
       `farm resume` item). Spec:
-      [superpowers/specs/2026-11-22-jas-attach-design.md](superpowers/specs/2026-11-22-jas-attach-design.md).
+      [design/2026-11-22-jas-attach-design.md](design/2026-11-22-jas-attach-design.md).
 - [ ] MCP client support (stdio first, then HTTP)
 - [ ] **Session tree**: `parent_id` already on events from v1 → branches, fork,
       clone (branch summaries reuse compaction)
@@ -826,9 +826,9 @@ jas-home overlap guards as the active profile's `skills/` (#173), and writes
 there always prompt. Memory belongs to the owner, not a repo (owner,
 2026-11-12): it holds who they are, how they work, project management and
 references, so it lives only under the profile and never in a cloned tree.
-Design: [superpowers/specs/2026-11-12-memory-store-design.md](superpowers/specs/2026-11-12-memory-store-design.md).
+Behavior: `docs/manual.md` (Memory).
 
-**`jas dream`** (shipped, this branch; spec: [superpowers/specs/2026-11-13-jas-dream-design.md](superpowers/specs/2026-11-13-jas-dream-design.md)). After the event-log spec is published and the memory store
+**`jas dream`** (shipped). After the event-log spec is published and the memory store
 exists, `jas dream` reads recent event logs plus the current store and writes
 a *proposed* reorganization: stale facts corrected against the log, duplicates
 merged, the index pruned back under the cap. The default is a new store or a

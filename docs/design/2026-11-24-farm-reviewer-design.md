@@ -2,7 +2,7 @@
 
 Status: approved by the owner (2026-11-24). Decisions marked
 "owner" are the owner's. Those marked "author's call" are proposals to check.
-Parent spec: `docs/superpowers/specs/2026-11-02-farm-design.md`, "Post-integrate
+Parent spec: `docs/design/2026-11-02-farm-design.md`, "Post-integrate
 steps" and "Roles". This document refines the `reviewer` part of that spec,
 and replaces its `post_integrate` plan field with a run option for the reviewer.
 Where they disagree, this document wins, and the farm spec is updated in the

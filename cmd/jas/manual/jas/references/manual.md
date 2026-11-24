@@ -995,8 +995,8 @@ unfinished); `farm_ended` gains `review_status`, `review_open` and, when set,
 dashboard shows a `reviewer` row under the integrator.
 
 Full design:
-[farm spec](superpowers/specs/2026-11-02-farm-design.md),
-[reviewer](superpowers/specs/2026-11-24-farm-reviewer-design.md).
+[farm spec](design/2026-11-02-farm-design.md),
+[reviewer](design/2026-11-24-farm-reviewer-design.md).
 
 ## Exit codes
 

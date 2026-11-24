@@ -42,3 +42,6 @@ _pi-mono/
 .jas/config.local.json
 .jas/sessions/
 .jas/worktrees/
+
+# Agent workflow plans and specs: local only (reference designs live in docs/design/)
+docs/superpowers/

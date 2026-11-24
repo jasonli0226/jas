@@ -1,10 +1,10 @@
 # Farm and multi-agent coding: community research (Nov 2026)
 
 **Date:** 2026-11-02 (Asia/Tokyo)
-**Written against:** farm spec draft `docs/superpowers/specs/2026-11-02-farm-design.md` at `13bef44` (branch `docs/farm-design`)
+**Written against:** farm spec draft `docs/design/2026-11-02-farm-design.md` at `13bef44` (branch `docs/farm-design`)
 **Question:** does a split-task farm address pain points developers actually report with parallel / multi-agent coding, and which shape should jas ship?
 **Used by:** the farm spec (positioning, defaults, board, budgets, CI contract) and
-[`superpowers/specs/2026-11-02-session-awareness.md`](../superpowers/specs/2026-11-02-session-awareness.md).
+[`design/2026-11-02-session-awareness.md`](../design/2026-11-02-session-awareness.md).
 
 Every link under Sources returned HTTP 200 on 2026-11-02 (Asia/Tokyo); one Reddit
 thread returned 403 and was dropped. Quotes are verbatim. Numbers are from the

@@ -92,7 +92,7 @@ jas    # pair: "scaffold a Go module with cmd/, internal/, Makefile, AGENTS.md"
 
 - `jas spec spec.md` grill-me interview → approved spec, then
   `jas run --spec spec.md --phase scaffold` (or `/spec` / `/spec scaffold` in
-  chat) — see [spec-driven flow](superpowers/specs/2026-11-02-spec-driven-flow.md).
+  chat) — see [spec-driven flow](design/2026-11-02-spec-driven-flow.md).
 - v2 **scenarios** (design §8): a checked-in `.jas/scenario.yaml` as the
   reusable *agent* template (system prompt, toolset, sandbox, hooks) for that
   kind of project — not a file-tree cookie-cutter.
@@ -250,7 +250,7 @@ fits: debugging one bug, tightly coupled refactors, small tasks.
 
 **Done when:** the integrated branch passes the supervisor's `check` and the
 owner's decision is recorded — nothing merges without one. Full design:
-[superpowers/specs/2026-11-02-farm-design.md](superpowers/specs/2026-11-02-farm-design.md).
+[design/2026-11-02-farm-design.md](design/2026-11-02-farm-design.md).
 
 ## 6. Spec-driven work, alone or with farm (proposed)
 
@@ -283,7 +283,7 @@ and `/farm --spec spec.md` (live row per part, `/farm attach <part>`).
 
 Fourteen step-by-step walkthroughs (commands, what jas shows, events, exit
 codes) are in the spec-driven-flow spec's
-[User stories & scenarios](superpowers/specs/2026-11-02-spec-driven-flow.md#user-stories--scenarios).
+[User stories & scenarios](design/2026-11-02-spec-driven-flow.md#user-stories--scenarios).
 Speed-ups there (e.g. ~2–3× wall-clock for a web app's first cut with farm)
 are expectations, not measurements; total tokens
 are higher with farm than with one agent.

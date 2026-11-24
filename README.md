@@ -362,7 +362,7 @@ worker tool call, e.g. `[core] → shell go test ./core/...`. **Experimental.**
 Not yet: `farm resume`,
 `researcher`/`reviewer` roles, `--spec` planning, `farm init`.
 Full design:
-[docs/superpowers/specs/2026-11-02-farm-design.md](docs/superpowers/specs/2026-11-02-farm-design.md).
+[docs/design/2026-11-02-farm-design.md](docs/design/2026-11-02-farm-design.md).
 
 **In the chat:** the agent may suggest a farm for big, splittable work (its
 `suggest_farm` tool; where a farm cannot run, it tells the agent why): it
