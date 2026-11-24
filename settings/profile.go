@@ -81,10 +81,21 @@ func ResolveProfile(flags map[string]string, env func(string) string, l Layers) 
 	return v.Raw, v.Source
 }
 
-// WithProfile returns a copy of l with the profile layer set to f.
+// WithProfile returns a copy of l with the profile's own layer set to f. It
+// keeps ProfileParents, so replacing the active profile's file leaves its
+// ancestors alone.
 func (l Layers) WithProfile(name string, f File) Layers {
 	l.Profile = f
 	l.ProfileName = name
+	return l
+}
+
+// WithProfileChain returns a copy of l with the active profile's own file and
+// its ancestors, nearest parent first.
+func (l Layers) WithProfileChain(name string, own File, parents []ProfileFile) Layers {
+	l.Profile = own
+	l.ProfileName = name
+	l.ProfileParents = parents
 	return l
 }
 

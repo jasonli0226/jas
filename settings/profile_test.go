@@ -173,3 +173,72 @@ func TestScopeProfilePath(t *testing.T) {
 		t.Error("Path with profile scope should fail")
 	}
 }
+
+func chain(parents ...ProfileFile) []ProfileFile { return parents }
+
+func TestResolve_ProfileParentValue(t *testing.T) {
+	l := Layers{}.WithProfileChain("backend-programmer", File{}, chain(ProfileFile{"programmer", vals("approve", "never")}))
+	got := Resolve(nil, envOf(nil), l)
+	assert.Eq(t, got["approve"], Value{"never", ProfileSource("programmer")})
+}
+
+func TestResolve_ChildBeatsParent(t *testing.T) {
+	l := Layers{Global: vals("approve", "shell")}.WithProfileChain("backend-programmer", vals("approve", "ask"), chain(ProfileFile{"programmer", vals("approve", "never")}))
+	got := Resolve(nil, envOf(nil), l)
+	assert.Eq(t, got["approve"], Value{"ask", ProfileSource("backend-programmer")})
+}
+
+func TestResolve_NearestParentWins(t *testing.T) {
+	l := Layers{}.WithProfileChain("c", File{}, chain(ProfileFile{"b", vals("model", "x")}, ProfileFile{"a", vals("model", "y")}))
+	got := Resolve(nil, envOf(nil), l)
+	assert.Eq(t, got["model"], Value{"x", ProfileSource("b")})
+}
+
+func TestModelSource_FromParent(t *testing.T) {
+	parent := File{Models: map[string]ModelOverride{"foo": {ContextWindow: 1000}}}
+	l := Layers{}.WithProfileChain("c", File{}, chain(ProfileFile{"programmer", parent}))
+	w, src, ok := l.ModelSource("foo")
+	assert.Eq(t, ok, true)
+	assert.Eq(t, w, 1000)
+	assert.Eq(t, src, ProfileSource("programmer"))
+	assert.Eq(t, l.ContextOverrides()["foo"], 1000)
+}
+
+func TestModelSource_ChildEntryReplacesParent(t *testing.T) {
+	parent := File{Models: map[string]ModelOverride{"foo": {ContextWindow: 1000}, "bar": {ContextWindow: 2000}}}
+	own := File{Models: map[string]ModelOverride{"foo": {ContextWindow: 3000}}}
+	l := Layers{}.WithProfileChain("c", own, chain(ProfileFile{"programmer", parent}))
+	w, src, _ := l.ModelSource("foo")
+	assert.Eq(t, w, 3000)
+	assert.Eq(t, src, ProfileSource("c"))
+	w, src, _ = l.ModelSource("bar")
+	assert.Eq(t, w, 2000)
+	assert.Eq(t, src, ProfileSource("programmer"))
+	assert.Eq(t, l.ContextOverrides()["foo"], 3000)
+	assert.Eq(t, l.ContextOverrides()["bar"], 2000)
+}
+
+func TestForProject_StripsForbiddenFromParents(t *testing.T) {
+	l := Layers{}.WithProfileChain("c", File{}, chain(ProfileFile{"programmer", vals("provider", "custom", "model", "m")}))
+	for _, trusted := range []bool{true, false} {
+		got, warns := l.ForProject(trusted)
+		assert.Eq(t, len(got.ProfileParents), 1)
+		assert.Eq(t, got.ProfileParents[0].Name, "programmer")
+		assert.Eq(t, got.ProfileParents[0].File.Values["provider"], "")
+		assert.Eq(t, got.ProfileParents[0].File.Values["model"], "m")
+		assert.Eq(t, len(warns), 1)
+		assert.Contains(t, warns[0], "ignoring provider in profile config (programmer)")
+	}
+	// the receiver is untouched
+	assert.Eq(t, l.ProfileParents[0].File.Values["provider"], "custom")
+}
+
+func TestWithProfile_KeepsParents(t *testing.T) {
+	parents := chain(ProfileFile{"programmer", vals("model", "x")})
+	l := Layers{}.WithProfileChain("c", vals("model", "a"), parents)
+	newOwn := vals("model", "b")
+	got := l.WithProfile("c", newOwn)
+	assert.Eq(t, len(got.ProfileParents), 1)
+	assert.Eq(t, got.ProfileParents[0].Name, "programmer")
+	assert.Eq(t, got.File(ScopeProfile).Values["model"], "b")
+}

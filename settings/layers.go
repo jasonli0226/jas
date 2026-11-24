@@ -31,9 +31,19 @@ const (
 // Layers holds the config files: global, the active profile's, project and
 // local. auth.json and trust.json stay global-only and are not part of Layers.
 // ProfileName names the profile Profile was loaded from ("" when none).
+// ProfileParents are the profile's ancestors, nearest parent first; they rank
+// below Profile and above Global.
 type Layers struct {
 	Global, Profile, Project, Local File
 	ProfileName                     string
+	ProfileParents                  []ProfileFile
+}
+
+// ProfileFile is one ancestor profile's config.json with the profile's name,
+// which labels where its values came from.
+type ProfileFile struct {
+	Name string
+	File File
 }
 
 // ProjectDir is <root>/.jas.
@@ -151,14 +161,20 @@ func (l Layers) WithFile(scope Scope, f File) Layers {
 	return l
 }
 
-// Merged overlays models and providers: local > project > profile > global. Plain
-// Values are left empty — callers use Resolve for those.
+// Merged overlays models and providers: local > project > profile > parents
+// (nearest first) > global. Plain Values are left empty — callers use Resolve
+// for those.
 func (l Layers) Merged() File {
 	out := File{
 		Models:    map[string]ModelOverride{},
 		Providers: map[string]ProviderEntry{},
 	}
-	for _, f := range []File{l.Global, l.Profile, l.Project, l.Local} {
+	files := []File{l.Global}
+	for i := len(l.ProfileParents) - 1; i >= 0; i-- {
+		files = append(files, l.ProfileParents[i].File)
+	}
+	files = append(files, l.Profile, l.Project, l.Local)
+	for _, f := range files {
 		for k, v := range f.Models {
 			out.Models[k] = v
 		}
@@ -169,7 +185,7 @@ func (l Layers) Merged() File {
 	return out
 }
 
-// ContextOverrides merges model context windows: local > project > profile > global.
+// ContextOverrides merges model context windows: local > project > profile > parents > global.
 func (l Layers) ContextOverrides() map[string]int {
 	return l.Merged().ContextOverrides()
 }
@@ -185,6 +201,11 @@ func (l Layers) ModelSource(name string) (window int, source Source, ok bool) {
 	if m, found := l.Profile.Models[name]; found {
 		return m.ContextWindow, ProfileSource(l.ProfileName), true
 	}
+	for _, p := range l.ProfileParents {
+		if m, found := p.File.Models[name]; found {
+			return m.ContextWindow, ProfileSource(p.Name), true
+		}
+	}
 	if m, found := l.Global.Models[name]; found {
 		return m.ContextWindow, SourceFile, true
 	}
@@ -196,16 +217,37 @@ func (l Layers) ModelNames() []string {
 	return l.Merged().ModelNames()
 }
 
-// pick returns the first non-empty value among local, project, profile, global.
-func pick(local, project, profile, global, profileName string) (string, Source) {
+// candidate is a value with the layer that set it.
+type candidate struct {
+	value string
+	src   Source
+}
+
+// profileValues lists key's value from the own profile file, then each parent
+// nearest first, so pick can take the first non-empty one.
+func (l Layers) profileValues(key string) []candidate {
+	out := []candidate{{l.Profile.Values[key], ProfileSource(l.ProfileName)}}
+	for _, p := range l.ProfileParents {
+		out = append(out, candidate{p.File.Values[key], ProfileSource(p.Name)})
+	}
+	return out
+}
+
+// pick returns the first non-empty value among local, project, the profile
+// candidates (own first, then parents nearest first) and global.
+func pick(local, project string, profile []candidate, global string) (string, Source) {
 	switch {
 	case local != "":
 		return local, SourceLocal
 	case project != "":
 		return project, SourceProject
-	case profile != "":
-		return profile, ProfileSource(profileName)
-	case global != "":
+	}
+	for _, c := range profile {
+		if c.value != "" {
+			return c.value, c.src
+		}
+	}
+	if global != "" {
 		return global, SourceFile
 	}
 	return "", SourceDefault
