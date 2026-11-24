@@ -674,6 +674,35 @@ profile's skills or a folder holding the jas home is ignored with a warning
 other profiles stay unreadable and unwritable. A link inside a skill that points into the
 jas home stays denied.
 
+**Inheritance.** A profile may extend one parent: `profile.yaml` in its folder
+takes `extends: <parent>`, `replace_agents: true` and `exclude: [<skill>, …]`
+(unknown keys are an error). The chain runs root first and holds at most 3
+profiles. `extends: default` works without a `default/` folder. A missing
+parent, a loop or a longer chain is an error (exit 2). The chain is read at
+start, `/profile` and `/reload`; a chain that no longer resolves fails and the
+chat keeps its current profile. `jas profile new --extends`, `list` and
+`show --resolved` are under [`jas profile`](#jas-profile).
+
+- Instructions: each profile's `AGENTS.md` goes in, root first, then the
+  project's. `replace_agents: true` drops the parents' `AGENTS.md` text; it
+  affects instructions only.
+- Skills: project, then the profile, its parent, … the root, then the built-in
+  manual; the first skill of a name wins. `exclude` is cumulative along the
+  chain and hides a skill from the catalog only. It is not a security
+  boundary: the files stay readable. A `skills/` symlinked into another
+  profile is still ignored; to share skills, use `extends`. A `write` or
+  `edit` into a parent's skills is always asked, and the prompt names the
+  owner (`in profile base's skills, shared with every profile that extends it`).
+- Settings: the child wins key by key; `models.<id>` merges per model id. A
+  child cannot remove an inherited key; set the default explicitly.
+  `jas config set|unset --in-profile` and `/settings --in-profile` act on the
+  active profile's own file, as do scoped reads. When a parent also sets the
+  key they add `(overrides profile base)` on set or
+  `(now inherited from profile base)` on unset.
+- Memory is never inherited; the `memory` mode setting is.
+- `/reload` re-reads the chain's `AGENTS.md` and skills; settings wait for
+  `/new`.
+
 **In the chat.** `/profile [name]` (bare: a picker marking the active one)
 switches in place: the conversation is kept, the profile's `AGENTS.md` and
 skills reload, live settings (`approve`, `model`, `hints`, `farm_bell`) apply
@@ -1020,7 +1049,7 @@ Full design:
 |---|---|
 | 0 | the model gave a final answer |
 | 1 | provider failure after retries, unreadable config/auth/trust file, or internal error |
-| 2 | usage error: bad flags, invalid setting, missing model or key |
+| 2 | usage error: bad flags, invalid setting, missing model or key, a profile chain that does not resolve (missing parent, loop, more than 3) |
 | 3 | context full (`jas dream` still writes its partial proposal) |
 | 4 | turn cap (`max_turns`) hit (`jas dream` still writes its partial proposal) |
 | 5 | approval needed but no terminal to ask |
@@ -1042,8 +1071,8 @@ one bumps `v`.
 
 | type | payload |
 |---|---|
-| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory, dream (`id`, `window_sessions`: the session `jas dream` runs) |
-| `session_resumed` | as `session_started`, on each reopen |
+| `session_started` | profile, model, provider, base_url, approve, root, context files (the profile `AGENTS.md` first when present; memory indexes included), skills, context window; optional title, memory, dream (`id`, `window_sessions`: the session `jas dream` runs), `profile_hash`, `profile_chain` |
+| `session_resumed` | as `session_started`, on each reopen (with `profile_hash`, `profile_chain`) |
 | `user_message` | content; `steer: true` for steering text |
 | `turn_started` | — |
 | `assistant_message` | text, content, final, finish_reason |
@@ -1056,8 +1085,8 @@ one bumps `v`.
 | `model_changed` | model, provider, base_url |
 | `session_titled` | title |
 | `compaction` | summary, first_kept_id, tokens_before, tokens_after, usage |
-| `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`) |
-| `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat) |
+| `context_reloaded` | bytes, plus the reloaded context files and skills (`/reload`); `profile_hash`, `profile_chain` |
+| `profile_changed` | from, to, the reloaded context files and skills, settings deferred to `/new` (a profile switch in the chat); `profile_hash`, `profile_chain` |
 | `dream_proposed` | `jas dream` wrote a proposal: dream_id, counts, partial, report |
 | `dream_applied` | `jas dream apply` changed memory: dream_id, counts |
 | `dream_discarded` | `jas dream discard` dropped a proposal: dream_id |
