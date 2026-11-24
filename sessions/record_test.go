@@ -179,9 +179,10 @@ func TestHandle_HeartbeatAdvances(t *testing.T) {
 	dir := t.TempDir()
 	h := register(t, dir, "s1")
 	first, _ := sessions.List(dir, time.Now())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	h.StartEvery(ctx, 20*time.Millisecond)
+	// Close, not just cancel: it waits out an in-flight write, whose temp
+	// file would otherwise make the TempDir cleanup fail.
+	defer func() { assert.NoErr(t, h.Close()) }()
+	h.StartEvery(context.Background(), 20*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	later, _ := sessions.List(dir, time.Now())
 	if !later[0].Heartbeat.After(first[0].Heartbeat) {
