@@ -50,16 +50,16 @@ const (
 	AnswerFarm                 // allow; a standing grant for every part
 )
 
-// ParseAnswer reads y/yes, n/no/"", always and farm, ignoring case and
-// surrounding space. Anything else is unknown (no, ok false): no single
-// letter makes a standing grant.
+// ParseAnswer reads y/yes, n/no/"", a/always and farm, ignoring case and
+// surrounding space. Anything else is unknown (no, ok false): farm, a grant
+// for every part, has no single letter.
 func ParseAnswer(s string) (Answer, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "n", "no":
 		return AnswerNo, true
 	case "y", "yes":
 		return AnswerYes, true
-	case "always":
+	case "a", "always":
 		return AnswerAlways, true
 	case "farm":
 		return AnswerFarm, true

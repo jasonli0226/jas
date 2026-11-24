@@ -236,10 +236,10 @@ finished without reading comes back as
 `[<part>] not delivered (part finished): <text>`; if the client that sent it
 has left, the farm's own output (`jas farm run` or the chat) prints that line.
 
-Answers are full words only: `y`/`yes`, `n`/`no`, `always` (that tool for that
+Answers: `y`/`yes`, `n`/`no`, `a`/`always` (that tool for that
 part only, as the chat's `always`) and
-`farm` (a standing grant for that tool for every part of the farm). There is no single-letter
-`always` or `farm`. After an `always` or `farm` answer, every attached client
+`farm` (a standing grant for that tool for every part of the farm). `farm`
+has no single-letter form. After an `always` or `farm` answer, every attached client
 prints what it granted, as the farm's own terminal does:
 `[<part>] always: shell: ls (covers any arguments)`, or `allowed once` when
 the call can't get a standing grant.
@@ -432,7 +432,7 @@ from the next start).
 |---|---|
 | `y` | allow this call once |
 | Enter or `n` | deny |
-| `always` | allow matching calls until jas quits ([always grants](#always-grants)) |
+| `a` or `always` | allow matching calls until jas quits ([always grants](#always-grants)) |
 | any other text | deny, and pass the text to the model as steering |
 | a `/command` | not an answer: the prompt stays open (run the command after) |
 | Esc | deny and stop the run (a farm agent's prompt: deny only) |

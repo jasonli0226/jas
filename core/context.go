@@ -66,7 +66,7 @@ func CapContext(s string) string {
 
 // DecideContext reports whether the context file should be loaded:
 // trusted content loads; flagTrust loads without recording; an interactive
-// session is asked (y = once, always = remember); otherwise it is skipped
+// session is asked (y = once, a or always = remember); otherwise it is skipped
 // with a warning on stderr.
 func DecideContext(root string, content []byte, store TrustStore, interactive, flagTrust bool, ask func(prompt string) string) (bool, error) {
 	return DecideContextFile("AGENTS.md", root, content, store, interactive, flagTrust, ask)
@@ -91,7 +91,7 @@ func DecideContextFile(name, root string, content []byte, store TrustStore, inte
 	switch strings.ToLower(strings.TrimSpace(ask(fmt.Sprintf("trust %s and load %s? [y/N/always] ", Sanitize(root), name)))) {
 	case "y", "yes":
 		return true, nil
-	case "always":
+	case "a", "always":
 		return true, store.Trust(root, content)
 	}
 	return false, nil

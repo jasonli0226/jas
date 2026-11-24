@@ -272,7 +272,7 @@ func (m *Model) onApproval(msg approvalMsg) tea.Cmd {
 	}
 	m.approval = &msg
 	m.stashInput()
-	m.tip(hintApproval, "y allows once · always allows matching calls until jas quits · other text denies and steers")
+	m.tip(hintApproval, "y allows once · a or always allows matching calls until jas quits · other text denies and steers")
 	return cmd
 }
 

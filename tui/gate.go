@@ -162,7 +162,7 @@ type reply int
 const (
 	replyNo     reply = iota // n, no or empty: deny
 	replyYes                 // y or yes: allow once
-	replyAlways              // always: allow and add a standing grant
+	replyAlways              // a or always: allow and add a standing grant
 	replyFarm                // farm: a farm part's grant for every part
 	replyFree                // anything else: deny, and the chat steers with it
 )
@@ -174,7 +174,7 @@ func classifyReply(text string) reply {
 		return replyNo
 	case "y", "yes":
 		return replyYes
-	case "always":
+	case "a", "always":
 		return replyAlways
 	case "farm":
 		return replyFarm

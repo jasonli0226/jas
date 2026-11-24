@@ -144,15 +144,15 @@ func mustGate(t *testing.T, b *Broker, part string, log core.EventLog) core.Gate
 func TestBroker_ParseAnswer(t *testing.T) {
 	for in, want := range map[string]Answer{
 		"y": AnswerYes, "YES": AnswerYes, "n": AnswerNo, "No": AnswerNo, "": AnswerNo,
-		"always": AnswerAlways, " Always ": AnswerAlways, "farm": AnswerFarm, " FARM ": AnswerFarm,
+		"always": AnswerAlways, " Always ": AnswerAlways, "a": AnswerAlways, "A": AnswerAlways, "farm": AnswerFarm, " FARM ": AnswerFarm,
 	} {
 		got, ok := ParseAnswer(in)
 		if !ok || got != want {
 			t.Errorf("ParseAnswer(%q) = %v, %v; want %v", in, got, ok, want)
 		}
 	}
-	// A stray key never makes a standing grant: a and f are unknown (no).
-	for _, in := range []string{"maybe", "a", "f", "A", "F"} {
+	// a is short for always; farm (every part) has no single letter.
+	for _, in := range []string{"maybe", "f", "F"} {
 		if got, ok := ParseAnswer(in); ok || got != AnswerNo {
 			t.Errorf("ParseAnswer(%q) = %v, %v; want no, unknown", in, got, ok)
 		}

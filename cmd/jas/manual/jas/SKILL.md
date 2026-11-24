@@ -26,7 +26,7 @@ flags, keys, defaults, exit codes and event fields, read
 | `jas memory [--path]` | memory report: mode, profile and project memory dirs, index size, note counts |
 | `jas dream [list\|diff\|apply\|discard\|undo]` | propose a cleanup of the profile's memory from recent sessions; the live store changes only on `apply` (`undo` reverts) |
 | `jas farm …` | experimental parallel worktree runner (below) |
-| `jas attach [<farm-id> [<part>]]` | watch and control a running farm from another terminal (steer, pause, resume, drop, stop, status, answer approvals y\|n\|always\|farm; commands need a terminal stdin; Ctrl-C detaches) |
+| `jas attach [<farm-id> [<part>]]` | watch and control a running farm from another terminal (steer, pause, resume, drop, stop, status, answer approvals y\|n\|a\|always\|farm; commands need a terminal stdin; Ctrl-C detaches) |
 
 Shared flags: `--model <ref>` (`provider/model`; with OpenRouter as the
 default, a provider named like a vendor such as `qwen` takes `qwen/…` refs and
