@@ -392,7 +392,7 @@ func (s *attachServer) approve(c *attachConn, id, answer string) error {
 	b := s.h.Broker()
 	a, ok := ParseAnswer(answer)
 	if !ok || answer == "" {
-		return fmt.Errorf("bad answer %q (yes, no, always, farm)", answer)
+		return fmt.Errorf("bad answer %q (y, yes, n, no, a, always, farm)", answer)
 	}
 	part := ""
 	for _, p := range b.Pending() {

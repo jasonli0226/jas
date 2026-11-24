@@ -191,7 +191,7 @@ func (c *attachCtl) by(who string) string {
 }
 
 func approvalLine(r farm.ApprovalRequest) string {
-	return fmt.Sprintf("[%s] approve [%s] %s: %s (y/n/always/farm)", r.Part, r.ID, r.Tool, r.Summary)
+	return fmt.Sprintf("[%s] approve [%s] %s: %s (y/n/a/always/farm)", r.Part, r.ID, r.Tool, r.Summary)
 }
 
 // addPending records r and prints it for the hello list; false when known.

@@ -183,7 +183,9 @@ keeps the file and says so on stderr.
 `status` reads `manifest.json`, which the farm keeps current while it runs:
 a part's (and the integrator's) tokens update after each model request, a part paused from `/farm`
 or attach shows `paused`, and the last line reads `final: none yet` until
-the farm has an outcome. With a review it also prints `review: <status>  open <n>`
+the farm has an outcome. Token counts there (per part and `total_tokens`), in
+plan review and in the run summary are weighted like the farm budgets: cached
+prompt tokens count at `cached_token_weight`. With a review it also prints `review: <status>  open <n>`
 and one line per open finding (`R1 [missed] <plan_ref> <where>: <text>`).
 
 Configuration: [Farm](#farm).
@@ -227,7 +229,7 @@ Output from the farm is sanitized and redacted before it is printed.
 | `pause <part>` / `resume <part>` / `drop <part>` | as the chat's `/farm pause`, `resume`, `drop` |
 | `stop [hard]` | stop the farm (`hard` cancels running calls at once) |
 | `status` | print the status table again |
-| `y` \| `n` \| `always` \| `farm` `[<approval-id>]` | answer a gated call; the id defaults to the oldest pending approval |
+| `y` \| `n` \| `a` \| `always` \| `farm` `[<approval-id>]` | answer a gated call; the id defaults to the oldest pending approval |
 
 An unknown command prints the command list and sends nothing. Replies print
 nothing on success (except `stop`, which prints `ok`) and the error text on
@@ -250,7 +252,7 @@ A part's gated call becomes a pending approval with a stable id. Attach
 prints each one, those pending when it connects and those that open later:
 
 ```
-[backend-api] approve [a3] shell: npm install zod (y/n/always/farm)
+[backend-api] approve [a3] shell: npm install zod (y/n/a/always/farm)
 ```
 
 Attach shows the tool and its one-line summary (the command, or the path
@@ -350,7 +352,7 @@ in the transcript is the full text the model gets.
 | command | does |
 |---|---|
 | `/help` | list commands and keys |
-| `/new` | start a fresh conversation and clear the screen and the terminal scrollback; model, thinking, approval level and always grants are kept |
+| `/new` | start a fresh conversation and clear the screen and the terminal scrollback (where the terminal supports it); model, thinking, approval level and always grants are kept |
 | `/model [name]` | switch model; bare `/model` opens a picker. A model on another provider is refused: `/new` first |
 | `/name [title]` | name the session (shown in `/resume` and the status line); bare `/name` shows it |
 | `/resume` | continue a recent session in this project; always grants and level reset |
@@ -418,7 +420,7 @@ from the next start).
 | queued text comes back into the input | Enter sends it, Ctrl+C clears it |
 | a run hits the turn cap | `/settings max_turns 100` |
 | context passes 80% | `/compact` |
-| the first approval prompt | what `y`, `always` and free text do |
+| the first approval prompt | what `y`, `a`/`always` and free text do |
 | three tool calls denied in a row | type why instead of `n` |
 | a shell/grep/ls output is cut on screen | Ctrl+O expands it |
 | the model's context window is a guess | `/settings models.<id>.context_window <n>` |
