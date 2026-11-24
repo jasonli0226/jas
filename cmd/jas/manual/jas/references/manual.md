@@ -322,7 +322,7 @@ token counts and the number of queued messages.
 | Alt+Enter, Shift+Enter, Ctrl+J | newline |
 | Esc | stop the run (queued text comes back into the input); also closes an expanded tool output or a menu |
 | Up / Down | recall earlier input (from the first or last line of the input) |
-| Ctrl+L | clear the screen and reprint the banner; the session is kept |
+| Ctrl+L | clear the screen and reprint the banner; the session and the terminal scrollback are kept |
 | Ctrl+O | expand or collapse the latest tool output (Up/Down scroll it) |
 | Ctrl+C | clear the input; on an empty input, stop a running `!` command; otherwise twice quits |
 | Ctrl+1–9 / Alt+1–9 | show farm agent N |
@@ -350,13 +350,13 @@ in the transcript is the full text the model gets.
 | command | does |
 |---|---|
 | `/help` | list commands and keys |
-| `/new` | start a fresh conversation and clear the screen; model, thinking, approval level and always grants are kept |
+| `/new` | start a fresh conversation and clear the screen and the terminal scrollback; model, thinking, approval level and always grants are kept |
 | `/model [name]` | switch model; bare `/model` opens a picker. A model on another provider is refused: `/new` first |
 | `/name [title]` | name the session (shown in `/resume` and the status line); bare `/name` shows it |
 | `/resume` | continue a recent session in this project; always grants and level reset |
 | `/compact [focus]` | summarize older messages to free context; `focus` steers the summary |
 | `/reload` | reload `AGENTS.md` / `CLAUDE.md`, skills and project context into this session (same trust rules) |
-| `/profile [name]` | switch profile (skills, `AGENTS.md`, settings) in this session; bare `/profile` opens a picker marking the active one. Live settings (`approve`, `model`, `hints`, `farm_bell`) apply now; other changed keys take effect on `/new`. Switching to the active profile just reloads |
+| `/profile [name]` | switch profile (skills, `AGENTS.md`, settings) in this session; bare `/profile` opens a picker marking the active one. Live settings (`approve`, `model`, `hints`, `farm_bell`) apply now; other changed keys take effect on `/new`. Switching to the active profile just reloads. A switch prints a new `[Profile]` row |
 | `/settings` | settings picker; closed-set keys get a value picker |
 | `/settings <key> [value]` | show or set a setting (writes **local** unless `--global` / `--in-profile` / `--project` / `--local`; **global** in an untrusted project, where project and local writes are refused). `--in-profile` writes the chat's active profile's `config.json` (refused for `provider`, `base_url`, `search_base_url`, `profile` and `providers.*`). `approve`, `model`, `hints` and `farm_bell` apply to the current session; other keys take effect on `/new` |
 | `/settings unset <key>` | remove a setting from local (or `--global` / `--in-profile` / `--project`; global by default in an untrusted project) |

@@ -51,6 +51,14 @@ func TestCmdProfile_SwitchUpdatesStatusAndAppliesLive(t *testing.T) {
 	assert.Contains(t, c.printedText(), "profile ds loaded")
 }
 
+func TestCmdProfile_SwitchPrintsProfileRow(t *testing.T) {
+	b := newTestBackend(t)
+	c := newTestChat(t, b)
+	c.submit("/profile ds")
+	c.pumpProfileDone()
+	assert.Contains(t, c.printedText(), "[Profile] ds")
+}
+
 func TestCmdProfile_DeferredNotice(t *testing.T) {
 	b := newTestBackend(t)
 	b.profSwitch = ProfileSwitch{Deferred: []string{"max_steps", "tools"}}

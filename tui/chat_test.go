@@ -879,6 +879,21 @@ func TestChat_BannerOnNew(t *testing.T) {
 // cmdHasType reports whether cmd, expanded through Batch/Sequence, produces
 // a message whose dynamic type name is typ (e.g. "tea.clearScreenMsg").
 func cmdHasType(cmd tea.Cmd, typ string) bool {
+	return cmdHas(cmd, func(msg tea.Msg) bool { return fmt.Sprintf("%T", msg) == typ })
+}
+
+// cmdHasRaw reports whether cmd, expanded through Batch/Sequence, writes
+// the raw sequence seq (tea.Raw).
+func cmdHasRaw(cmd tea.Cmd, seq string) bool {
+	return cmdHas(cmd, func(msg tea.Msg) bool {
+		raw, ok := msg.(tea.RawMsg)
+		return ok && raw.Msg == seq
+	})
+}
+
+// cmdHas reports whether cmd, expanded through Batch/Sequence, produces a
+// message match accepts.
+func cmdHas(cmd tea.Cmd, match func(tea.Msg) bool) bool {
 	if cmd == nil {
 		return false
 	}
@@ -886,13 +901,13 @@ func cmdHasType(cmd tea.Cmd, typ string) bool {
 	if msg == nil {
 		return false
 	}
-	if fmt.Sprintf("%T", msg) == typ {
+	if match(msg) {
 		return true
 	}
 	v := reflect.ValueOf(msg)
 	if v.Kind() == reflect.Slice && v.Type().Elem() == reflect.TypeFor[tea.Cmd]() {
 		for i := range v.Len() {
-			if cmdHasType(v.Index(i).Interface().(tea.Cmd), typ) {
+			if cmdHas(v.Index(i).Interface().(tea.Cmd), match) {
 				return true
 			}
 		}
@@ -911,6 +926,9 @@ func TestChat_CtrlLClearsScreenKeepsSession(t *testing.T) {
 	_, cmd := c.m.Update(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
 	if !cmdHasType(cmd, "tea.clearScreenMsg") {
 		t.Fatal("Ctrl+L did not issue ClearScreen")
+	}
+	if cmdHasRaw(cmd, ansi.EraseEntireDisplay) {
+		t.Fatal("Ctrl+L cleared the scrollback; only /new does")
 	}
 	// clearView prints the banner while building the cmd; session stays.
 	assert.Eq(t, c.m.live.ID, id)
@@ -945,6 +963,9 @@ func TestChat_NewClearsScreen(t *testing.T) {
 	_, cmd := c.m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !cmdHasType(cmd, "tea.clearScreenMsg") {
 		t.Fatal("/new did not issue ClearScreen")
+	}
+	if !cmdHasRaw(cmd, ansi.EraseEntireDisplay) {
+		t.Fatal("/new did not clear the scrollback")
 	}
 	c.run(cmd)
 	assert.Eq(t, c.m.live.ID != oldID, true)

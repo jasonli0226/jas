@@ -105,8 +105,10 @@ func TestTranscript_UserBand(t *testing.T) {
 	got := tr.User("hi")
 	assert.Eq(t, len(got), 1)
 	lines := strings.Split(ansi.Strip(got[0]), "\n")
-	assert.Eq(t, len(lines), 1) // no vertical padding
-	assert.Eq(t, strings.TrimRight(lines[0], " "), "› hi")
+	assert.Eq(t, len(lines), 3) // one padding row above and below the text
+	assert.Eq(t, strings.TrimSpace(lines[0]), "")
+	assert.Eq(t, strings.TrimRight(lines[1], " "), "› hi")
+	assert.Eq(t, strings.TrimSpace(lines[2]), "")
 	for _, l := range lines {
 		assert.Eq(t, ansi.StringWidth(l), 20)
 	}
@@ -178,8 +180,8 @@ func TestTranscript_Spacing(t *testing.T) {
 	band := tr2.User("hi")
 	assert.Eq(t, len(band), 1)
 	lines := strings.Split(ansi.Strip(band[0]), "\n")
-	assert.Eq(t, len(lines), 1)
-	assert.Eq(t, strings.TrimRight(lines[0], " "), "› hi")
+	assert.Eq(t, len(lines), 3) // the band's own padding rows, not group blanks
+	assert.Eq(t, strings.TrimRight(lines[1], " "), "› hi")
 }
 
 func TestToolRow_Formats(t *testing.T) {

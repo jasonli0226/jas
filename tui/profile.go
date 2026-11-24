@@ -81,7 +81,9 @@ func (m *Model) onProfileDone(msg profileDoneMsg) tea.Cmd {
 		}
 		return m.print(errStyle.Render(text))
 	}
-	var cmds []tea.Cmd
+	// The banner's [Profile] row is already in the scrollback and can't be
+	// rewritten: print a fresh one so the transcript shows the switch.
+	cmds := []tea.Cmd{m.print(dimStyle.Render("[Profile]") + " " + m.clean(m.profile))}
 	if msg.defaulted {
 		cmds = append(cmds, m.notice("default profile "+m.clean(m.profile)))
 	}

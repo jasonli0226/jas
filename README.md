@@ -27,7 +27,7 @@ jas is a single static Go binary for day-to-day coding with a receipt:
 - **visible** — every step is a versioned JSONL event (audit + resume)
 - **CI-ready** — `jas run --json`, stable exit codes, secrets deny/redact
 - **lean** — cache-friendly prompts, parallel reads, capped and elided tool
-  output; streaming loop in ~200 lines
+  output
 - **farm** *(experimental)* — one too-big task split into worktree parts
   behind a supervisor-run `check`; refuses most splits. Not the lead story.
 
