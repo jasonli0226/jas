@@ -174,7 +174,7 @@ func TestBang_LoggedWhenItFinishes(t *testing.T) {
 	log := string(raw)
 	assert.Contains(t, log, `"type":"shell_ran"`)
 	assert.Contains(t, log, `"command":"echo logged-out"`)
-	assert.Contains(t, log, `"output":"logged-out\n"`)
+	assert.Contains(t, log, `"output":"logged-out`) // \n, or \r\n on Windows
 	assert.Contains(t, log, `"command":"echo private-out","exit_code":0,"local":true`)
 }
 

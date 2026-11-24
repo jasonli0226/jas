@@ -22,7 +22,7 @@ func realTempDir(t *testing.T) string {
 
 func newGuard(t *testing.T) Guard {
 	t.Helper()
-	d, err := DirsFor(realTempDir(t), "/work/repo")
+	d, err := DirsFor(realTempDir(t), workRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,10 +123,10 @@ func TestGuard_EditIndexAllowed(t *testing.T) {
 func TestGuard_OutsideMemoryIgnored(t *testing.T) {
 	g := newGuard(t)
 	g.Mode = ModeRead
-	if err := g.Check("write", "/work/repo/main.go", false, "package main"); err != nil {
+	if err := g.Check("write", filepath.Join(workRoot, "main.go"), false, "package main"); err != nil {
 		t.Fatal(err)
 	}
-	if g.Holds("/work/repo/main.go") {
+	if g.Holds(filepath.Join(workRoot, "main.go")) {
 		t.Fatal("Holds outside memory")
 	}
 }
@@ -137,7 +137,7 @@ func TestGuard_SymlinkedDirs(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Skip(err)
 	}
-	d, err := DirsFor(filepath.Join(link, ".jas", "profiles", "p"), "/work/repo")
+	d, err := DirsFor(filepath.Join(link, ".jas", "profiles", "p"), workRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,9 +205,9 @@ func TestGuard_PrecheckNeedsNoContent(t *testing.T) {
 		{ro, filepath.Join(p, "x.md"), "memory is read-only in this session"},
 		{g, filepath.Join(p, "sub", "x.md"), "memory notes belong directly in"},
 		{g, filepath.Join(p, "x.txt"), "memory holds .md notes only"},
-		{g, filepath.Join(p, "x.md"), ""},      // content rules wait for Check
-		{g, filepath.Join(p, "MEMORY.md"), ""}, // so does the whole-file rule
-		{hl, "/work/repo/main.go", ""},         // outside memory
+		{g, filepath.Join(p, "x.md"), ""},            // content rules wait for Check
+		{g, filepath.Join(p, "MEMORY.md"), ""},       // so does the whole-file rule
+		{hl, filepath.Join(workRoot, "main.go"), ""}, // outside memory
 	} {
 		err := tt.g.Precheck("write", tt.path)
 		if tt.want == "" {

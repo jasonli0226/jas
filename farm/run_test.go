@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -155,6 +156,16 @@ func writes(files map[string]string, text string) []fake.Turn {
 	}
 	return append(turns, final(text))
 }
+
+// mkdirB creates b/ if missing and succeeds when it is there. cmd.exe's
+// built-in mkdir takes no -p and fails on an existing dir, which would cut
+// a check's && chain short on its second run.
+var mkdirB = func() string {
+	if runtime.GOOS == "windows" {
+		return "(if not exist b mkdir b)"
+	}
+	return "mkdir -p b"
+}()
 
 func twoParts() []Part { return []Part{coder("a", "a/**"), coder("b", "b/**")} }
 
@@ -675,7 +686,7 @@ func TestRunFarm_PartCheckBlockedDefersToMergedCheck(t *testing.T) {
 // other/ makes other/package-lock.json) is undone and not blamed on the
 // worker, even when the worker reruns the check itself.
 func TestRunFarm_PartCheckArtifactsOutsideOwnsNotBlamed(t *testing.T) {
-	const check = "mkdir -p b && echo lock > b/lock.json && exit 1"
+	check := mkdirB + " && echo lock > b/lock.json && exit 1"
 	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
 		if ws.Part.ID != "a" {
 			return append(twoWriters(ws), final("BLOCKED: needs a"))
@@ -698,7 +709,7 @@ func TestRunFarm_PartCheckArtifactsOutsideOwnsNotBlamed(t *testing.T) {
 // The worker running the check before its first answer leaves the same
 // artifact; the supervisor's own run rewrites it, so it is still not blamed.
 func TestRunFarm_WorkerRanCheckFirstArtifactNotBlamed(t *testing.T) {
-	const check = "mkdir -p b && echo lock > b/lock.json && exit 1"
+	check := mkdirB + " && echo lock > b/lock.json && exit 1"
 	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
 		if ws.Part.ID != "a" {
 			return append(twoWriters(ws), final("BLOCKED: needs a"))
@@ -718,12 +729,12 @@ func TestRunFarm_WorkerRanCheckFirstArtifactNotBlamed(t *testing.T) {
 // clock stamps a write in the same tick (#206): the rewrite is still the
 // check's, so the artifact is still not blamed.
 func TestRunFarm_CheckRewriteWithStaleMtimeNotBlamed(t *testing.T) {
-	const check = "mkdir -p b && echo lock > b/lock.json && touch -t 200001020000 b/lock.json && exit 1"
+	check := mkdirB + " && echo lock > b/lock.json && touch -t 200001020000 b/lock.json && exit 1"
 	r := newRunRig(t, "true", twoParts(), func(ws WorkerSession) []fake.Turn {
 		if ws.Part.ID != "a" {
 			return append(twoWriters(ws), final("BLOCKED: needs a"))
 		}
-		run, _ := json.Marshal(map[string]string{"command": "mkdir -p b && echo lock > b/lock.json && touch -t 200001010000 b/lock.json"})
+		run, _ := json.Marshal(map[string]string{"command": mkdirB + " && echo lock > b/lock.json && touch -t 200001010000 b/lock.json"})
 		return []fake.Turn{writeCall("a/x.txt", "a\n"), call("shell", string(run)), final("a done"),
 			final("BLOCKED: b/ is another part's")}
 	})
@@ -1130,7 +1141,7 @@ func TestIntegrate_RegenerateFailureReachesIntegrator(t *testing.T) {
 		}
 		return twoWriters(ws)
 	})
-	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "echo nope; exit 3"})
+	withGenerated(&r.opts.Cfg, Generated{Path: "a.txt", Regenerate: "echo nope && exit 3"})
 	r.run(context.Background())
 	raw, err := os.ReadFile(filepath.Join(r.farmDir(), integratePart, eventsFile))
 	if err != nil {

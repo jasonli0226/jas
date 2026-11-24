@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -65,10 +66,11 @@ func TestFit_DropsUserSkillsBeforeProject(t *testing.T) {
 }
 
 func TestCatalog_WritesHomeAsTilde(t *testing.T) {
+	other := filepath.FromSlash("/home/u2/b/SKILL.md")
 	got := Catalog([]Skill{
-		{Name: "a", Description: "d", Location: "/home/u/.agents/skills/a/SKILL.md"},
-		{Name: "b", Description: "d", Location: "/home/u2/b/SKILL.md"},
-	}, "/home/u")
+		{Name: "a", Description: "d", Location: filepath.FromSlash("/home/u/.agents/skills/a/SKILL.md")},
+		{Name: "b", Description: "d", Location: other},
+	}, filepath.FromSlash("/home/u"))
 	assert.Contains(t, got, "<location>~/.agents/skills/a/SKILL.md</location>")
-	assert.Contains(t, got, "<location>/home/u2/b/SKILL.md</location>") // only a real path prefix
+	assert.Contains(t, got, "<location>"+other+"</location>") // only a real path prefix
 }

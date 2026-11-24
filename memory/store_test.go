@@ -3,9 +3,19 @@ package memory
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// workRoot is an absolute project root that need not exist: Windows needs a
+// volume for a path to be absolute.
+var workRoot = func() string {
+	if runtime.GOOS == "windows" {
+		return `C:\work\repo`
+	}
+	return "/work/repo"
+}()
 
 func lines(n int, prefix string) string {
 	var b strings.Builder
@@ -18,7 +28,7 @@ func lines(n int, prefix string) string {
 
 func setup(t *testing.T, profile, project string) Dirs {
 	t.Helper()
-	d, err := DirsFor(t.TempDir(), "/work/repo")
+	d, err := DirsFor(t.TempDir(), workRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,11 +49,12 @@ func setup(t *testing.T, profile, project string) Dirs {
 func textLines(s string) int { return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1 }
 
 func TestDirsFor(t *testing.T) {
-	d, err := DirsFor("/p", "/work/repo")
+	p := filepath.Dir(workRoot) // any absolute dir
+	d, err := DirsFor(p, workRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Profile != "/p/memory" || d.Project != "/p/memory/projects/"+Key("/work/repo") {
+	if d.Profile != filepath.Join(p, "memory") || d.Project != filepath.Join(p, "memory", "projects", Key(workRoot)) {
 		t.Fatalf("dirs = %+v", d)
 	}
 }
