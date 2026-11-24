@@ -52,7 +52,7 @@ func (f *chatFarmer) Available() (bool, string) {
 	if !e.pc.trusted {
 		return false, "project not trusted: farm config and roles need a trusted project (restart with jas --trust-project)"
 	}
-	cfg, _, err := farm.LoadConfig(e.root, e.home, true)
+	cfg, _, err := e.loadFarmConfig(true)
 	if err != nil {
 		return false, "farm config: " + err.Error()
 	}
@@ -247,7 +247,7 @@ func (f *chatFarmer) Start(ctx context.Context, planPath, model string, level co
 	if err != nil {
 		return nil, err
 	}
-	cfg, _, err := farm.LoadConfig(e.root, e.home, e.pc.trusted)
+	cfg, _, err := e.loadFarmConfig(e.pc.trusted)
 	if err != nil {
 		return nil, usageErr("farm config: %v", err)
 	}

@@ -325,7 +325,7 @@ func dreamModelPass(ctx context.Context, e *env, da dreamArgs, in dreamInputs, c
 	}
 	meta := e.sessionMeta(e.cfg.Model)
 	meta["dream"] = map[string]any{"id": in.id, "window_sessions": len(in.logs)}
-	pool := core.NewTokenPool("dream", da.maxTokens, nil)
+	pool := rootPool("dream", da.maxTokens, e.cfg.CachedTokenWeight)
 	_, err = core.Run(runCtx, core.RunConfig{
 		Provider: e.provider, Model: e.cfg.Model,
 		System: dream.SystemPrompt(in.ws), Prompt: dream.Kickoff(in.stats, in.before),

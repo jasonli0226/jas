@@ -12,14 +12,15 @@ import (
 
 // Defaults (design §3 "Tool execution policy").
 const (
-	DefaultMaxTurns        = 50
-	DefaultMaxToolOutput   = 32768
-	DefaultElideAt         = "0.6"
-	DefaultKeepToolResults = 6
-	DefaultApprove         = "never"
-	DefaultCompactReserve  = 16384 // matches core.DefaultCompactReserve
-	DefaultCompactKeep     = 20000 // matches core.DefaultCompactKeep
-	DefaultMaxOutputTokens = 16000
+	DefaultMaxTurns          = 50
+	DefaultMaxToolOutput     = 32768
+	DefaultElideAt           = "0.6"
+	DefaultCachedTokenWeight = "0.1" // share of a cached prompt token charged against token budgets
+	DefaultKeepToolResults   = 6
+	DefaultApprove           = "never"
+	DefaultCompactReserve    = 16384 // matches core.DefaultCompactReserve
+	DefaultCompactKeep       = 20000 // matches core.DefaultCompactKeep
+	DefaultMaxOutputTokens   = 16000
 
 	homeDirName = ".jas"
 )
@@ -61,6 +62,7 @@ var Keys = []KeySpec{
 	{Name: "max_turns", Default: strconv.Itoa(DefaultMaxTurns), Validate: positiveInt, Flag: true},
 	{Name: "max_tool_output", Default: strconv.Itoa(DefaultMaxToolOutput), Validate: positiveInt},
 	{Name: "elide_at", Default: DefaultElideAt, Validate: fractionOpen},
+	{Name: "cached_token_weight", Default: DefaultCachedTokenWeight, Validate: fractionOpen},
 	{Name: "keep_tool_results", Default: strconv.Itoa(DefaultKeepToolResults), Validate: nonNegativeInt},
 	{Name: "redact_skip_paths", Validate: anyValue},
 	{Name: "compact_reserve_tokens", Default: strconv.Itoa(DefaultCompactReserve), Validate: positiveInt},

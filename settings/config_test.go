@@ -61,6 +61,8 @@ func TestConfig_ValidatesAllKeys(t *testing.T) {
 		ok       bool
 	}{
 		{"elide_at", "0", false}, {"elide_at", "1.5", false}, {"elide_at", "0.6", true},
+		{"cached_token_weight", "0", false}, {"cached_token_weight", "1.5", false},
+		{"cached_token_weight", "0.25", true}, {"cached_token_weight", "1", true},
 		{"keep_tool_results", "-1", false}, {"keep_tool_results", "0", true},
 		{"max_tool_output", "0", false}, {"max_tool_output", "100", true},
 		{"provider", "bogus", false}, {"provider", "openrouter", true},
@@ -112,6 +114,18 @@ func TestConfig_RejectsNaNAndCredentialURLs(t *testing.T) {
 		t.Fatal("userinfo in base_url should fail")
 	}
 	assert.NotContains(t, err.Error(), "hunter2")
+}
+
+func TestKeys_CachedTokenWeightDefault(t *testing.T) {
+	env := envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"})
+	r, err := Resolve(nil, env, Layers{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.CachedTokenWeight, 0.1)
+
+	env = envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1", "JAS_CACHED_TOKEN_WEIGHT": "0.5"})
+	r, err = Resolve(nil, env, Layers{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.CachedTokenWeight, 0.5)
 }
 
 func TestKeys_CompactDefaults(t *testing.T) {

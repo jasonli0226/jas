@@ -238,7 +238,7 @@ type preflighted struct {
 // are returned, not printed, so the chat can show them in its transcript.
 func farmPreflight(ctx context.Context, e *env, pa planArgs) (preflighted, error) {
 	var pf preflighted
-	cfg, notices, err := farm.LoadConfig(e.root, e.home, e.pc.trusted)
+	cfg, notices, err := e.loadFarmConfig(e.pc.trusted)
 	pf.cfg = cfg
 	if err != nil {
 		return pf, usageErr("farm config: %v", err)
@@ -330,7 +330,7 @@ func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerI
 	pl, err := farm.NewPlanner(core.SessionConfig{
 		Provider: e.provider, Model: model, System: e.pc.readOnlyMemory(e.pc.system), Exec: exec, Log: log,
 		UI: core.NewQuietUI(), MaxTurns: e.cfg.MaxTurns, Budget: e.budget(model), Meta: meta,
-		MaxOutput: e.cfg.MaxOutputTokens, Tokens: core.NewTokenPool("farm", cfg.Budget.FarmTokens, nil),
+		MaxOutput: e.cfg.MaxOutputTokens, Tokens: rootPool("farm", cfg.Budget.FarmTokens, e.cfg.CachedTokenWeight),
 	}, in)
 	if err != nil {
 		log.Close()

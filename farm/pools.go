@@ -16,8 +16,10 @@ type Pools struct{ Farm, Work *core.TokenPool }
 
 // NewPools makes the farm pool (farm_tokens) and the workers' share of it
 // (farm_tokens minus integrator_reserve), whose parent is the farm pool.
+// Every farm pool charges cached prompt tokens at cfg.CachedTokenWeight.
 func NewPools(cfg Config) Pools {
 	farm := core.NewTokenPool(poolFarm, cfg.Budget.FarmTokens, nil)
+	farm.SetCachedWeight(cfg.CachedTokenWeight)
 	work := int(float64(cfg.Budget.FarmTokens) * (1 - cfg.Budget.IntegratorReserve))
 	return Pools{Farm: farm, Work: core.NewTokenPool(poolWork, work, farm)}
 }

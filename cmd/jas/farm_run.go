@@ -126,7 +126,7 @@ func farmRunCmd(ctx context.Context, args []string) error {
 // broker's host; without one the broker is unattended (approvalWait, nil
 // for budget.approval_wait, holds gated calls for an attached client).
 func runPlan(ctx context.Context, e *env, planPath string, jsonOut, allowDirty bool, approvalWait *time.Duration, review *bool) error {
-	cfg, notices, err := farm.LoadConfig(e.root, e.home, e.pc.trusted)
+	cfg, notices, err := e.loadFarmConfig(e.pc.trusted)
 	if err != nil {
 		return usageErr("farm config: %v", err)
 	}
@@ -234,4 +234,12 @@ func stdoutWidth() int {
 		return 0
 	}
 	return w
+}
+
+// loadFarmConfig is farm.LoadConfig with the host's cached_token_weight,
+// which every farm pool charges cached prompt tokens at.
+func (e *env) loadFarmConfig(trusted bool) (farm.Config, []string, error) {
+	cfg, notices, err := farm.LoadConfig(e.root, e.home, trusted)
+	cfg.CachedTokenWeight = e.cfg.CachedTokenWeight
+	return cfg, notices, err
 }

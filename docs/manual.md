@@ -70,7 +70,7 @@ and `ps`. Use `jas auth add` or `JAS_API_KEY`.
 | `--json` | stream the event log as JSONL on stdout ([Event log](#event-log)) |
 | `--name T` | title for the session |
 | `--trust-project` | load project context without asking (no TTY: untrusted unless given) |
-| `--max-tokens N` | stop with exit 7 before a request that would cross N total tokens |
+| `--max-tokens N` | stop with exit 7 before a request that would cross N total tokens (cached prompt tokens count at `cached_token_weight`) |
 | `--timeout D` | stop with exit 7 after wall-clock duration D (e.g. `30m`) |
 | `--compact` | summarize older history when the context fills, as the chat does |
 | `--wrap-up` | at the turn cap (`max_turns`) or `--max-tokens`, send one last request with tools off asking for the final answer, instead of stopping without one; an answer exits 0. Tool calls in that reply are not run, and the run exits 4 or 7 at the cap as it would have. The token wrap-up starts early, when the room left after the next request would drop below one output cap (`max_output_tokens`, or 32000 when none is set), so the answer gets a full output cap; it needs room for 1000 output tokens, else exit 7 as usual. A token wrap-up reply cut off at its output cap exits 7 (reason `tokens`), not 9 |
@@ -480,6 +480,7 @@ or `--local` shows the file as written.
 | `max_turns` | 50 | model requests per user message before exit 4 |
 | `max_tool_output` | 32768 | bytes of tool output kept per call |
 | `elide_at` | 0.6 | fraction of the window at which old tool results are elided |
+| `cached_token_weight` | 0.1 | share of a cached prompt token (as the provider reports `cached_tokens`) charged against `--max-tokens` and farm budgets, above 0 and at most 1; 1 charges in full. Requests still reserve the full prompt first, so no cap is crossed. Farms use the host's value |
 | `keep_tool_results` | 6 | most recent tool results never elided |
 | `redact_skip_paths` | — | comma-separated paths whose content is not redacted |
 | `compact_reserve_tokens` | 16384 | compact when the prompt passes window minus this (never below half the window) |
@@ -792,7 +793,7 @@ live `memory/`; you review the proposal and apply it.
 |---|---|---|
 | `--since D` | the watermark | read sessions since D: a duration back from now (`36h`, `7d`), a date (`2026-11-01`, local midnight) or an RFC 3339 time |
 | `--sessions N` | 50 | read at most the N most recently written sessions |
-| `--max-tokens N` | 400000 | stop the model pass with exit 7 before a request that would cross N total tokens |
+| `--max-tokens N` | 400000 | stop the model pass with exit 7 before a request that would cross N total tokens (cached prompt tokens count at `cached_token_weight`) |
 | `--timeout D` | `20m` | stop the model pass with exit 7 after wall-clock duration D |
 | `--json` | off | print nothing until the run ends, then one JSON object: `dream.json` plus `report` (its path) and `lint_open`; no apply question |
 | `--profile NAME` | the active profile | dream for that profile's store |
@@ -935,7 +936,7 @@ verdict. Merge the branch yourself and run the check.
 | `worktree.copy` | — | files copied into each worktree |
 | `worktree.setup` | — | command run in each new worktree |
 | `budget.per_worker_tokens` | 1500000 | token cap per part |
-| `budget.farm_tokens` | 5000000 | token cap for the whole farm |
+| `budget.farm_tokens` | 5000000 | token cap for the whole farm; this cap and `per_worker_tokens` count cached prompt tokens at the host's `cached_token_weight` ([Settings](#settings)) |
 | `budget.max_output_tokens` | 16000 | `max_tokens` per request |
 | `budget.integrator_reserve` | 0.2 | share of `farm_tokens` kept for the integrator |
 | `budget.per_worker_timeout` | 30m | wall-clock cap per part |
@@ -1008,7 +1009,7 @@ Full design:
 | 4 | turn cap (`max_turns`) hit (`jas dream` still writes its partial proposal) |
 | 5 | approval needed but no terminal to ask |
 | 6 | a check run by jas failed, or required work is unmet (farm: `check_failed`, `part_failed`, `review_unmet`) |
-| 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`); `jas dream` still writes its partial proposal |
+| 7 | budget exceeded: `--max-tokens` / `--timeout` / farm budgets (`reason`: `tokens` or `timeout`; token caps count cached prompt tokens at `cached_token_weight`); `jas dream` still writes its partial proposal |
 | 8 | the farm planner refused to split the task |
 | 9 | the final reply was cut off at `max_output_tokens` (finish reason `length`); the cut-off text is still printed. Raise `max_output_tokens` (`jas dream` still writes its partial proposal) |
 | 130 | interrupted (Ctrl+C / SIGTERM) |
@@ -1047,7 +1048,7 @@ one bumps `v`.
 | `dream_undone` | `jas dream undo` restored memory: dream_id |
 | `injected` | text added to a tool-results message (farm board deliveries) |
 | `shell_ran` | your `!` / `!!` command finished: command, output, exit code, error, cancelled, truncated, local (`!!`) |
-| `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used, want |
+| `budget_stop` | reason (`tokens` \| `timeout`); for tokens: pool, limit, used (cached prompt tokens at `cached_token_weight`; raw counts are on `usage`), want |
 | `wrap_up` | reason (`turn_cap` \| `tokens`), max_tokens: `--wrap-up` asked for the final answer at the turn cap, or before the token cap leaves less than one output cap; a cut-off `tokens` reply ends at the token cap (exit 7) |
 | `check_ran` | cmd, dir, exit_code, duration_ms, timed_out, output tail |
 | `session_ended` | status, exit_code, turns, prompt_tokens, completion_tokens; reason on non-zero exits |

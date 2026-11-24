@@ -51,9 +51,10 @@ The cap must never be crossed: weighting applies only at settle time.
 - My call: a pure helper `chargeTokens(u providers.Usage, weight float64) int`
   in `core/tokens.go`, next to `charge()`, table-tested; both `Settle` call
   sites (`core/session.go` request, `core/tokens.go` charge) use it.
-- My call: farm workers on different profiles may carry different weights;
-  farm totals then add up mixed rates. That is accepted (the totals track
-  cost) and stated in the manual's farm budget rows.
+- My call (changed while planning): the weight is set on a root token pool
+  (`TokenPool.SetCachedWeight`) and every pool in its chain uses it, rather
+  than being threaded through each session config. A farm uses the host's
+  setting for all its pools, so there are no mixed rates within a farm.
 - My call: `--max-tokens` and farm budgets are documented as "tokens, with
   cached prompt tokens counted at `cached_token_weight`". `budget_stop.used`
   is the weighted figure; raw counts stay on `usage` events. The
