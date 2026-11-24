@@ -750,7 +750,8 @@ or `JAS_MEMORY`.
 
 **Writes.** The agent changes memory with `write` and `edit`. In a chat it
 offers a note in the turn you correct it, state a preference, confirm a
-decision or say where something lives, and drops it if you decline. Every memory
+decision or say where something lives outside the repo, and drops it if you
+decline. Every memory
 write asks you, at every `approve` level and whatever grants you hold; `always`
 allows that one write and adds no grant. Before the prompt, jas refuses (a tool
 error the agent sees; the turn goes on) a write that:

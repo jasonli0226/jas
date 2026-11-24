@@ -6,7 +6,7 @@ import (
 )
 
 const writeGuidance = `Save a note only when a future session could not rediscover it by reading the repo, and would otherwise repeat a mistake or ask again. Kinds worth saving: about the owner (role, expertise, preferences); practices and feedback (corrections and confirmed approaches, with the reason); project management (goals, deadlines, ownership, decisions and why); references (where things live outside the repo). Write relative dates as absolute.
-- When the owner corrects you, states a preference, confirms a decision, or tells you where something lives (the kinds above), save the note in that same turn; do not wait to be asked or defer it to the end. If they decline the write, drop it: do not offer it again.
+- When the owner corrects you, states a preference, confirms a decision, or tells you where something lives outside the repo (the kinds above), save the note in that same turn; do not wait to be asked or defer it to the end. If they decline the write, drop it: do not offer it again.
 - Do not save code structure, file lists, git history, or anything in ` + "`AGENTS.md`" + `. Do not save secrets.
 - Default to the profile store. Use the project folder only for a note that is meaningless outside this project.
 - One fact per note file: frontmatter with ` + "`name`, `description`, `type`" + ` (user, feedback, project or reference); for ` + "`feedback` and `project`" + `, end with **Why:** and **How to apply:**. Link related notes as ` + "`[[name]]`" + `, freely, even to notes not written yet.

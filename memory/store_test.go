@@ -188,7 +188,7 @@ func TestSection_NamesDirsAndGuidance(t *testing.T) {
 	if !strings.Contains(ro, "not available in this session") {
 		t.Error("read-only section lacks notice")
 	}
-	for _, want := range []string{"Check a file, flag or function", "Writes are shown to the owner", "in that same turn", "If they decline the write, drop it"} {
+	for _, want := range []string{"Check a file, flag or function", "Writes are shown to the owner", "in that same turn", "where something lives outside the repo", "If they decline the write, drop it"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("writable missing %q", want)
 		}
