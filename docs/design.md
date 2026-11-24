@@ -86,7 +86,7 @@ are handled inside that adapter (or a later one), never leaked into the loop.
 The provider layer retries 429/5xx with exponential backoff and enforces an
 SSE idle timeout (no bytes for N seconds → cancel the stream).
 
-### The agent loop (core, ~200 lines)
+### The agent loop (core)
 
 ```go
 for turn := 0; turn < maxTurns; turn++ {      // JAS_MAX_TURNS, default 50
