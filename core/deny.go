@@ -24,9 +24,9 @@ var DenyFloor = []string{
 }
 
 // JasHomeFloor is the deny floor entry for the jas home (auth, config,
-// trust). Read scopes inside the active profile's skills or memory lift it
-// in those two directories, and Resolve lifts it for writes there
-// (profileWrite).
+// trust). Read scopes inside the active profile's skills (own or inherited)
+// or memory lift it in those directories only, and Resolve lifts it for
+// writes there (profileWrite).
 const JasHomeFloor = "~/.jas/**"
 
 // checkDeny returns the policy error when the resolved path is denied.
@@ -59,8 +59,8 @@ func (p ExecPolicy) Denied(abs string) bool {
 // symlinks, so no resolution is needed. Denied also resolves symlinks.
 //
 // On a read scope from readRoot or ProfileScope (liftHome), a path inside
-// the active profile's skills or memory (as spelled or as resolved, see
-// profileLift) is checked without JasHomeFloor and HomeDeny; every other
+// the active profile's skills (own or inherited) or memory (as spelled or
+// as resolved, see profileLift and inheritedLifts) is checked without JasHomeFloor and HomeDeny; every other
 // pattern still applies. The base policy never lifts anything, so neither does
 // DeniedToken; Resolve lifts only through profileWrite's own scope.
 func (p ExecPolicy) DenyMatcher() func(abs string) bool {

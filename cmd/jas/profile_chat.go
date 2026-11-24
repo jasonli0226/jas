@@ -78,7 +78,7 @@ func (b *chatBackend) SwitchProfile(s *core.Session, name string, ask func(strin
 	b.publishMemoryGuard()
 	files := contextFilesMeta(e.pc.files)
 	s.SetReadRoots(roots)
-	s.SetProfileSkills(e.policy.ProfileSkills)
+	s.SetProfileSkills(e.policy.ProfileSkills, e.policy.InheritedSkills)
 	s.SetProfileMemory(e.policy.ProfileMemory)
 	err = s.SetSystem(e.pc.system, map[string]any{"context_files": files, "skills": e.skillList})
 	if lerr := s.LogProfileChanged(map[string]any{

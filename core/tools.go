@@ -64,19 +64,29 @@ type ExecPolicy struct {
 	// the jas home stays denied. Resolve lets writes through only inside
 	// the lifted directory (see profileWrite); DeniedToken never lifts.
 	ProfileSkills string
+	// InheritedSkills are the skills directories of the active profile's
+	// ancestors (extends), as spelled, <jas home>/profiles/<name>/skills,
+	// nearest parent first; nil disables them. Each is lifted exactly like
+	// ProfileSkills, under every rule above and no wider: a refused one is
+	// skipped (InheritedSkillsIgnored says why) and the rest stand. Nothing
+	// else of an ancestor (memory/, config.json, AGENTS.md) is lifted.
+	// InProfileSkills reports writes there too; SharedSkillsOwner names the
+	// ancestor that owns one.
+	InheritedSkills []string
 	// ProfileMemory is the active profile's memory directory as spelled,
 	// <jas home>/profiles/<name>/memory; "" disables it. It is lifted
 	// through the jas home floor exactly like ProfileSkills, under every
 	// rule above (ProfileMemoryIgnored says why a link is refused), and
-	// also refused when it resolves to, inside or above the skills lift,
-	// so it cannot alias the skills; the skills lift never depends on it.
-	// InProfileMemory reports writes there.
+	// also refused when it resolves to, inside or above any skills lift
+	// (own or inherited), so it cannot alias skills; no skills lift ever
+	// depends on it. InProfileMemory reports writes there.
 	ProfileMemory string
 	// HomeDeny is the absolute deny pattern for a moved jas home (also in
 	// Deny); the profile read exception lifts it with JasHomeFloor.
 	HomeDeny string
 	// liftHome is set only by readRoot/ProfileScope on a read scope rooted
-	// inside ProfileSkills or ProfileMemory; it lifts both directories.
+	// inside a profile lift (ProfileSkills, InheritedSkills or
+	// ProfileMemory); it lifts all of them.
 	liftHome bool
 	// projectRoot is the resolved project root on a lifted read scope whose
 	// read root lies inside the project; its relative patterns still apply.
