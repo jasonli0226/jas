@@ -30,7 +30,7 @@ programming**, **starting projects from instructions** (and later scenarios /
 (`jas bootstrap`, §8.3). The JSONL event log, exit codes, and `jas run --json`
 are the CI-grade receipt that chat and one-shot share; farm is for big,
 check-gated splits — not a claim that multi-agent always beats one agent.
-Versus pi: different jobs (interactive product depth vs chat + templates on an
+Versus pi: different jobs (interactive product depth vs chat + scenarios on an
 auditable harness); see §14 and [use-cases.md](use-cases.md).
 
 ## 2. Language choice: Go (decided)

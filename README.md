@@ -1,7 +1,7 @@
 # jas
 
-> A tiny, fast coding-agent harness in Go. Inline chat, templates and scenarios,
-> a JSONL audit trail, and CI-friendly `jas run`.
+> A tiny, fast coding-agent harness in Go. Inline chat, a JSONL audit trail,
+> and CI-friendly `jas run`.
 
 **Status:** v1 — `jas` (chat), `jas run`, `jas config`, `jas auth`, `jas sessions`;
 `jas farm` is experimental. See [docs/design.md](docs/design.md).
@@ -13,11 +13,11 @@ jas is a single static Go binary for day-to-day coding with a receipt:
 - **chat** — inline pair programming in the terminal (`jas`); same tools,
   approvals and event log as `jas run`. Scrollback stays in your terminal
   (Bubble Tea `Println`); no fullscreen TUI.
-- **templates & scenarios** — start a project in chat with `AGENTS.md` /
-  skills as the working instructions; later, declarative
-  `.jas/scenario.yaml` runtime policy and `jas bootstrap` to draft one from
-  an existing repo (design §8, v2). Spec-driven scaffold (`jas spec`) is
-  proposed.
+- **scenarios** *(planned, v2)* — a checked-in `.jas/scenario.yaml` as
+  per-project runtime policy (system prompt, toolset, sandbox, hooks), and
+  `jas bootstrap` to draft one from an existing repo (design §8). Until then,
+  start a project in chat with `AGENTS.md` and skills as the working
+  instructions. Spec-driven scaffold (`jas spec`) is proposed.
 - **profiles** — named bundles of skills, `AGENTS.md` and settings under
   `~/.jas/profiles/<name>/`; pick one with `--profile` or `JAS_PROFILE`, or
   switch live in the chat with `/profile` (see the [manual](docs/manual.md#profiles)).
