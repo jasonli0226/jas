@@ -67,10 +67,11 @@ var Keys = []KeySpec{
 	{Name: "redact_skip_paths", Validate: anyValue},
 	{Name: "compact_reserve_tokens", Default: strconv.Itoa(DefaultCompactReserve), Validate: positiveInt},
 	{Name: "compact_keep_tokens", Default: strconv.Itoa(DefaultCompactKeep), Validate: positiveInt},
-	{Name: "compact_model", Validate: anyValue},                                                                      // "" = the session's model
-	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true}, // 0 = omit max_tokens
-	{Name: "farm_bell", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},       // ring when a chat farm needs the owner
-	{Name: "web_tools", Default: "false", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},      // opt-in web_fetch + web_search (§12.1)
+	{Name: "compact_model", Validate: anyValue},                                                                                           // "" = the session's model
+	{Name: "max_output_tokens", Default: strconv.Itoa(DefaultMaxOutputTokens), Validate: nonNegativeInt, Flag: true},                      // 0 = omit max_tokens
+	{Name: "reasoning_effort", Options: []string{"off", "low", "medium", "high"}, Validate: emptyOrOneOf("off", "low", "medium", "high")}, // "" = omit; a reasoning model left uncontrolled can burn tens of thousands of hidden thinking tokens per request
+	{Name: "farm_bell", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},                            // ring when a chat farm needs the owner
+	{Name: "web_tools", Default: "false", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},                           // opt-in web_fetch + web_search (§12.1)
 	{Name: "search_base_url", Validate: emptyOrURL},
 	{Name: "hints", Default: "true", Options: []string{"true", "false"}, Validate: oneOf("true", "false")},        // one-time chat tips                                                                  // optional SearXNG root for web_search
 	{Name: "memory", Default: "on", Options: []string{"on", "read", "off"}, Validate: oneOf("on", "read", "off")}, // profile memory (memory.ResolveMode)
@@ -211,6 +212,17 @@ func validURL(s string) error {
 		return fmt.Errorf("%q is not a valid http(s) URL", s)
 	}
 	return nil
+}
+
+// emptyOrOneOf accepts "" or one of opts (reasoning_effort).
+func emptyOrOneOf(opts ...string) func(string) error {
+	inner := oneOf(opts...)
+	return func(s string) error {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return inner(s)
+	}
 }
 
 // emptyOrURL accepts "" or a credential-free http(s) URL (search_base_url).

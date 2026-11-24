@@ -298,6 +298,23 @@ func TestConfig_ClosedSetOptions(t *testing.T) {
 	}
 }
 
+func TestReasoningEffort_DefaultsBuildValidate(t *testing.T) {
+	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), Layers{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.ReasoningEffort, "") // unset: the model's own default
+
+	r, err = Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1", "JAS_REASONING_EFFORT": "low"}), Layers{}).Build()
+	assert.NoErr(t, err)
+	assert.Eq(t, r.ReasoningEffort, "low")
+
+	if _, err := (File{}).Set("reasoning_effort", "ultra"); err == nil {
+		t.Fatal("reasoning_effort=ultra should fail")
+	}
+	if _, err := (File{}).Set("reasoning_effort", ""); err != nil {
+		t.Fatalf("empty reasoning_effort should be ok: %v", err)
+	}
+}
+
 func TestWebTools_DefaultsAndBuild(t *testing.T) {
 	r, err := Resolve(nil, envOf(map[string]string{"JAS_MODEL": "m", "JAS_BASE_URL": "http://x/v1"}), Layers{}).Build()
 	assert.NoErr(t, err)

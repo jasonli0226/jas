@@ -191,6 +191,7 @@ func farmSession(e *env) func(farm.WorkerSession) (*core.Session, error) {
 			c.UI = core.NewQuietUI()
 		}
 		c.MaxTurns = e.cfg.MaxTurns
+		c.ReasoningEffort = e.cfg.ReasoningEffort
 		c.Budget = e.budget(model)
 		meta := e.sessionMeta(model)
 		for k, v := range c.Meta {

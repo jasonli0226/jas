@@ -330,7 +330,7 @@ func dreamModelPass(ctx context.Context, e *env, da dreamArgs, in dreamInputs, c
 		Provider: e.provider, Model: e.cfg.Model,
 		System: dream.SystemPrompt(in.ws), Prompt: dream.Kickoff(in.stats, in.before),
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns, Budget: e.budget(e.cfg.Model),
-		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: pool,
+		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, ReasoningEffort: e.cfg.ReasoningEffort, Tokens: pool,
 	})
 	if closeErr := log.Close(); closeErr != nil && err == nil {
 		return 0, nil, closeErr

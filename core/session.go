@@ -30,6 +30,9 @@ type SessionConfig struct {
 	Meta     map[string]any // merged into session_started / session_resumed
 	// MaxOutput is sent as each model request's max_tokens; 0 omits it.
 	MaxOutput int
+	// ReasoningEffort caps a reasoning model's thinking ("", "off",
+	// "low", "medium", "high"); "" omits the control entirely.
+	ReasoningEffort string
 	// Tokens caps total tokens: each request reserves its estimate first and
 	// the session stops with exit 7 when that would cross the cap. nil = none.
 	Tokens *TokenPool
@@ -534,6 +537,7 @@ func (s *Session) newRequest() providers.Request {
 	return providers.Request{
 		Model: s.model, System: s.c.System, Tools: s.c.Exec.Reg.Specs(),
 		Messages: slices.Clone(s.messages), MaxTokens: s.outputCap(),
+		ReasoningEffort: s.c.ReasoningEffort,
 	}
 }
 

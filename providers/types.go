@@ -57,6 +57,11 @@ type Request struct {
 	// ToolChoice is sent as tool_choice when set ("none" forbids tool calls
 	// while keeping Tools for the history's earlier calls); "" omits it.
 	ToolChoice string
+	// ReasoningEffort caps how hard a reasoning model thinks: "", "off",
+	// "low", "medium" or "high". "" omits it (the model's own default);
+	// without it, reasoning models like glm can burn tens of thousands of
+	// hidden thinking tokens per request.
+	ReasoningEffort string
 }
 
 // Usage reports token counts for a request.

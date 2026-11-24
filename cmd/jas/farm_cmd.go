@@ -330,7 +330,7 @@ func startPlanner(ctx context.Context, e *env, cfg farm.Config, in farm.PlannerI
 	pl, err := farm.NewPlanner(core.SessionConfig{
 		Provider: e.provider, Model: model, System: e.pc.readOnlyMemory(e.pc.system), Exec: exec, Log: log,
 		UI: core.NewQuietUI(), MaxTurns: e.cfg.MaxTurns, Budget: e.budget(model), Meta: meta,
-		MaxOutput: e.cfg.MaxOutputTokens, Tokens: rootPool("farm", cfg.Budget.FarmTokens, e.cfg.CachedTokenWeight),
+		MaxOutput: e.cfg.MaxOutputTokens, ReasoningEffort: e.cfg.ReasoningEffort, Tokens: rootPool("farm", cfg.Budget.FarmTokens, e.cfg.CachedTokenWeight),
 	}, in)
 	if err != nil {
 		log.Close()

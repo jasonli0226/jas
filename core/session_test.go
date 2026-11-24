@@ -452,6 +452,16 @@ func TestSession_RequestCarriesMaxOutput(t *testing.T) {
 	assert.Eq(t, r.prov.Requests[0].MaxTokens, 123)
 }
 
+func TestSession_RequestCarriesReasoningEffort(t *testing.T) {
+	r := newRig(t, []fake.Turn{{Text: "ok"}})
+	sc := r.sessionConfig()
+	sc.ReasoningEffort = "low"
+	s, err := core.NewSession(sc)
+	assert.NoErr(t, err)
+	send(t, s, context.Background(), "hi")
+	assert.Eq(t, r.prov.Requests[0].ReasoningEffort, "low")
+}
+
 // A small known window caps max_tokens to the room left after the prompt, so
 // a 16k-context local model is not asked for more than it can return.
 func TestSession_MaxOutputClampedToWindowRoom(t *testing.T) {

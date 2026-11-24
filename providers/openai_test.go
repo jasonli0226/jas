@@ -129,6 +129,36 @@ func TestOpenAI_RequestShape(t *testing.T) {
 	assert.Eq(t, hasAuth, false)
 }
 
+func TestOpenAI_ReasoningEffort(t *testing.T) {
+	// OpenRouter takes a reasoning object; absent when unset.
+	r := encodeRequest(Request{Model: "m", ReasoningEffort: "low"}, true)
+	if r.Reasoning == nil || r.Reasoning.Effort != "low" {
+		t.Fatalf("reasoning = %+v, want effort low", r.Reasoning)
+	}
+	r = encodeRequest(Request{Model: "m"}, true)
+	if r.Reasoning != nil {
+		t.Fatalf("reasoning = %+v, want omitted", r.Reasoning)
+	}
+	// off disables thinking: "disable" on OpenRouter, "none" elsewhere.
+	r = encodeRequest(Request{Model: "m", ReasoningEffort: "off"}, true)
+	if r.Reasoning == nil || r.Reasoning.Effort != "disable" {
+		t.Fatalf("reasoning = %+v, want effort disable", r.Reasoning)
+	}
+	r = encodeRequest(Request{Model: "m", ReasoningEffort: "off"}, false)
+	if r.Reasoning != nil || r.ReasoningEffort != "none" {
+		t.Fatalf("reasoning=%v reasoning_effort=%q, want none and no object", r.Reasoning, r.ReasoningEffort)
+	}
+	// Other endpoints take the standard reasoning_effort field.
+	r = encodeRequest(Request{Model: "m", ReasoningEffort: "high"}, false)
+	if r.Reasoning != nil || r.ReasoningEffort != "high" {
+		t.Fatalf("reasoning=%v reasoning_effort=%q, want high field only", r.Reasoning, r.ReasoningEffort)
+	}
+	r = encodeRequest(Request{Model: "m"}, false)
+	if r.Reasoning != nil || r.ReasoningEffort != "" {
+		t.Fatalf("unset effort should omit both fields, got %+v %q", r.Reasoning, r.ReasoningEffort)
+	}
+}
+
 func TestOpenAI_InvalidToolInputDoesNotBreakEncoding(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
