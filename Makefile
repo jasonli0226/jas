@@ -1,4 +1,6 @@
-LDFLAGS := -s -w
+# VERSION names local builds after the checkout (e.g. v1.2.0-91-g116b401).
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
 MAX_SIZE := 15728640
 
 .PHONY: build install chat test perf bench size manual claude-setup

@@ -32,7 +32,7 @@ Contents: [Commands](#commands) · [Chat](#chat) · [Settings](#settings) ·
 | `jas dream list\|diff\|apply\|discard\|undo` | review, apply, drop or revert a dream ([Dreams](#dreams)) |
 | `jas farm …` | experimental parallel worktree runner |
 | `jas attach [<farm-id> [<part>]]` | watch a running farm from another terminal ([`jas attach`](#jas-attach)) |
-| `jas --version` | print the version |
+| `jas --version` | print the version: the release tag; `git describe` for `make build`; the Go-stamped module version for a plain `go build`/`go install`; `dev` when there is none (e.g. `go run`) |
 
 ### Settings flags (chat, `jas run`, `jas farm plan|run`)
 

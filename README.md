@@ -58,6 +58,9 @@ make chat ARGS=--continue       # same, resuming the last session (DIR=... picks
 The binary is static (`CGO_ENABLED=0`); its size depends on the target platform, Go
 version and build flags. `make build` and release builds use `-ldflags="-s -w"`
 to strip symbol and debug information; plain `go install ./cmd/jas` does not.
+`jas --version` (and the chat banner) shows the release tag, `git describe`
+for `make build`/`make install`, or the module version Go stamps for a plain
+`go install`/`go build` (a pseudo-version with the commit); `go run` shows `dev`.
 
 Release builds for Linux (amd64, arm64), macOS (amd64, arm64) and Windows
 (amd64) are attached to each `v*` tag's GitHub release, with

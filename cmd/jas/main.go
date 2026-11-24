@@ -7,14 +7,37 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
 	"github.com/jasonli0226/jas/core"
 )
 
-// version is set with -ldflags "-X main.version=...".
+// version is set with -ldflags "-X main.version=..." (release builds and
+// make). Without it, init falls back to the version Go stamps into the
+// build (see buildVersion).
 var version = "dev"
+
+func init() {
+	info, _ := debug.ReadBuildInfo()
+	version = buildVersion(version, info)
+}
+
+// buildVersion returns v when -ldflags set it. Otherwise it returns the
+// main module version Go stamps into the build: the tag for
+// `go install ...@v1.2.0`, or a pseudo-version with the commit (and
+// "+dirty" for uncommitted changes) for a build in a git checkout. It
+// stays "dev" when Go stamped nothing.
+func buildVersion(v string, info *debug.BuildInfo) string {
+	if v != "dev" || info == nil {
+		return v
+	}
+	if mv := info.Main.Version; mv != "" && mv != "(devel)" {
+		return mv
+	}
+	return v
+}
 
 const usage = `usage:
   jas [--continue] [--name T] [--model M] [--profile NAME] [--provider P] [--base-url U] [--approve L] [--max-turns N] [--max-output-tokens N] [--trust-project]
