@@ -47,7 +47,7 @@ With Go 1.27+:
 go install github.com/jasonli0226/jas/cmd/jas@latest
 ```
 
-To build from a clone, run `go install ./cmd/jas` from the repo root, or `make build` to write `./bin/jas`:
+To build from a clone:
 
 ```sh
 go install ./cmd/jas            # from the repo root; or: make build  ->  ./bin/jas
