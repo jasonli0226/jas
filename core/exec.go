@@ -238,6 +238,11 @@ func (r *run) runMutating(ctx context.Context, s *slot) {
 	t := s.tool
 	if r.profileWrite(s) {
 		t = AskAlways(t)
+		if full, ok := r.writeTarget(s); ok {
+			if owner := r.e.Policy.SharedSkillsOwner(full); owner != "" {
+				t = AskAlwaysShared(s.tool, owner)
+			}
+		}
 	}
 	d, err := gate.Allow(ctx, t, s.call.Input, r.preview(ctx, s))
 	if err != nil {

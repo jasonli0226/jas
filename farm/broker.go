@@ -419,7 +419,7 @@ func (g *brokerGate) Allow(ctx context.Context, t core.Tool, args json.RawMessag
 	id, seq := b.nextID()
 	req := ApprovalRequest{
 		ID: id, Part: g.part, Tool: t.Name(),
-		Summary: core.SummarizeCall(t.Name(), json.RawMessage(b.o.Redact(string(args)))),
+		Summary: core.SummarizeTool(t, json.RawMessage(b.o.Redact(string(args)))),
 	}
 	if preview != nil {
 		req.Diff = preview()
