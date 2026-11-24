@@ -114,11 +114,14 @@ type Config struct {
 	Split     Split
 	Worktree  Worktree
 	Budget    Budget
-	Board     BoardCfg
-	OnFailure string // drop | abort
-	Models    Models
-	Roles     map[string]RoleDef
-	Generated []Generated // see ResolveGenerated; unset = detected defaults
+	// CachedTokenWeight is the host's cached_token_weight (not a farm.yaml
+	// key): every farm pool charges cached prompt tokens at it.
+	CachedTokenWeight float64
+	Board             BoardCfg
+	OnFailure         string // drop | abort
+	Models            Models
+	Roles             map[string]RoleDef
+	Generated         []Generated // see ResolveGenerated; unset = detected defaults
 	// Review runs the read-only reviewer after integration; ReviewFrom says
 	// who asked: "" (off), "config" or "flag".
 	Review     bool

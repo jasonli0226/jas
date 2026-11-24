@@ -109,7 +109,7 @@ func runCmd(ctx context.Context, args []string) error {
 		Model:    e.cfg.Model, Prompt: ra.prompt, System: e.pc.system,
 		Exec: exec, Log: log, UI: ui, MaxTurns: e.cfg.MaxTurns,
 		Budget:      e.budget(e.cfg.Model),
-		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(),
+		SessionMeta: meta, MaxOutput: e.cfg.MaxOutputTokens, Tokens: ra.tokenPool(e.cfg.CachedTokenWeight),
 		Compact: ra.compactConfig(e.cfg), WrapUp: ra.wrapUp,
 	})
 	if err == nil && !ra.json {
@@ -122,11 +122,19 @@ func runCmd(ctx context.Context, args []string) error {
 var runOnlyFlags = map[string]bool{"json": true, "trust-project": true, "name": true, "max-tokens": true, "timeout": true, "compact": true, "wrap-up": true}
 
 // tokenPool is the --max-tokens cap, or nil when none was given.
-func (ra runArgs) tokenPool() *core.TokenPool {
+func (ra runArgs) tokenPool(cachedWeight float64) *core.TokenPool {
 	if ra.maxTokens <= 0 {
 		return nil
 	}
-	return core.NewTokenPool("run", ra.maxTokens, nil)
+	return rootPool("run", ra.maxTokens, cachedWeight)
+}
+
+// rootPool is a token pool with no parent that charges cached prompt
+// tokens at cachedWeight (cached_token_weight).
+func rootPool(name string, limit int, cachedWeight float64) *core.TokenPool {
+	p := core.NewTokenPool(name, limit, nil)
+	p.SetCachedWeight(cachedWeight)
+	return p
 }
 
 // compactConfig is the chat's compaction config when --compact was given.

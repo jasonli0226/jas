@@ -572,7 +572,7 @@ func (s *Session) request(ctx context.Context, m *msgState, w *wrapUp) (provider
 	}
 	streamErr := <-errc
 	if usage != nil {
-		res.Settle(usage.PromptTokens + usage.CompletionTokens)
+		res.SettleUsage(*usage)
 	} else {
 		res.Settle(est)
 	}

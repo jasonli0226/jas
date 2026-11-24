@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/jasonli0226/jas/providers"
@@ -19,14 +20,47 @@ type TokenPool struct {
 	limit  int // <= 0: unlimited
 	parent *TokenPool
 
-	mu   sync.Mutex
-	used int // settled tokens plus outstanding reservations
+	mu     sync.Mutex
+	used   int     // settled tokens plus outstanding reservations
+	weight float64 // share of a cached prompt token charged; 0 = unset (full). Read on the root only
 }
 
 // NewTokenPool returns a pool named name with the given limit (<= 0 means
 // unlimited) whose reservations also count against parent (nil for none).
 func NewTokenPool(name string, limit int, parent *TokenPool) *TokenPool {
 	return &TokenPool{name: name, limit: limit, parent: parent}
+}
+
+// SetCachedWeight sets the share of a cached prompt token that settling
+// charges (cached_token_weight). Every pool in a chain uses its root's
+// weight; unset charges in full.
+func (p *TokenPool) SetCachedWeight(w float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.weight = w
+}
+
+// cachedWeight is the weight of p's root, 1 when unset.
+func (p *TokenPool) cachedWeight() float64 {
+	root := p
+	for root.parent != nil {
+		root = root.parent
+	}
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.weight <= 0 {
+		return 1
+	}
+	return root.weight
+}
+
+// chargeTokens is what a request with usage u costs a pool: uncached prompt
+// and completion tokens in full, cached prompt tokens at weight. cached is
+// clamped to [0, prompt] so odd provider data never charges outside the
+// "all cached" to "none cached" range.
+func chargeTokens(u providers.Usage, weight float64) int {
+	cached := min(max(u.CachedTokens, 0), u.PromptTokens)
+	return u.PromptTokens - cached + int(math.Round(float64(cached)*weight)) + u.CompletionTokens
 }
 
 // BudgetError reports that a reservation would cross a pool's limit.
@@ -100,6 +134,15 @@ func (r *Reservation) Settle(used int) {
 	}
 }
 
+// SettleUsage settles at what usage u costs, with cached prompt tokens at
+// the pool chain's weight.
+func (r *Reservation) SettleUsage(u providers.Usage) {
+	if r == nil {
+		return
+	}
+	r.Settle(chargeTokens(u, r.pools[0].cachedWeight()))
+}
+
 // tightest returns the capped pool in p's chain with the least room left,
 // and that room; nil when no pool in the chain has a limit.
 func (p *TokenPool) tightest() (*TokenPool, int) {
@@ -153,7 +196,7 @@ func (s *Session) charge(u providers.Usage) {
 		return
 	}
 	r, _ := s.c.Tokens.Reserve(0)
-	r.Settle(u.PromptTokens + u.CompletionTokens)
+	r.SettleUsage(u)
 }
 
 // budgetStopped ends the turn with exit 7 when err is a token budget error,

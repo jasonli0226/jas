@@ -12,6 +12,7 @@ import (
 
 	"github.com/jasonli0226/jas/core"
 	"github.com/jasonli0226/jas/internal/assert"
+	"github.com/jasonli0226/jas/providers"
 	"github.com/jasonli0226/jas/providers/fake"
 )
 
@@ -387,6 +388,16 @@ func TestCapText_TruncatesWithMarker(t *testing.T) {
 		t.Fatalf("%q", out)
 	}
 	assert.Eq(t, capText("short", 50), "short")
+}
+
+func TestPools_CachedWeightFromConfig(t *testing.T) {
+	cfg := testCfg()
+	cfg.Budget.FarmTokens, cfg.CachedTokenWeight = 0, 0.1
+	p := NewPools(cfg)
+	r, err := p.Part("a", 0).Reserve(1050)
+	assert.NoErr(t, err)
+	r.SettleUsage(providers.Usage{PromptTokens: 1000, CachedTokens: 900, CompletionTokens: 50})
+	assert.Eq(t, p.Farm.Used(), 240)
 }
 
 func TestPools_ReviewerRoundParents(t *testing.T) {

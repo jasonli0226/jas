@@ -14,23 +14,24 @@ var Presets = map[string]string{
 
 // Run is the typed view of Effective that `jas run` consumes.
 type Run struct {
-	Provider        string // never empty: "custom" when unset
-	Model, BaseURL  string
-	Approve         string
-	MaxTurns        int
-	MaxToolOutput   int
-	ElideAt         float64
-	KeepToolResults int
-	RedactSkipPaths []string
-	CompactReserve  int
-	CompactKeep     int
-	CompactModel    string   // "" = the session's model
-	MaxOutputTokens int      // sent as max_tokens on every model request
-	FarmBell        bool     // ring the terminal bell when a chat farm needs the owner
-	Hints           bool     // one-time chat tips that teach a command when it would help
-	WebTools        bool     // enable web_fetch + web_search
-	SearchBaseURL   string   // optional SearXNG root for web_search
-	Warnings        []string // resolution notes the caller prints (e.g. a vendor-shadowing provider)
+	Provider          string // never empty: "custom" when unset
+	Model, BaseURL    string
+	Approve           string
+	MaxTurns          int
+	MaxToolOutput     int
+	ElideAt           float64
+	CachedTokenWeight float64 // share of a cached prompt token charged against token budgets
+	KeepToolResults   int
+	RedactSkipPaths   []string
+	CompactReserve    int
+	CompactKeep       int
+	CompactModel      string   // "" = the session's model
+	MaxOutputTokens   int      // sent as max_tokens on every model request
+	FarmBell          bool     // ring the terminal bell when a chat farm needs the owner
+	Hints             bool     // one-time chat tips that teach a command when it would help
+	WebTools          bool     // enable web_fetch + web_search
+	SearchBaseURL     string   // optional SearXNG root for web_search
+	Warnings          []string // resolution notes the caller prints (e.g. a vendor-shadowing provider)
 }
 
 // providersFile rebuilds the stored provider map from the keys Resolve
@@ -81,6 +82,7 @@ func (e Effective) Build() (Run, error) {
 	r.MaxToolOutput, _ = strconv.Atoi(e["max_tool_output"].Raw)
 	r.KeepToolResults, _ = strconv.Atoi(e["keep_tool_results"].Raw)
 	r.ElideAt, _ = strconv.ParseFloat(e["elide_at"].Raw, 64)
+	r.CachedTokenWeight, _ = strconv.ParseFloat(e["cached_token_weight"].Raw, 64)
 	r.CompactReserve, _ = strconv.Atoi(e["compact_reserve_tokens"].Raw)
 	r.CompactKeep, _ = strconv.Atoi(e["compact_keep_tokens"].Raw)
 	r.MaxOutputTokens, _ = strconv.Atoi(e["max_output_tokens"].Raw)
