@@ -163,7 +163,7 @@ of the active profile's resolved content: instructions, settings and each
 skill's `SKILL.md` (content only, no paths or keys). `profile_chain` lists the profile
 names, root first, and is present only when the profile has a parent. After
 `/reload` the hash reflects the settings the session loaded, since settings
-wait for `/new`. Readers that do not know these fields ignore them. `jas
+are not re-read on `/reload`; they apply on `/profile <name>` or the next start. Readers that do not know these fields ignore them. `jas
 dream` logs `profile_chain` but no `profile_hash`.
 
 *Memory* (optional `memory` object, on `session_started` and

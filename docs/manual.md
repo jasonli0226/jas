@@ -123,7 +123,8 @@ at most 64 characters); with `--extends <parent>` it also writes a
 `config.json`, whether it has an `AGENTS.md`, and its own skills; with no name
 it shows the active one. `show --resolved` instead resolves the parent chain
 (a chain that does not resolve is a usage error, exit 2) and prints the chain,
-each merged setting and the profile it comes from, the exact instructions
+each merged setting (`models.<id>.context_window` included) and the profile it
+comes from, the exact instructions
 text the prompt gets, the effective skills with their profile, and the skills
 a profile excludes. Details: [Profiles](#profiles).
 
@@ -646,7 +647,9 @@ read-only jas home runs on an empty one). Manage them with
 project config > global config > `default`. A project's `profile` counts only
 once the project is trusted. An unknown name from the flag or env is a usage
 error (exit 2) naming the profiles there are; from a config file it warns
-(`profile "ds" (from …) not found; using default`) and runs on `default`.
+(`profile "ds" (from …) not found; using default`) and runs on `default`;
+when `default` extends a parent the warning names the chain, root first
+(`using default (extends p → q)`).
 
 **Settings.** The profile's `config.json` is one layer: flag > env > local >
 project > **profile** > global > defaults ([Settings](#settings)). A profile
@@ -680,7 +683,9 @@ takes `extends: <parent>`, `replace_agents: true` and `exclude: [<skill>, …]`
 profiles. `extends: default` works without a `default/` folder. A missing
 parent, a loop or a longer chain is an error (exit 2). The chain is read at
 start, `/profile` and `/reload`; a chain that no longer resolves fails and the
-chat keeps its current profile. `jas profile new --extends`, `list` and
+chat keeps its current profile. Settings in the chain's `config.json` files are
+read at start and on `/profile <name>` (even for the active profile), not on
+`/reload` or `/new`. `jas profile new --extends`, `list` and
 `show --resolved` are under [`jas profile`](#jas-profile).
 
 - Instructions: each profile's `AGENTS.md` goes in, root first, then the
@@ -689,7 +694,8 @@ chat keeps its current profile. `jas profile new --extends`, `list` and
 - Skills: project, then the profile, its parent, … the root, then the built-in
   manual; the first skill of a name wins. `exclude` is cumulative along the
   chain and hides a skill from the catalog only. It is not a security
-  boundary: the files stay readable. A `skills/` symlinked into another
+  boundary: it only hides the skill from the catalog and is no way to hide
+  its files. A `skills/` symlinked into another
   profile is still ignored; to share skills, use `extends`. A `write` or
   `edit` into a parent's skills is always asked, and the prompt names the
   owner (`in profile base's skills, shared with every profile that extends it`).
@@ -700,8 +706,11 @@ chat keeps its current profile. `jas profile new --extends`, `list` and
   key they add `(overrides profile base)` on set or
   `(now inherited from profile base)` on unset.
 - Memory is never inherited; the `memory` mode setting is.
-- `/reload` re-reads the chain's `AGENTS.md` and skills; settings wait for
-  `/new`.
+- `/reload` re-reads the chain's `AGENTS.md` and skills, not settings.
+  `/new` does not re-read config files either. Settings changed on disk (a
+  parent's `config.json`, or a new `extends` whose parent sets some) apply on
+  `/profile <name>` or the next start. When `/reload` finds the chain's names
+  changed, it says so with a notice.
 
 **In the chat.** `/profile [name]` (bare: a picker marking the active one)
 switches in place: the conversation is kept, the profile's `AGENTS.md` and
