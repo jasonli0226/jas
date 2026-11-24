@@ -15,7 +15,12 @@ import (
 
 func memoryProject(t *testing.T) (dir, home string, env []string) {
 	t.Helper()
-	dir = t.TempDir()
+	// Resolved: the binary's working dir comes back from getcwd with
+	// symlinks resolved (macOS: /var -> /private/var), and keys on that.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	home = testutil.TempHome(t)
 	return dir, home, []string{"JAS_HOME=" + home, "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir)}
 }

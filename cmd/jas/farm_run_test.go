@@ -48,7 +48,13 @@ var (
 )
 
 func TestFarmRun_JSONNoClientUnchanged(t *testing.T) {
-	repo, home := farmRepo(t), t.TempDir()
+	// A short home: the farm serves its attach socket under it, and a
+	// t.TempDir path overruns the Unix socket path limit on macOS, which
+	// adds attach_unavailable to the events.
+	home, err := os.MkdirTemp("", "jas")
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	repo := farmRepo(t)
 	assert.NoErr(t, os.WriteFile(filepath.Join(home, "farm.yaml"), []byte("check: \"true\"\nsplit:\n  max_workers: 1\n"), 0o644))
 	plan := approvedPlan(t, repo)
 	url, _ := testutil.FakeOpenAI(t, []fake.Turn{

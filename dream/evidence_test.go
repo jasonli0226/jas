@@ -61,7 +61,9 @@ func TestEvidence_MemoryReadCounts(t *testing.T) {
 }
 
 func TestEvidence_MemoryPathViaSymlink(t *testing.T) {
-	dir, real := t.TempDir(), t.TempDir()
+	dir := t.TempDir()
+	real, err := filepath.EvalSymlinks(t.TempDir()) // macOS: /var -> /private/var
+	assert.NoErr(t, err)
 	link := filepath.Join(t.TempDir(), "mem")
 	assert.NoErr(t, os.Symlink(real, link))
 	p := filepath.Join(real, "n.md")
