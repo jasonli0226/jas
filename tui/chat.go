@@ -48,6 +48,7 @@ type Model struct {
 	b    Backend
 	o    Options
 	send func(tea.Msg) // posts messages from other goroutines into Update
+	out  io.Writer     // the program's output; nil in tests that don't need it
 	gate *Gate         // one per chat, so grants outlive /new
 
 	tr    Transcript
@@ -177,7 +178,7 @@ func New(b Backend, o Options) *Model {
 func Run(ctx context.Context, b Backend, o Options, in io.Reader, out io.Writer) error {
 	m := New(b, o)
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
-	m.send = p.Send
+	m.send, m.out = p.Send, out
 	_, err := p.Run()
 	return errors.Join(m.err, err, m.shutdown())
 }
