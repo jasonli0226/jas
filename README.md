@@ -41,7 +41,13 @@ the job — see design §14 and [docs/use-cases.md](docs/use-cases.md).
 
 ## Install
 
-The repo is private, so install from a clone (Go 1.27+):
+With Go 1.27+:
+
+```sh
+go install github.com/jasonli0226/jas/cmd/jas@latest
+```
+
+To build from a clone, run `go install ./cmd/jas` from the repo root, or `make build` to write `./bin/jas`:
 
 ```sh
 go install ./cmd/jas            # from the repo root; or: make build  ->  ./bin/jas
@@ -49,9 +55,7 @@ make chat                       # rebuild and open the chat on the current code
 make chat ARGS=--continue       # same, resuming the last session (DIR=... picks the project)
 ```
 
-The module path is `github.com/jasonli0226/jas`; once the repo is public,
-`go install github.com/jasonli0226/jas/cmd/jas@latest` works too. The binary
-is static (`CGO_ENABLED=0`); its size depends on the target platform, Go
+The binary is static (`CGO_ENABLED=0`); its size depends on the target platform, Go
 version and build flags. `make build` and release builds use `-ldflags="-s -w"`
 to strip symbol and debug information; plain `go install ./cmd/jas` does not.
 
