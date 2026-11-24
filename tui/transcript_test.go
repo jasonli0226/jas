@@ -18,8 +18,9 @@ import (
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// plain strips styling and trailing spaces from each band line. (User bands
-// no longer carry vertical padding rows.)
+// plain strips styling and trailing spaces from each band line, and trims
+// leading and trailing blank lines, so it also strips a user band's vertical
+// padding rows; tests that check the padding read the raw band instead.
 func plain(blocks []string) []string {
 	out := make([]string, len(blocks))
 	for i, b := range blocks {
@@ -158,7 +159,7 @@ func TestTranscript_TurnGap(t *testing.T) {
 
 // Spacing: paragraphs of one reply keep their blank, agent text→tool row has
 // none, tool output→agent text has one, and a blank precedes each user turn.
-// User bands have no vertical pad.
+// A user band carries its own padding rows above and below the text.
 func TestTranscript_Spacing(t *testing.T) {
 	var tr Transcript
 	got := plain(tr.Text("One\n\nTwo\n\n", t0))

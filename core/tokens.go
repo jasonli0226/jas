@@ -40,7 +40,8 @@ func (p *TokenPool) SetCachedWeight(w float64) {
 	p.weight = w
 }
 
-// cachedWeight is the weight of p's root, 1 when unset.
+// cachedWeight is the weight of p's root, 1 when unset or out of (0, 1]
+// (NaN included).
 func (p *TokenPool) cachedWeight() float64 {
 	root := p
 	for root.parent != nil {
@@ -48,7 +49,7 @@ func (p *TokenPool) cachedWeight() float64 {
 	}
 	root.mu.Lock()
 	defer root.mu.Unlock()
-	if root.weight <= 0 {
+	if !(root.weight > 0 && root.weight <= 1) {
 		return 1
 	}
 	return root.weight

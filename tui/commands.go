@@ -48,7 +48,7 @@ var idleOnly = map[string]bool{"new": true, "model": true, "name": true, "resume
 
 const helpText = `commands
   /help                  this list
-  /new                   start a fresh conversation and clear the screen (model, thinking, approval level and grants are kept)
+  /new                   start a fresh conversation and clear the screen and scrollback (model, thinking, approval level and grants are kept)
   /model [name]          switch model; bare /model opens a picker
   /name [title]          name this session (shown in /resume); bare /name shows it
   /resume                continue a recent session in this project (grants and level reset)

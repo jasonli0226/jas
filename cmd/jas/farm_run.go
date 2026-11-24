@@ -240,6 +240,9 @@ func stdoutWidth() int {
 // which every farm pool charges cached prompt tokens at.
 func (e *env) loadFarmConfig(trusted bool) (farm.Config, []string, error) {
 	cfg, notices, err := farm.LoadConfig(e.root, e.home, trusted)
+	if err != nil {
+		return cfg, notices, err
+	}
 	cfg.CachedTokenWeight = e.cfg.CachedTokenWeight
-	return cfg, notices, err
+	return cfg, notices, nil
 }

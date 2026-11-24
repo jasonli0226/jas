@@ -158,7 +158,7 @@ func TestAttach_ControlApproveDefaultID(t *testing.T) {
 	if r.Cmd != farm.AttachApprove || r.ApprovalID != "a1" || r.Answer != "y" {
 		t.Fatalf("got %+v", r)
 	}
-	waitOutput(t, out, "[backend-api] approve [a1] shell: npm install zod (y/n/always/farm)")
+	waitOutput(t, out, "[backend-api] approve [a1] shell: npm install zod (y/n/a/always/farm)")
 }
 
 func TestAttach_ControlApproveNoPending(t *testing.T) {
@@ -192,7 +192,7 @@ func TestAttach_ControlApprovalNotices(t *testing.T) {
 	out, _ := ctlAttach(t, home, idleInput(t))
 	req := farm.ApprovalRequest{ID: "a3", Part: "backend-api", Tool: "shell", Summary: "npm install zod"}
 	ff.push(t, farm.AttachNotice{Type: "approval_requested", Request: &req})
-	waitOutput(t, out, "[backend-api] approve [a3] shell: npm install zod (y/n/always/farm)")
+	waitOutput(t, out, "[backend-api] approve [a3] shell: npm install zod (y/n/a/always/farm)")
 	ff.push(t, farm.AttachNotice{Type: "approval_closed", Request: &req, Answer: "yes", By: "host"})
 	waitOutput(t, out, "approval [a3] closed: yes (by host)")
 }

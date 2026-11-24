@@ -283,7 +283,7 @@ func (m *Model) answerApproval() tea.Cmd {
 	text := m.submitText()
 	m.input.Reset()
 	if strings.HasPrefix(text, "/") { // a command is not an answer: ask again
-		m.hint = "answer the approval first (y, N or always); commands work after"
+		m.hint = "answer the approval first (y, N, a or always); commands work after"
 		return nil
 	}
 	part := m.approval.part

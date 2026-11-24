@@ -5,6 +5,7 @@ import (
 
 	"errors"
 	"github.com/jasonli0226/jas/providers/fake"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -120,6 +121,19 @@ func TestTokenPool_SettleUsageUnsetWeightIsFull(t *testing.T) {
 	assert.NoErr(t, err)
 	r.SettleUsage(cachedUsage)
 	assert.Eq(t, p.Used(), 1050)
+}
+
+// A weight outside (0, 1], NaN included, set by a direct caller charges in
+// full rather than undercharging or overcharging.
+func TestTokenPool_SettleUsageBadWeightIsFull(t *testing.T) {
+	for _, w := range []float64{math.NaN(), 1.5, -0.2} {
+		p := core.NewTokenPool("run", 0, nil)
+		p.SetCachedWeight(w)
+		r, err := p.Reserve(1050)
+		assert.NoErr(t, err)
+		r.SettleUsage(cachedUsage)
+		assert.Eq(t, p.Used(), 1050)
+	}
 }
 
 func TestSession_CachedTokensChargedAtWeight(t *testing.T) {
