@@ -37,15 +37,22 @@ func profileShowResolved(home, name string) error {
 	}
 	printResolvedSettings(prof)
 	fmt.Println(profileAgentsFile + ":")
-	redact := newRedactor(os.Getenv("JAS_API_KEY")).Redact
+	auth, err := settings.LoadAuth(filepath.Join(home, authFile))
+	if err != nil {
+		return err
+	}
+	redact := sessionRedactor(os.Getenv(settings.EnvAPIKey), auth).Redact
 	if text := profileAgentsText(prof, redact); text != "" {
 		fmt.Println(text)
 	} else {
 		fmt.Println("  (none)")
 	}
 	policy := profilePolicy(core.ExecPolicy{Deny: denyPatterns(home)}, home, prof)
-	folders, _ := chainSkillFolders(policy, home, prof)
-	found, _ := discoverChainSkills(folders, home, policy.ProfileScope().Denied)
+	folders, fw := chainSkillFolders(policy, home, prof)
+	found, cw := discoverChainSkills(folders, home, policy.ProfileScope().Denied)
+	for _, w := range slices.Concat(fw, cw) {
+		fmt.Fprintln(os.Stderr, "jas: "+w)
+	}
 	slices.SortFunc(found, func(a, b skills.Skill) int { return strings.Compare(a.Name, b.Name) })
 	fmt.Printf("skills (%d):\n", len(found))
 	for _, s := range found {

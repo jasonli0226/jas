@@ -188,6 +188,12 @@ func authKeys(auth map[string]settings.AuthEntry, env func(string) string) []str
 	return keys
 }
 
+// sessionRedactor redacts the resolved API key and every key the auth file
+// can put in a request.
+func sessionRedactor(key string, auth map[string]settings.AuthEntry) *core.Redactor {
+	return newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
+}
+
 // prepare resolves settings from flags, env and the Claude-style config
 // layers (global / project / local), the API key, the project root, skills
 // and the project trust decision. It sets reportRedactor once the key is
@@ -330,7 +336,7 @@ func resolveEnv(flags map[string]string, in setupInput) (*env, error) {
 	}
 
 	policy.MaxOutput, policy.RedactSkip = cfg.MaxToolOutput, cfg.RedactSkipPaths
-	red := newRedactor(append([]string{key}, authKeys(auth, os.Getenv)...)...)
+	red := sessionRedactor(key, auth)
 	reportRedactor = red
 	e := &env{
 		cfg: cfg, layers: layers, files: files, settingsTrusted: in.trusted, flags: flags, level: level, key: key, auth: auth,

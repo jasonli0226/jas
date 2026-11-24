@@ -227,3 +227,19 @@ func TestProfileNew_Extends(t *testing.T) {
 	_, err = os.Stat(filepath.Join(home, "profiles", "d"))
 	ok(t, err != nil)
 }
+
+func TestProfileShow_ResolvedRedactsStoredKey(t *testing.T) {
+	userHome, jasHome := chainHome(t, map[string]string{"AGENTS.md": "token is plainsecret-4471 ok"}, nil)
+	assert.NoErr(t, os.WriteFile(filepath.Join(jasHome, "auth.json"), []byte(`{"custom":{"key":"plainsecret-4471"}}`), 0o600))
+	out, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c", "--resolved")
+	ok(t, code == 0, se)
+	ok(t, !strings.Contains(out, "plainsecret-4471"), out)
+	assert.Contains(t, out, "token is ")
+}
+
+func TestProfileShow_ResolvedPrintsSkillWarnings(t *testing.T) {
+	userHome, _ := chainHome(t, nil, map[string]string{settings.ProfileMetaFile: "extends: p\nexclude: [ghost]\n"})
+	out, se, code := runJas(t, jasEnv(userHome, "http://127.0.0.1:1"), "profile", "show", "c", "--resolved")
+	ok(t, code == 0, out)
+	assert.Contains(t, se, `exclude names "ghost"`)
+}
