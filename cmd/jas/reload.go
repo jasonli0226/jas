@@ -24,7 +24,13 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 	if prof.name != name { // loadProfile fell back to default
 		return nil, nil, fmt.Errorf("profile %q no longer exists (%s)", name, settings.ProfileDir(e.home, name))
 	}
-	return e.reloadProfile(prof, warnings, ask)
+	before := e.prof.names()
+	notices, roots, err = e.reloadProfile(prof, warnings, ask)
+	if err == nil && e.prof.name != "" && before[0] != "" && !slices.Equal(before, prof.names()) {
+		notices = append(notices, "jas: profile chain is now "+strings.Join(prof.names(), " → ")+
+			"; its settings apply on /profile "+prof.name+" or the next start")
+	}
+	return notices, roots, err
 }
 
 // reloadProfile rediscovers skills and rebuilds the project system prompt
@@ -33,7 +39,8 @@ func (e *env) reloadContext(ask func(string) string) (notices []string, roots []
 // non-interactive skip). On success env's profile state and hash, project
 // context, skill list, memory and policy (the profile read exceptions and
 // read roots: skill and memory dirs, returned as roots) are replaced; the
-// settings stay as loaded and wait for /new. On error no env field changes.
+// settings stay as loaded; changed ones apply on /profile <name> or the
+// next start. On error no env field changes.
 func (e *env) reloadProfile(prof profileState, early []string, ask func(string) string) (notices []string, roots []string, err error) {
 	var warnings []string
 	warn := func(w string) { warnings = append(warnings, w) }

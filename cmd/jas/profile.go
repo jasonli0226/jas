@@ -62,7 +62,7 @@ func loadProfile(home, name string, src settings.Source) (profileState, []string
 	if missing != "" {
 		using := settings.DefaultProfile
 		if names := ps.names(); len(names) > 1 {
-			using += " (extends " + strings.Join(names[:len(names)-1], ", ") + ")"
+			using += " (extends " + strings.Join(names[:len(names)-1], " → ") + ")"
 		}
 		warnings = append([]string{fmt.Sprintf("profile %q (from %s) not found; using %s", missing, src, using)}, warnings...)
 	}

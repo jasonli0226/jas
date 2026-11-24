@@ -90,17 +90,23 @@ func splitFlag(args []string, flag string) ([]string, bool) {
 // then local, project and global config (the project counts as trusted, as
 // for config get/list), else default.
 func activeProfileName(home string) (string, error) {
+	name, _, err := activeProfileSource(home)
+	return name, err
+}
+
+// activeProfileSource is activeProfileName with where the name came from.
+func activeProfileSource(home string) (string, settings.Source, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	layers, err := settings.LoadLayers(home, core.FindRoot(cwd))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	eff, _ := layers.ForProject(true)
-	name, _ := settings.ResolveProfile(nil, os.Getenv, eff)
-	return name, nil
+	name, src := settings.ResolveProfile(nil, os.Getenv, eff)
+	return name, src, nil
 }
 
 // profileSkillNames lists the skills in the named profile's own skills/
@@ -224,6 +230,7 @@ func profileNew(home, name, parent string) error {
 
 func profileShow(home string, args []string, resolved bool) error {
 	var name string
+	src := settings.SourceFlag
 	if len(args) == 1 {
 		name = args[0]
 		if !profileExists(home, name) && name != settings.DefaultProfile {
@@ -235,12 +242,12 @@ func profileShow(home string, args []string, resolved bool) error {
 		}
 	} else {
 		var err error
-		if name, err = activeProfileName(home); err != nil {
+		if name, src, err = activeProfileSource(home); err != nil {
 			return err
 		}
 	}
 	if resolved {
-		return profileShowResolved(home, name)
+		return profileShowResolved(home, name, src)
 	}
 	meta, err := settings.LoadProfileMeta(home, name)
 	if err != nil {

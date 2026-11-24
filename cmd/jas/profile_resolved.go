@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jasonli0226/jas/core"
@@ -16,15 +17,15 @@ import (
 // settings, the instructions text the prompt gets and the effective skills,
 // each with the profile it comes from. A chain that does not resolve is a
 // usage error.
-func profileShowResolved(home, name string) error {
-	prof, warnings, err := loadProfile(home, name, settings.SourceFlag)
+func profileShowResolved(home, name string, src settings.Source) error {
+	prof, warnings, err := loadProfile(home, name, src)
 	if err != nil {
 		return err
 	}
 	for _, w := range warnings {
 		fmt.Fprintln(os.Stderr, "jas: "+w)
 	}
-	fmt.Printf("profile: %s\npath: %s\n", name, settings.ProfileDir(home, name))
+	fmt.Printf("profile: %s\npath: %s\n", prof.name, settings.ProfileDir(home, prof.name))
 	fmt.Println("chain: " + strings.Join(prof.names(), " → "))
 	var replacing []string
 	for _, p := range prof.parts() {
@@ -73,6 +74,10 @@ func printResolvedSettings(prof profileState) {
 				continue
 			}
 			value[k], owner[k] = v, p.name
+		}
+		for id, m := range p.layer.Models { // a child's model entry wins whole
+			k := "models." + id + ".context_window"
+			value[k], owner[k] = strconv.Itoa(m.ContextWindow), p.name
 		}
 	}
 	keys := make([]string, 0, len(value))

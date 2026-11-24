@@ -22,11 +22,21 @@ var liveSettings = []string{"approve", "model", "hints", "farm_bell"}
 // MemoryReport is the /memory text, read fresh from the memory files. A
 // failure is the text, so /memory still answers.
 func (b *chatBackend) MemoryReport() string {
-	text, _, err := memoryReport(b.e.home, b.e.activeProfile(), b.e.root, b.e.layers)
+	text, _, err := memoryReport(b.e.home, b.activeProfileState(), b.e.root, b.e.layers)
 	if err != nil {
 		return "memory: " + err.Error()
 	}
 	return text
+}
+
+// activeProfileState is the session's loaded profile with its chain, named
+// even when the state was built without loadProfile.
+func (b *chatBackend) activeProfileState() profileState {
+	prof := b.e.prof
+	if prof.name == "" {
+		prof.name = b.e.activeProfile()
+	}
+	return prof
 }
 
 // Profile is the chat's active profile name.

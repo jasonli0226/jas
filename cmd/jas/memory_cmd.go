@@ -36,11 +36,11 @@ func memoryCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	layers, err := memoryLayers(home, root, name)
+	prof, layers, err := memoryLayers(home, root, name)
 	if err != nil {
 		return err
 	}
-	text, dirs, err := memoryReport(home, name, root, layers)
+	text, dirs, err := memoryReport(home, prof, root, layers)
 	if err != nil {
 		return err
 	}
@@ -55,17 +55,17 @@ func memoryCmd(args []string) error {
 // memoryLayers is the settings a session started in root under profile name
 // would resolve memory from: project and local config apply only when the
 // project's stored trust decision still holds.
-func memoryLayers(home, root, name string) (settings.Layers, error) {
+func memoryLayers(home, root, name string) (profileState, settings.Layers, error) {
 	files, err := settings.LoadLayers(home, root)
 	if err != nil {
-		return settings.Layers{}, err
+		return profileState{}, settings.Layers{}, err
 	}
 	prof, _, err := loadProfile(home, name, settings.SourceDefault)
 	if err != nil {
-		return settings.Layers{}, err
+		return profileState{}, settings.Layers{}, err
 	}
 	layers, _ := files.WithProfileChain(prof.name, prof.layer, prof.parentFiles()).ForProject(memoryProjectTrusted(root, home))
-	return layers, nil
+	return prof, layers, nil
 }
 
 // memoryProjectTrusted is the project's stored trust decision, read the way
@@ -80,7 +80,8 @@ func memoryProjectTrusted(root, home string) bool {
 // memoryReport reads the current memory files and settings for profile in
 // root and returns the report with the dirs it describes. The dirs come
 // back even when memory is off, for `jas memory --path`.
-func memoryReport(home, profile, root string, layers settings.Layers) (string, memory.Dirs, error) {
+func memoryReport(home string, pstate profileState, root string, layers settings.Layers) (string, memory.Dirs, error) {
+	profile := pstate.name
 	dirs, err := memoryDirs(home, profile, root)
 	if err != nil {
 		return "", memory.Dirs{}, err
@@ -91,7 +92,7 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 	}
 	// A folder the lift refuses is never read: what a link reaches is not
 	// memory, so there are no indexes or notes to count.
-	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profileState{name: profile})
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, pstate)
 	policy.ProfileMemory = dirs.Profile
 	if why := policy.ProfileMemoryIgnored(); why != "" {
 		return fmt.Sprintf("memory: %s\nprofile memory ignored: %s", mode, why), dirs, nil
