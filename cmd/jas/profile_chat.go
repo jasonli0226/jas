@@ -98,7 +98,7 @@ func (b *chatBackend) loadSwitch(name string, ask func(string) string) (tui.Prof
 		return tui.ProfileSwitch{}, nil, err
 	}
 	before := settings.Resolve(e.flags, os.Getenv, e.layers)
-	e.files = e.files.WithProfile(prof.name, prof.layer)
+	e.files = e.files.WithProfileChain(prof.name, prof.layer, prof.parentFiles())
 	var lw []string
 	e.layers, lw = e.files.ForProject(e.settingsTrusted)
 	warnings = append(warnings, lw...)

@@ -74,11 +74,12 @@ func activeProfileName(home string) (string, error) {
 	return name, nil
 }
 
-// profileSkillNames lists the skills in the named profile's skills/ folder.
+// profileSkillNames lists the skills in the named profile's own skills/
+// folder; it never resolves the profile's chain.
 func profileSkillNames(home, name string) []string {
-	policy := profilePolicy(core.ExecPolicy{Deny: denyPatterns(home)}, home, name)
+	policy := profilePolicy(core.ExecPolicy{Deny: denyPatterns(home)}, home, profileState{name: name})
 	srcs, _ := profileSkillSources(policy, home)
-	found, _ := skills.Discover(srcs, policy.ProfileScope().Denied)
+	found, _ := skills.Discover(slices.Concat(srcs...), policy.ProfileScope().Denied)
 	names := make([]string, 0, len(found))
 	for _, s := range found {
 		names = append(names, s.Name)

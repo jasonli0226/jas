@@ -562,6 +562,17 @@ func (b *chatBackend) UnsetSetting(scope, key string) error {
 	return b.unsetSetting(s, key)
 }
 
+// SettingNote is what the confirmation of a write of key to scope adds when
+// scope is the profile's and a parent profile also sets key (see
+// inheritedNote); "" otherwise.
+func (b *chatBackend) SettingNote(scope, key string, unset bool) string {
+	s, err := parseWriteScope(scope, b.DefaultSettingsScope())
+	if err != nil {
+		return ""
+	}
+	return inheritedNote(b.e.files, s, key, unset)
+}
+
 func parseWriteScope(scope, def string) (settings.Scope, error) {
 	if scope == "" {
 		scope = def

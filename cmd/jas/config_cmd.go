@@ -112,7 +112,7 @@ func withActiveProfile(home string, layers settings.Layers, writing bool) (setti
 	for _, w := range warns {
 		fmt.Fprintln(os.Stderr, "jas: warning: "+w)
 	}
-	return layers.WithProfile(prof.name, prof.layer), nil
+	return layers.WithProfileChain(prof.name, prof.layer, prof.parentFiles()), nil
 }
 
 // takeConfigScope pulls --global|--in-profile|--project|--local out of args. When
@@ -164,7 +164,19 @@ func configWrite(home, root string, layers settings.Layers, scope settings.Scope
 		return usageErr("%v", err)
 	}
 	if scope == settings.ScopeProfile {
-		return next.Save(path) // outside the repository: no trust bundle to refresh
+		if err := next.Save(path); err != nil { // outside the repository: no trust bundle to refresh
+			return err
+		}
+		// Only a write a parent also sets is confirmed, in the chat's
+		// /settings wording, so a flat profile's write prints nothing.
+		switch note := inheritedNote(layers, scope, key, unset); {
+		case note == "":
+		case unset:
+			fmt.Printf("unset %s from %s config%s\n", key, scope, note)
+		default:
+			fmt.Printf("%s=%s (%s config)%s\n", key, value, scope, note)
+		}
+		return nil
 	}
 	return saveSettingsFile(root, home, scope, path, next)
 }

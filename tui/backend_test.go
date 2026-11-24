@@ -39,6 +39,7 @@ type testBackend struct {
 	t            *testing.T
 	root         string
 	memoryReport string
+	inheritedKey string // the key SettingNote says a parent profile sets; "" is none
 	sessionsDir  string
 	prov         *fake.Provider
 	redact       func(string) string    // the redacting UI's mask, as cmd/jas shares it with Options.Redact; nil is identity
@@ -273,6 +274,16 @@ func (b *testBackend) UnsetSetting(scope, key string) error {
 		delete(b.settings, key)
 	}
 	return nil
+}
+
+func (b *testBackend) SettingNote(scope, key string, unset bool) string {
+	if scope != "profile" || key != b.inheritedKey {
+		return ""
+	}
+	if unset {
+		return " (now inherited from profile base)"
+	}
+	return " (overrides profile base)"
 }
 
 func (b *testBackend) Profile() string {

@@ -64,7 +64,7 @@ func memoryLayers(home, root, name string) (settings.Layers, error) {
 	if err != nil {
 		return settings.Layers{}, err
 	}
-	layers, _ := files.WithProfile(prof.name, prof.layer).ForProject(memoryProjectTrusted(root, home))
+	layers, _ := files.WithProfileChain(prof.name, prof.layer, prof.parentFiles()).ForProject(memoryProjectTrusted(root, home))
 	return layers, nil
 }
 
@@ -91,7 +91,7 @@ func memoryReport(home, profile, root string, layers settings.Layers) (string, m
 	}
 	// A folder the lift refuses is never read: what a link reaches is not
 	// memory, so there are no indexes or notes to count.
-	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profile)
+	policy := profilePolicy(core.ExecPolicy{Root: root, Deny: denyPatterns(home)}, home, profileState{name: profile})
 	policy.ProfileMemory = dirs.Profile
 	if why := policy.ProfileMemoryIgnored(); why != "" {
 		return fmt.Sprintf("memory: %s\nprofile memory ignored: %s", mode, why), dirs, nil
