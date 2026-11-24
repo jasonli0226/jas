@@ -104,17 +104,28 @@ project/local settings need trust: [Settings](#settings). `init` asks for provid
 ```
 jas profile list [--json]
 jas profile use <name>
-jas profile new <name>
-jas profile show [name]
+jas profile new <name> [--extends <parent>]
+jas profile show [name] [--resolved]
 ```
 
 `list` prints one line per profile, the active one marked `*`
-(`* ds  4 skills`); `--json` prints `[{"name":"ds","active":true,"skills":4}]`.
-`use` sets `profile` in the global config (an unknown name is a usage error).
+(`* ds  4 skills`); a profile with a parent ends `(extends p)`, and one whose
+`profile.yaml` does not parse `(bad profile.yaml)`. `--json` prints
+`[{"name":"ds","active":true,"skills":4}]`, with `"extends":"p"` or
+`"error":"<message>"` added when they apply. `list` never resolves a chain, so
+one broken profile does not fail it. `use` sets `profile` in the global config
+(an unknown name is a usage error).
 `new` creates the empty `~/.jas/profiles/<name>/` (names: a-z, 0-9 and `-`,
-at most 64 characters). `show` prints a profile's path, the settings in its
-`config.json`, whether it has an `AGENTS.md`, and its skills; with no name it
-shows the active one. Details: [Profiles](#profiles).
+at most 64 characters); with `--extends <parent>` it also writes a
+`profile.yaml` of `extends: <parent>` (mode 0600), and the parent must exist
+(`default` always does). `show` prints a profile's path, its `extends` and
+`replace_agents` when `profile.yaml` sets them, the settings in its
+`config.json`, whether it has an `AGENTS.md`, and its own skills; with no name
+it shows the active one. `show --resolved` instead resolves the parent chain
+(a chain that does not resolve is a usage error, exit 2) and prints the chain,
+each merged setting and the profile it comes from, the exact instructions
+text the prompt gets, the effective skills with their profile, and the skills
+a profile excludes. Details: [Profiles](#profiles).
 
 ### `jas auth`
 

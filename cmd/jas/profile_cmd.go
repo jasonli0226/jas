@@ -16,10 +16,13 @@ import (
 const profileUsage = `usage:
   jas profile list [--json]
   jas profile use <name>
-  jas profile new <name>
-  jas profile show [name]`
+  jas profile new <name> [--extends <parent>]
+  jas profile show [name] [--resolved]`
 
-const profileDirMode = 0o700
+const (
+	profileDirMode  = 0o700
+	profileFileMode = 0o600
+)
 
 // profileCmd runs jas profile list|use|new|show.
 func profileCmd(args []string) error {
@@ -44,17 +47,43 @@ func profileCmd(args []string) error {
 		}
 		return profileUse(home, rest[0])
 	case "new":
-		if len(rest) != 1 {
-			return usageErr("usage: jas profile new <name>")
+		name, parent, ok := parseProfileNew(rest)
+		if !ok {
+			return usageErr("usage: jas profile new <name> [--extends <parent>]")
 		}
-		return profileNew(home, rest[0])
+		return profileNew(home, name, parent)
 	case "show":
-		if len(rest) > 1 {
-			return usageErr("usage: jas profile show [name]")
+		names, resolved := splitFlag(rest, "--resolved")
+		if len(names) > 1 {
+			return usageErr("usage: jas profile show [name] [--resolved]")
 		}
-		return profileShow(home, rest)
+		return profileShow(home, names, resolved)
 	}
 	return usageErr("unknown profile command %q\n%s", cmd, profileUsage)
+}
+
+// parseProfileNew reads jas profile new's arguments: the name and the
+// optional --extends parent.
+func parseProfileNew(args []string) (name, parent string, ok bool) {
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--extends" && i+1 < len(args) && parent == "":
+			i++
+			parent = args[i]
+		case strings.HasPrefix(args[i], "-") || name != "":
+			return "", "", false
+		default:
+			name = args[i]
+		}
+	}
+	return name, parent, name != ""
+}
+
+// splitFlag removes every occurrence of flag from args and reports whether
+// it was there.
+func splitFlag(args []string, flag string) ([]string, bool) {
+	rest := slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == flag })
+	return rest, len(rest) != len(args)
 }
 
 // activeProfileName is the profile a session started now would use: env,
@@ -92,6 +121,10 @@ type profileRow struct {
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
 	Skills int    `json:"skills"`
+	// Extends and Error come from the profile's own profile.yaml; list never
+	// resolves a chain.
+	Extends string `json:"extends,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 func profileList(home string, asJSON bool) error {
@@ -105,7 +138,13 @@ func profileList(home string, asJSON bool) error {
 	}
 	rows := make([]profileRow, 0, len(names))
 	for _, n := range names {
-		rows = append(rows, profileRow{n, n == active, len(profileSkillNames(home, n))})
+		row := profileRow{Name: n, Active: n == active, Skills: len(profileSkillNames(home, n))}
+		meta, err := settings.LoadProfileMeta(home, n)
+		row.Extends = meta.Extends
+		if err != nil {
+			row.Error = err.Error()
+		}
+		rows = append(rows, row)
 	}
 	if asJSON {
 		b, err := json.Marshal(rows)
@@ -120,7 +159,13 @@ func profileList(home string, asJSON bool) error {
 		if r.Active {
 			mark = "*"
 		}
-		fmt.Printf("%s %s  %d skills\n", mark, r.Name, r.Skills)
+		note := ""
+		if r.Error != "" {
+			note = "  (bad " + settings.ProfileMetaFile + ")"
+		} else if r.Extends != "" {
+			note = "  (extends " + r.Extends + ")"
+		}
+		fmt.Printf("%s %s  %d skills%s\n", mark, r.Name, r.Skills, note)
 	}
 	return nil
 }
@@ -148,21 +193,36 @@ func profileUse(home, name string) error {
 	return nil
 }
 
-func profileNew(home, name string) error {
+// profileNew creates the profile directory; with a parent it also writes a
+// profile.yaml naming it. The parent must exist (default always does).
+func profileNew(home, name, parent string) error {
 	if err := settings.ValidProfileName(name); err != nil {
 		return usageErr("%v", err)
 	}
 	if profileExists(home, name) {
 		return usageErr("profile %q exists", name)
 	}
+	if parent != "" && parent != settings.DefaultProfile && !profileExists(home, parent) {
+		have, err := settings.ListProfiles(home)
+		if err != nil {
+			return err
+		}
+		return usageErr("unknown parent profile %q: have %s", parent, strings.Join(have, ", "))
+	}
 	if err := os.MkdirAll(settings.ProfileDir(home, name), profileDirMode); err != nil {
 		return err
+	}
+	if parent != "" {
+		meta := filepath.Join(settings.ProfileDir(home, name), settings.ProfileMetaFile)
+		if err := os.WriteFile(meta, []byte("extends: "+parent+"\n"), profileFileMode); err != nil {
+			return err
+		}
 	}
 	fmt.Println(settings.ProfileDir(home, name))
 	return nil
 }
 
-func profileShow(home string, args []string) error {
+func profileShow(home string, args []string, resolved bool) error {
 	var name string
 	if len(args) == 1 {
 		name = args[0]
@@ -179,6 +239,13 @@ func profileShow(home string, args []string) error {
 			return err
 		}
 	}
+	if resolved {
+		return profileShowResolved(home, name)
+	}
+	meta, err := settings.LoadProfileMeta(home, name)
+	if err != nil {
+		return err
+	}
 	file, err := settings.LoadFile(settings.ProfileConfigPath(home, name))
 	if err != nil {
 		return err
@@ -188,6 +255,12 @@ func profileShow(home string, args []string) error {
 		return err
 	}
 	fmt.Printf("profile: %s\npath: %s\n", name, settings.ProfileDir(home, name))
+	if meta.Extends != "" {
+		fmt.Println("extends: " + meta.Extends)
+	}
+	if meta.ReplaceAgents {
+		fmt.Println("replace_agents: true")
+	}
 	fmt.Println("settings (" + filepath.Join("profiles", name, "config.json") + "):")
 	keys := make([]string, 0, len(file.Values))
 	for k := range file.Values {
