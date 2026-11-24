@@ -78,8 +78,8 @@ func activeProfileName(home string) (string, error) {
 // folder; it never resolves the profile's chain.
 func profileSkillNames(home, name string) []string {
 	policy := profilePolicy(core.ExecPolicy{Deny: denyPatterns(home)}, home, profileState{name: name})
-	srcs, _ := profileSkillSources(policy, home)
-	found, _ := skills.Discover(slices.Concat(srcs...), policy.ProfileScope().Denied)
+	folders, _ := chainSkillFolders(policy, home, profileState{name: name})
+	found, _ := skills.Discover(folders[0].srcs, policy.ProfileScope().Denied)
 	names := make([]string, 0, len(found))
 	for _, s := range found {
 		names = append(names, s.Name)

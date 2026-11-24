@@ -44,6 +44,7 @@ type env struct {
 	profile         string          // active profile name
 	profileSrc      settings.Source // the layer that chose it
 	prof            profileState
+	profHash        string // profile_hash of what pc and skillList loaded from prof
 	mem             memoryState
 }
 
@@ -221,10 +222,10 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 		return nil, err
 	}
 	in.trusted = pt.trusted
-	var userSkills []skills.Skill
+	var userSkills, chainSkills []skills.Skill
 	in.afterProfile = func(policy core.ExecPolicy, prof profileState) []string {
-		found, uw := discoverUserSkills(policy, home, prof)
-		userSkills = found
+		found, chain, uw := discoverUserSkills(policy, home, prof)
+		userSkills, chainSkills = found, chain
 		dirs := append([]string{policy.ProfileSkills}, policy.InheritedSkills...)
 		return append(uw, skillsMigrationWarning(home, prof.name, dirs, found)...)
 	}
@@ -238,6 +239,7 @@ func prepare(ctx context.Context, flags map[string]string, trust bool) (*env, er
 	e.policy.ReadRoots = skillDirs
 	e.policy, e.mem = loadMemory(e.policy, home, e.profile, root, e.layers, e.red.Redact, e.warn)
 	e.pc, e.skillList = withMemory(pc, e.mem, !e.interactive), skillList
+	e.profHash = hashProfile(e.prof, chainSkills, e.layers, e.red.Redact)
 	return e, nil
 }
 
@@ -362,40 +364,52 @@ func profilePolicy(p core.ExecPolicy, home string, ps profileState) core.ExecPol
 // skill shadows with a warning. All are read under the profile read scope,
 // which lifts the jas home deny for the chain's skills directories only. A
 // skills directory the lift refuses (a link into the jas home) is skipped
-// with one warning.
-func discoverUserSkills(policy core.ExecPolicy, home string, ps profileState) ([]skills.Skill, []string) {
+// with one warning. chain is the chain's skills alone, for profileHash.
+func discoverUserSkills(policy core.ExecPolicy, home string, ps profileState) (found, chain []skills.Skill, warns []string) {
 	denied := policy.ProfileScope().Denied
-	srcs, warns := profileSkillSources(policy, home)
-	parts := ps.parts()
-	metas := slices.Clone(parts)
-	slices.Reverse(metas) // folder order: the active profile first
-	chain, cw := discoverChainSkills(srcs, metas, home, denied)
+	folders, fw := chainSkillFolders(policy, home, ps)
+	chain, cw := discoverChainSkills(folders, home, denied)
 	manual, mw := skills.Discover(skills.BuiltinSources(manualDir()), denied)
 	found, sw := skills.Merge(chain, manual)
-	return found, slices.Concat(warns, cw, mw, sw)
+	return found, chain, slices.Concat(fw, cw, mw, sw)
 }
 
-// profileSkillSources is one skills source per chain folder: the active
-// profile's, then each parent's, nearest first. A folder the read exception
-// refuses gets no source (nil at its place) and a warning.
-func profileSkillSources(policy core.ExecPolicy, home string) ([][]skills.Source, []string) {
-	srcs := make([][]skills.Source, 0, 1+len(policy.InheritedSkills))
+// chainFolder is one chain profile's skills folder as discovery reads it:
+// the profile (whose exclude applies to the folders after it) and the
+// folder's sources, nil when the read exception refuses it.
+type chainFolder struct {
+	part profilePart
+	srcs []skills.Source
+}
+
+// chainSkillFolders is one folder per profile of ps's chain: the active
+// profile's (policy.ProfileSkills, which profilePolicy derives from ps),
+// then each parent's, nearest first. A folder and its profile both come
+// from ps, so they cannot drift apart. A folder the read exception refuses
+// gets no sources and a warning.
+func chainSkillFolders(policy core.ExecPolicy, home string, ps profileState) ([]chainFolder, []string) {
+	parts := ps.parts()
+	folders := make([]chainFolder, 0, len(parts))
 	var warns []string
+	active := chainFolder{part: parts[len(parts)-1]}
 	if why := policy.ProfileSkillsIgnored(); why != "" {
-		srcs, warns = append(srcs, nil), append(warns, why)
+		warns = append(warns, why)
 	} else {
-		srcs = append(srcs, skills.ProfileSources(policy.ProfileSkills, home))
+		active.srcs = skills.ProfileSources(policy.ProfileSkills, home)
 	}
-	for _, dir := range policy.InheritedSkills {
+	folders = append(folders, active)
+	for _, p := range ps.ancestors() {
 		one := policy
-		one.InheritedSkills = []string{dir}
+		one.InheritedSkills = []string{p.skillsDir}
+		f := chainFolder{part: p}
 		if why := one.InheritedSkillsIgnored(); len(why) > 0 {
-			srcs, warns = append(srcs, nil), append(warns, why...)
-			continue
+			warns = append(warns, why...)
+		} else {
+			f.srcs = skills.ProfileSources(p.skillsDir, home)
 		}
-		srcs = append(srcs, skills.ProfileSources(dir, home))
+		folders = append(folders, f)
 	}
-	return srcs, warns
+	return folders, warns
 }
 
 // denyPatterns are the paths no tool or skill discovery may read.
@@ -477,7 +491,7 @@ func (e *env) sessionMeta(model string) map[string]any {
 	if mem := e.mem.meta(); mem != nil {
 		meta["memory"] = mem
 	}
-	return meta
+	return e.withProfileReceipt(meta)
 }
 
 // skillsMigrationWarning is the one-time notice for users whose skills sit in

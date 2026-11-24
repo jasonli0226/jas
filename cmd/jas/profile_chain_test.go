@@ -244,3 +244,55 @@ func TestChatBackend_SettingNoteNamesParent(t *testing.T) {
 	assert.Eq(t, b.SettingNote("local", "approve", false), "")
 	assert.Eq(t, b.SettingNote("", "approve", false), "") // the default scope is local
 }
+
+// chainReceipt runs jas --json under profile and returns its session_started
+// event.
+func chainReceipt(t *testing.T, userHome, profile string) map[string]any {
+	t.Helper()
+	url, _ := testutil.FakeOpenAI(t, []fake.Turn{{Text: "done"}})
+	out, _, code := runJas(t, append(jasEnv(userHome, url), "JAS_PROFILE="+profile), "run", "--json", "q")
+	assert.Eq(t, code, 0)
+	return sessionStarted(t, out)
+}
+
+func TestRun_ReceiptChainAndHash(t *testing.T) {
+	userHome, _ := chainHome(t, map[string]string{"AGENTS.md": "PARENT-7102"}, nil)
+	ev := chainReceipt(t, userHome, "c")
+	hash, _ := ev["profile_hash"].(string)
+	assert.Eq(t, strings.HasPrefix(hash, "sha256:"), true)
+	chain, _ := json.Marshal(ev["profile_chain"])
+	assert.Eq(t, string(chain), `["p","c"]`)
+
+	flat := chainReceipt(t, userHome, "p")
+	hash, _ = flat["profile_hash"].(string)
+	assert.Eq(t, strings.HasPrefix(hash, "sha256:"), true)
+	if _, ok := flat["profile_chain"]; ok {
+		t.Fatalf("flat profile has profile_chain: %v", flat["profile_chain"])
+	}
+}
+
+func TestRun_HashIgnoresPathAndExcluded(t *testing.T) {
+	build := func() (userHome, jasHome string) {
+		userHome, jasHome = chainHome(t, map[string]string{"AGENTS.md": "PARENT-7102", "config.json": `{"max_turns": "7"}`},
+			map[string]string{"AGENTS.md": "CHILD-7103", "profile.yaml": "extends: p\nexclude: [old]\n"})
+		writeSkill(t, skillsOf(jasHome, "p"), "sql", "Use for sql", "body\n")
+		writeSkill(t, skillsOf(jasHome, "p"), "old", "Use for old", "body\n")
+		return userHome, jasHome
+	}
+	homeA, jasA := build()
+	homeB, _ := build()
+	hash := chainReceipt(t, homeA, "c")["profile_hash"]
+	if hash == nil {
+		t.Fatal("no profile_hash")
+	}
+	assert.Eq(t, chainReceipt(t, homeB, "c")["profile_hash"], hash)
+
+	writeSkill(t, skillsOf(jasA, "p"), "old", "Use for old", "edited body\n")
+	assert.Eq(t, chainReceipt(t, homeA, "c")["profile_hash"], hash)
+
+	assert.NoErr(t, os.WriteFile(filepath.Join(jasA, "profiles", "c", settings.ProfileMetaFile),
+		[]byte("extends: p\nexclude: [old]\nreplace_agents: true\n"), 0o600))
+	if chainReceipt(t, homeA, "c")["profile_hash"] == hash {
+		t.Fatal("flipping replace_agents left profile_hash unchanged")
+	}
+}

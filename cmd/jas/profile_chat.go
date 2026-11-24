@@ -80,17 +80,18 @@ func (b *chatBackend) SwitchProfile(s *core.Session, name string, ask func(strin
 	s.SetReadRoots(roots)
 	s.SetProfileSkills(e.policy.ProfileSkills, e.policy.InheritedSkills)
 	s.SetProfileMemory(e.policy.ProfileMemory)
-	err = s.SetSystem(e.pc.system, map[string]any{"context_files": files, "skills": e.skillList})
-	if lerr := s.LogProfileChanged(map[string]any{
+	err = s.SetSystem(e.pc.system, e.withProfileReceipt(map[string]any{"context_files": files, "skills": e.skillList}))
+	if lerr := s.LogProfileChanged(e.withProfileReceipt(map[string]any{
 		"from": from, "to": e.activeProfile(), "context_files": files, "skills": e.skillList, "deferred": sw.Deferred,
-	}); err == nil {
+	})); err == nil {
 		err = lerr
 	}
 	return sw, err
 }
 
-// loadSwitch moves env onto profile name: its settings layer, the settings
-// rebuilt from it, then reloadContext's skills, AGENTS.md and read roots.
+// loadSwitch moves env onto profile name: its chain resolved, the chain's
+// settings layers, the settings rebuilt from them, then reloadProfile's
+// skills, AGENTS.md, read roots and profile hash.
 func (b *chatBackend) loadSwitch(name string, ask func(string) string) (tui.ProfileSwitch, []string, error) {
 	e := b.e
 	prof, warnings, err := loadProfile(e.home, name, switchProfileSource)
@@ -105,8 +106,8 @@ func (b *chatBackend) loadSwitch(name string, ask func(string) string) (tui.Prof
 	if err := b.reconfigure(); err != nil {
 		return tui.ProfileSwitch{}, nil, err
 	}
-	e.profile, e.profileSrc, e.prof = prof.name, switchProfileSource, prof
-	notices, roots, err := e.reloadContext(ask) // re-reads the profile AGENTS.md and skills
+	e.profile, e.profileSrc = prof.name, switchProfileSource
+	notices, roots, err := e.reloadProfile(prof, nil, ask) // the profile's AGENTS.md, skills and read exceptions
 	if err != nil {
 		return tui.ProfileSwitch{}, nil, err
 	}
@@ -149,17 +150,20 @@ func contextFilesMeta(fs []contextFileMeta) []map[string]any {
 }
 
 // workerProfile is the chat's profile context as a farm worker starts on it:
-// the project context (system prompt, skills, trust), its memory and the
-// read fields of the exec policy. It is never changed once published.
+// the resolved profile and its hash (for the receipt), the project context
+// (system prompt, skills, trust), its memory and the read fields of the
+// exec policy. It is never changed once published.
 type workerProfile struct {
 	name      string
+	prof      profileState
+	profHash  string
 	pc        projectContext
 	skillList []skillMeta
 	mem       memoryState
-	// profileSkills, profileMemory, homeDeny and readRoots are ExecPolicy's
-	// read exception.
+	// profileSkills, inheritedSkills, profileMemory, homeDeny and readRoots
+	// are ExecPolicy's read exception.
 	profileSkills, profileMemory, homeDeny string
-	readRoots                              []string
+	inheritedSkills, readRoots             []string
 }
 
 // publishWorkerProfile snapshots env for farm workers started from now on.
@@ -167,9 +171,9 @@ type workerProfile struct {
 func (b *chatBackend) publishWorkerProfile() {
 	e := b.e
 	b.workerProf.Store(&workerProfile{
-		name: e.activeProfile(), pc: e.pc, skillList: e.skillList, mem: e.mem,
+		name: e.activeProfile(), prof: e.prof, profHash: e.profHash, pc: e.pc, skillList: e.skillList, mem: e.mem,
 		profileSkills: e.policy.ProfileSkills, profileMemory: e.policy.ProfileMemory, homeDeny: e.policy.HomeDeny,
-		readRoots: slices.Clone(e.policy.ReadRoots),
+		inheritedSkills: slices.Clone(e.policy.InheritedSkills), readRoots: slices.Clone(e.policy.ReadRoots),
 	})
 }
 
@@ -184,8 +188,10 @@ func (b *chatBackend) workerSession(e *env) func(farm.WorkerSession) (*core.Sess
 			return farmSession(e)(ws)
 		}
 		we := *e
-		we.profile, we.pc, we.skillList, we.mem = p.name, p.pc, p.skillList, p.mem
+		we.profile, we.prof, we.profHash = p.name, p.prof, p.profHash
+		we.pc, we.skillList, we.mem = p.pc, p.skillList, p.mem
 		ws.Policy.ProfileSkills, ws.Policy.ProfileMemory, ws.Policy.HomeDeny = p.profileSkills, p.profileMemory, p.homeDeny
+		ws.Policy.InheritedSkills = slices.Clone(p.inheritedSkills)
 		ws.Policy.ReadRoots = slices.Clone(p.readRoots)
 		return farmSession(&we)(ws)
 	}

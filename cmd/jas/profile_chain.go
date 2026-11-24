@@ -113,25 +113,6 @@ func (ps profileState) agentParts() []profilePart {
 	return out
 }
 
-// rereadAgents re-reads every chain profile's AGENTS.md, for /reload. The
-// chain itself is kept as resolved.
-func (ps profileState) rereadAgents(home string) (profileState, []string) {
-	var warnings []string
-	chain := slices.Clone(ps.parts())
-	for i := range chain {
-		var err error
-		if chain[i].agentsPath, chain[i].agents, err = readProfileAgents(home, chain[i].name); err != nil {
-			warnings = append(warnings, err.Error())
-		}
-	}
-	active := chain[len(chain)-1]
-	ps.agentsPath, ps.agents = active.agentsPath, active.agents
-	if len(ps.chain) > 0 {
-		ps.chain = chain
-	}
-	return ps, warnings
-}
-
 // profileAgentsText is the prompt's profile section: a flat profile's
 // AGENTS.md under today's heading, or one block per agentParts entry under
 // a heading naming the profile. Each part is redacted and capped on its own,
@@ -149,39 +130,38 @@ func profileAgentsText(ps profileState, redact func(string) string) string {
 	return strings.Join(blocks, "\n\n")
 }
 
-// discoverChainSkills discovers each chain skills folder on its own (srcs
-// holds one entry per folder, the active profile's first, nil for a folder
-// the read exception refuses) and combines them first wins, child first,
-// with no shadow warning between chain folders. It then drops what each
-// profile excludes from its ancestors and warns about exclude names no
-// ancestor has. metas are the folders' profile.yaml, in srcs order.
-func discoverChainSkills(srcs [][]skills.Source, metas []profilePart, home string, denied func(string) bool) ([]skills.Skill, []string) {
+// discoverChainSkills discovers each chain skills folder on its own
+// (folders run child first, see chainSkillFolders) and combines them first
+// wins, child first, with no shadow warning between chain folders. It then
+// drops what each profile excludes from its ancestors and warns about
+// exclude names no ancestor has.
+func discoverChainSkills(folders []chainFolder, home string, denied func(string) bool) ([]skills.Skill, []string) {
 	var warns []string
-	byFolder := make([][]skills.Skill, len(srcs))
-	for i, s := range srcs {
+	byFolder := make([][]skills.Skill, len(folders))
+	for i, f := range folders {
 		var w []string
-		byFolder[i], w = skills.Discover(s, denied)
+		byFolder[i], w = skills.Discover(f.srcs, denied)
 		warns = append(warns, w...)
 	}
 	var out []skills.Skill
 	taken := map[string]bool{}
 	for i, found := range byFolder {
 		for _, s := range found {
-			if taken[s.Name] || excludedBelow(metas, i, s.Name) {
+			if taken[s.Name] || excludedBelow(folders, i, s.Name) {
 				continue
 			}
 			taken[s.Name] = true
 			out = append(out, s)
 		}
 	}
-	return out, append(warns, unknownExcludes(byFolder, metas, home)...)
+	return out, append(warns, unknownExcludes(byFolder, folders, home)...)
 }
 
 // excludedBelow reports whether a profile below folder i (a smaller index:
 // folders run child first) excludes name.
-func excludedBelow(metas []profilePart, i int, name string) bool {
-	for _, m := range metas[:min(i, len(metas))] {
-		if slices.Contains(m.meta.Exclude, name) {
+func excludedBelow(folders []chainFolder, i int, name string) bool {
+	for _, f := range folders[:i] {
+		if slices.Contains(f.part.meta.Exclude, name) {
 			return true
 		}
 	}
@@ -190,13 +170,13 @@ func excludedBelow(metas []profilePart, i int, name string) bool {
 
 // unknownExcludes warns about each exclude name that matches no skill in
 // the excluding profile's ancestors' folders.
-func unknownExcludes(byFolder [][]skills.Skill, metas []profilePart, home string) []string {
+func unknownExcludes(byFolder [][]skills.Skill, folders []chainFolder, home string) []string {
 	var warns []string
-	for i, m := range metas {
-		for _, name := range m.meta.Exclude {
+	for i, f := range folders {
+		for _, name := range f.part.meta.Exclude {
 			if !ancestorHas(byFolder, i, name) {
 				warns = append(warns, fmt.Sprintf("profile %s (%s): exclude names %q, which no parent profile has",
-					m.name, settings.ProfileMetaPath(home, m.name), name))
+					f.part.name, settings.ProfileMetaPath(home, f.part.name), name))
 			}
 		}
 	}
@@ -205,7 +185,7 @@ func unknownExcludes(byFolder [][]skills.Skill, metas []profilePart, home string
 
 // ancestorHas reports whether a folder above i holds a skill named name.
 func ancestorHas(byFolder [][]skills.Skill, i int, name string) bool {
-	for _, found := range byFolder[min(i+1, len(byFolder)):] {
+	for _, found := range byFolder[i+1:] {
 		for _, s := range found {
 			if s.Name == name {
 				return true

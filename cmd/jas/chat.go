@@ -695,9 +695,11 @@ func (b *chatBackend) Reload(s *core.Session, ask func(string) string) ([]string
 	b.publishWorkerProfile()
 	b.publishMemoryGuard()
 	s.SetReadRoots(roots)
-	s.SetProfileMemory(b.e.policy.ProfileMemory) // memory may have turned on or off
+	s.SetProfileSkills(b.e.policy.ProfileSkills, b.e.policy.InheritedSkills) // the chain may have changed
+	s.SetProfileMemory(b.e.policy.ProfileMemory)                             // memory may have turned on or off
 	files := contextFilesMeta(b.e.pc.files)
-	if err := s.SetSystem(b.e.pc.system, map[string]any{"context_files": files, "skills": b.e.skillList}); err != nil {
+	meta := b.e.withProfileReceipt(map[string]any{"context_files": files, "skills": b.e.skillList})
+	if err := s.SetSystem(b.e.pc.system, meta); err != nil {
 		return notices, err
 	}
 	return notices, nil
