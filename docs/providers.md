@@ -149,10 +149,15 @@ jas config set models.<deployment name>.context_window <tokens>
 
 Known gaps, until jas has a dedicated `foundry` provider:
 
-- **gpt-5.6 deployments need `reasoning_effort: off`.** On Chat Completions
-  they reject requests that include tools unless `reasoning_effort` is
-  `"none"`, and jas always sends tools. Set `reasoning_effort` to `off`
-  (jas sends `"none"` to non-OpenRouter endpoints); not yet tried live.
+- **Reasoning effort with tools.** jas always sends tools, and on Chat
+  Completions Azure limits which `reasoning_effort` values go with them.
+  gpt-5.6 works with `reasoning_effort` unset (the model still reasons) or
+  `off` (it does not); `low`, `medium` and `high` fail. gpt-6-sol,
+  gpt-6-luna and gpt-6.1-terra work only with `off`. gpt-6-astra,
+  gpt-6.1-sol and the gpt-6.2 models take tools only on the Responses API,
+  so they do not work with jas. Not yet tried live.
+- **Reasoning models reject `max_tokens`.** Set `max_output_tokens` to 0
+  (see above).
 - **Filtered answers look finished.** When Azure's content filter cuts a
   reply short, jas treats the partial reply as complete.
 - **Rate-limit waits.** Azure sends its wait hint in `retry-after-ms`; jas
@@ -161,6 +166,27 @@ Known gaps, until jas has a dedicated `foundry` provider:
 
 The full findings, with sources and open questions, are in
 [research/microsoft-foundry-provider.md](research/microsoft-foundry-provider.md).
+
+## Reasoning effort
+
+`reasoning_effort` (`off`, `low`, `medium`, `high`; unset sends nothing) goes
+to OpenRouter as `reasoning: {effort}` and to every other endpoint as the
+standard `reasoning_effort` field; `off` is sent as `none` on both. Which
+values a model accepts is up to the model, and a value it refuses fails the
+request with HTTP 400:
+
+| Endpoint | What to know |
+|---|---|
+| OpenRouter | Accepts `none` to `max`, but some models refuse to stop thinking: z-ai/glm-5.3 rejects `off` (`Reasoning is mandatory for this endpoint`), so use `low`. DeepSeek models take `off`. Tried live. |
+| OpenAI, Microsoft Foundry | Per model: gpt-5.1 and later take `none`; o-series take only `low` to `high`; some newer models reject `none`. With tools on Chat Completions, see the Foundry gaps above. |
+| ollama | Takes `reasoning_effort` for thinking models; `none` turns thinking off. |
+| vLLM, llama.cpp, LM Studio | Passed to the model's chat template; support depends on the model, and some templates reject it. Leave it unset if requests fail. |
+
+Sources: [OpenRouter reasoning tokens](https://openrouter.ai/docs/use-cases/reasoning-tokens),
+[Azure OpenAI reasoning models](https://learn.microsoft.com/azure/foundry/openai/how-to/reasoning),
+[OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning),
+[ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility),
+[vLLM reasoning outputs](https://docs.vllm.ai/en/latest/features/reasoning_outputs/).
 
 ## What makes an endpoint work
 
