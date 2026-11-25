@@ -139,10 +139,11 @@ func TestOpenAI_ReasoningEffort(t *testing.T) {
 	if r.Reasoning != nil {
 		t.Fatalf("reasoning = %+v, want omitted", r.Reasoning)
 	}
-	// off disables thinking: "disable" on OpenRouter, "none" elsewhere.
+	// off disables thinking with "none" on every endpoint; OpenRouter has no
+	// "disable" effort.
 	r = encodeRequest(Request{Model: "m", ReasoningEffort: "off"}, true)
-	if r.Reasoning == nil || r.Reasoning.Effort != "disable" {
-		t.Fatalf("reasoning = %+v, want effort disable", r.Reasoning)
+	if r.Reasoning == nil || r.Reasoning.Effort != "none" || r.ReasoningEffort != "" {
+		t.Fatalf("reasoning=%+v reasoning_effort=%q, want effort none in the object only", r.Reasoning, r.ReasoningEffort)
 	}
 	r = encodeRequest(Request{Model: "m", ReasoningEffort: "off"}, false)
 	if r.Reasoning != nil || r.ReasoningEffort != "none" {
