@@ -20,7 +20,8 @@ jas is a single static Go binary for day-to-day coding with a receipt:
   instructions. Spec-driven scaffold (`jas spec`) is proposed.
 - **profiles** — named bundles of skills, `AGENTS.md` and settings under
   `~/.jas/profiles/<name>/`; pick one with `--profile` or `JAS_PROFILE`, or
-  switch live in the chat with `/profile` (see the [manual](docs/manual.md#profiles)).
+  switch live in the chat with `/profile`. A profile may `extends` a parent to
+  inherit its instructions, skills and settings (see the [manual](docs/manual.md#profiles)).
 - **dreams** — `jas dream` reads recent sessions and the profile's memory
   store and proposes a cleanup; you review it with `jas dream diff` and
   nothing changes until `jas dream apply` (see the [manual](docs/manual.md#dreams)).
@@ -207,7 +208,7 @@ pi, Claude Code and opencode work as they are. jas scans, in order:
 | Scope | Directories |
 |---|---|
 | project | `<root>/.agents/skills/`, `<root>/.claude/skills/` |
-| user | `~/.jas/profiles/<name>/skills/` (the active profile), then the built-in manual under `<UserCacheDir>/jas/manual/` |
+| user | `~/.jas/profiles/<name>/skills/` (the active profile), then each parent it `extends` up to the root, then the built-in manual under `<UserCacheDir>/jas/manual/` |
 
 Skills may sit in nested folders (e.g. `~/.jas/profiles/default/skills/team/review/SKILL.md`):
 a folder with a `SKILL.md` is a skill and is not searched further; hidden

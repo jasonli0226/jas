@@ -149,9 +149,10 @@ jas config set models.<deployment name>.context_window <tokens>
 
 Known gaps, until jas has a dedicated `foundry` provider:
 
-- **gpt-5.6 deployments fail.** On Chat Completions they reject requests
-  that include tools unless `reasoning_effort` is `"none"`. jas always sends
-  tools and cannot set `reasoning_effort` yet.
+- **gpt-5.6 deployments need `reasoning_effort: off`.** On Chat Completions
+  they reject requests that include tools unless `reasoning_effort` is
+  `"none"`, and jas always sends tools. Set `reasoning_effort` to `off`
+  (jas sends `"none"` to non-OpenRouter endpoints); not yet tried live.
 - **Filtered answers look finished.** When Azure's content filter cuts a
   reply short, jas treats the partial reply as complete.
 - **Rate-limit waits.** Azure sends its wait hint in `retry-after-ms`; jas
