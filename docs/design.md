@@ -470,6 +470,10 @@ is jas's thesis. See #13. Results: [benchmarks.md](benchmarks.md).
 
 ## 8. Scenarios: declarative runtime policy (v2)
 
+> **Superseded** by `docs/design/2026-11-26-scenarios-design.md` (approved
+> 2026-11-26), which replaces §8 and §8.3. The text below is the original
+> sketch, kept until the implementation shrinks it to a pointer.
+
 A scenario = a preset bundle of (system prompt + toolset + sandbox policy + hooks).
 **Scenarios are data, never hard-coded.** `.jas/scenario.yaml` in a repo governs
 how jas operates there — the **single runtime-policy format** (deny patterns,
