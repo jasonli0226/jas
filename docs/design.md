@@ -309,7 +309,8 @@ type Tool interface {
   passed. Scenarios will extend the same gate (§11).
 - **Skills (shipped after v1):** a skill = `SKILL.md` per the agentskills.io
   spec, discovered in the project's `.agents/skills` and `.claude/skills`, then
-  the active profile's `~/.jas/profiles/<name>/skills` and the built-in manual
+  the active profile's `~/.jas/profiles/<name>/skills` (then its parents',
+  when it `extends` one) and the built-in manual
   (§10 config layers), listed in the system prompt (pi's `<available_skills>` block) and
   loaded on demand with the `read` tool, which may open every skill's
   directory (`ExecPolicy.ReadRoots`). Project skills share the context
@@ -667,8 +668,11 @@ are dropped with a warning, so endpoints stay global-only. The profile's
 `AGENTS.md` loads before the project's, and its `skills/` folder is the only
 user skill source besides jas's built-in manual (installed under
 `<UserCacheDir>/jas/manual/`); `~/.agents/skills`, `~/.claude/skills` and
-`~/.config/jas/skills` are no longer read. Reference: `docs/manual.md`
-(Profiles).
+`~/.config/jas/skills` are no longer read. A profile may extend one parent
+(`profile.yaml`, `extends: <parent>`, chain of at most 3): each profile's
+`AGENTS.md`, `skills/` and `config.json` join as their own layers, root
+first, the child winning key by key; memory is not inherited. Reference:
+`docs/manual.md` (Profiles, Inheritance).
 
 `jas config list` and chat `/settings` label each value with its source
 (`flag`, `env JAS_*`, `local config`, `project config`, `profile config (<name>)`, `global config`,

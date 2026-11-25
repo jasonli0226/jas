@@ -29,6 +29,11 @@ integrated diff, on by `--review` or config `review: true` (never by the plan;
 `post_integrate` stays unbuilt), one integrator fix round, `review_unmet`
 (exit 6). Design: `docs/design/2026-11-24-farm-reviewer-design.md`.
 
+**Shipped (2026-11-25):** `reasoning_effort` setting (#265) caps reasoning
+models' thinking in every session; profile inheritance (#266) — `profile.yaml`
+`extends`, chain of at most 3, `jas profile show --resolved`. Reference:
+`docs/manual.md` (Settings, Profiles).
+
 **Other work (first-class together):** chat polish that stays inline;
 scenario / `jas bootstrap` / `jas spec` quality (design §8 +
 `docs/design/2026-11-02-spec-driven-flow.md`); memory and
