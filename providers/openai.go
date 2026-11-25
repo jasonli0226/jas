@@ -266,21 +266,17 @@ func encodeRequest(req Request, openRouter bool) oaiRequest {
 	if len(req.Tools) > 0 {
 		r.ToolChoice = req.ToolChoice
 	}
-	switch req.ReasoningEffort {
-	case "":
+	effort := req.ReasoningEffort
+	if effort == "off" {
+		effort = "none" // both OpenRouter and the standard field spell off as none
+	}
+	switch {
+	case effort == "":
 		// omitted: the model's own default
-	case "off":
-		if openRouter {
-			r.Reasoning = &oaiReasoning{Effort: "disable"}
-		} else {
-			r.ReasoningEffort = "none"
-		}
+	case openRouter:
+		r.Reasoning = &oaiReasoning{Effort: effort}
 	default:
-		if openRouter {
-			r.Reasoning = &oaiReasoning{Effort: req.ReasoningEffort}
-		} else {
-			r.ReasoningEffort = req.ReasoningEffort
-		}
+		r.ReasoningEffort = effort
 	}
 	r.StreamOptions.IncludeUsage = true
 	if req.System != "" {
